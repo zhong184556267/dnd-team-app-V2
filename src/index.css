@@ -1,0 +1,80 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 全站统一思源体：中文、英文、数字 */
+:root {
+  --font-siyuan: 'Noto Sans SC', 'Source Han Sans SC', 'Source Han Sans', sans-serif;
+}
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-family: var(--font-siyuan);
+}
+body {
+  font-family: var(--font-siyuan);
+  color: #CBD5E0;
+  background-color: #1A202C;
+  font-size: 16px;
+  line-height: 1.6;
+}
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-siyuan);
+  color: #FFFFFF;
+  font-weight: 600;
+}
+/* 输入框、按钮、选择框、数字等全部继承思源体 */
+input, textarea, select, button, [class*="font-mono"], [class*="font-sans"], [class*="font-serif"] {
+  font-family: var(--font-siyuan) !important;
+}
+
+.safe-area-pb {
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+/* 深色主题输入框聚焦：红色描边 */
+.input-dnd:focus,
+input:focus, textarea:focus, select:focus {
+  outline: none;
+}
+input:focus, textarea:focus, select:focus {
+  border-color: #E01C2F;
+  box-shadow: 0 0 0 2px rgba(224, 28, 47, 0.3);
+}
+
+/* 下拉框选中项必须显式设色，否则部分浏览器不显示文字 */
+select {
+  color: #ffffff;
+}
+select option {
+  background: #1f2937;
+  color: #ffffff;
+}
+
+/* 万能骰子 FAB 轻微浮动 */
+@keyframes fab-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+.fab-float {
+  animation: fab-float 2.5s ease-in-out infinite;
+}
+.fab-float:hover {
+  animation-duration: 1.8s;
+}
+.fab-float:active {
+  animation: none;
+}
+/* FAB 悬停时光晕增强 */
+.fab-float:hover .fab-btn {
+  box-shadow: 0 0 24px rgba(224, 28, 47, 0.75), 0 0 48px rgba(224, 28, 47, 0.35), 0 4px 14px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.25), inset 0 -1px 0 rgba(0,0,0,0.2);
+}
+
+/* 投掷骰子按钮点击：单次旋转 */
+@keyframes dice-roll {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.animate-dice-roll {
+  animation: dice-roll 0.35s ease-out;
+}

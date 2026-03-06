@@ -1,0 +1,47 @@
+import { useAuth } from '../contexts/AuthContext'
+import { Link, useNavigate } from 'react-router-dom'
+
+export default function More() {
+  const { user, isAdmin, logout } = useAuth()
+  const navigate = useNavigate()
+
+  const handleLogout = () => {
+    logout()
+    navigate('/', { replace: true })
+  }
+
+  return (
+    <div className="p-4 pb-24 min-h-screen bg-dnd-bg">
+      <h1 className="font-display text-xl font-semibold text-white mb-4">
+        更多
+      </h1>
+      <div className="space-y-2">
+        <Link
+          to="/more/house-rules"
+          className="block py-3 px-4 rounded-xl bg-dnd-card border border-white/10 text-white hover:border-dnd-red/50 transition-colors"
+        >
+          繁星特色（房规/模组）
+        </Link>
+        {isAdmin && (
+          <Link
+            to="/more/data"
+            className="block py-3 px-4 rounded-xl bg-dnd-card border border-white/10 text-white hover:border-dnd-red/50 transition-colors"
+          >
+            数据维护
+          </Link>
+        )}
+        <p className="text-dnd-text-muted text-sm pt-2">
+          当前：{user?.name}
+          {isAdmin && ' (DM)'}
+        </p>
+        <button
+          type="button"
+          onClick={handleLogout}
+          className="mt-4 w-full py-3 rounded-xl border border-dnd-red text-dnd-red hover:bg-dnd-red/10 font-medium uppercase text-xs tracking-label"
+        >
+          登出
+        </button>
+      </div>
+    </div>
+  )
+}

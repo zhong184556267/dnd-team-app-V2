@@ -1,13 +1,30 @@
 import { useState, useEffect } from 'react'
-import { getItemList, getItemById, getItemDisplayName, addCustomItem } from '../data/itemDatabase'
+import { getItemById, getItemDisplayName } from '../data/itemDatabase'
 import { getWarehouse, addToWarehouse, removeFromWarehouse } from '../lib/warehouseStore'
+import { getAllCharacters, updateCharacter } from '../lib/characterStore'
+import ItemPicker from '../components/ItemPicker'
+import CurrencyPanel from '../components/CurrencyPanel'
+import { inputClass, textareaClass } from '../lib/inputStyles'
 
 export default function Warehouse() {
   const [list, setList] = useState([])
   const [selectedItemId, setSelectedItemId] = useState('')
+  const [instanceName, setInstanceName] = useState('')
+  const [instanceQty, setInstanceQty] = useState(1)
+  const [instance攻击, setInstance攻击] = useState('')
+  const [instance伤害, setInstance伤害] = useState('')
+  const [instance详细介绍, setInstance详细介绍] = useState('')
+  const [instance附注, setInstance附注] = useState('')
   const [customName, setCustomName] = useState('')
-  const [showAddCustom, setShowAddCustom] = useState(false)
-  const itemList = getItemList()
+  const [depositIndex, setDepositIndex] = useState(null)
+  const [depositCharId, setDepositCharId] = useState('')
+  const [depositQty, setDepositQty] = useState(1)
+
+  const characters = getAllCharacters()
+  const selectedPrototype = selectedItemId ? getItemById(selectedItemId) : null
+  const itemType = selectedPrototype?.类型 ?? ''
+  const showAttackDamage = itemType === '武器' || itemType === '枪械'
+  const showArmorNote = itemType === '盔甲'
 
   useEffect(() => {
     setList(getWarehouse())
@@ -15,10 +32,30 @@ export default function Warehouse() {
 
   const refreshList = () => setList(getWarehouse())
 
-  const handleAddFromList = () => {
+  const handleAddFromList = (overrides = {}) => {
     if (!selectedItemId) return
-    addToWarehouse({ itemId: selectedItemId, qty: 1 })
+    const name = overrides.name != null ? String(overrides.name).trim() : ''
+    const qty = Math.max(1, parseInt(overrides.qty, 10) || 1)
+    const 攻击 = overrides.攻击 != null ? String(overrides.攻击).trim() : ''
+    const 伤害 = overrides.伤害 != null ? String(overrides.伤害).trim() : ''
+    const 详细介绍 = overrides.详细介绍 != null ? String(overrides.详细介绍).trim() : ''
+    const 附注 = overrides.附注 != null ? String(overrides.附注).trim() : ''
+    addToWarehouse({
+      itemId: selectedItemId,
+      ...(name ? { name } : {}),
+      ...(攻击 ? { 攻击 } : {}),
+      ...(伤害 ? { 伤害 } : {}),
+      ...(详细介绍 ? { 详细介绍 } : {}),
+      ...(附注 ? { 附注 } : {}),
+      qty,
+    })
     setSelectedItemId('')
+    setInstanceName('')
+    setInstanceQty(1)
+    setInstance攻击('')
+    setInstance伤害('')
+    setInstance详细介绍('')
+    setInstance附注('')
     refreshList()
   }
 
@@ -32,6 +69,48 @@ export default function Warehouse() {
 
   const handleRemove = (i) => {
     removeFromWarehouse(i)
+    refreshList()
+  }
+
+  const openDeposit = (i) => {
+    const e = list[i]
+    if (!e) return
+    setDepositIndex(i)
+    setDepositCharId(characters[0]?.id ?? '')
+    setDepositQty(Math.min(Math.max(1, Number(e.qty) ?? 1), 999))
+  }
+
+  const confirmDeposit = () => {
+    if (depositIndex == null || !depositCharId) return
+    const entry = list[depositIndex]
+    if (!entry) { setDepositIndex(null); return }
+    const char = characters.find((c) => c.id === depositCharId)
+    if (!char) { setDepositIndex(null); return }
+    const q = Math.max(1, Math.min(depositQty, Number(entry.qty) ?? 1))
+    const proto = entry.itemId ? getItemById(entry.itemId) : null
+    const invEntry = {
+      id: 'inv_' + Date.now() + '_' + Math.random().toString(36).slice(2),
+      itemId: entry.itemId ?? undefined,
+      name: (entry.name && entry.name.trim()) || (proto ? getItemDisplayName(proto) : '—'),
+      攻击: entry.攻击 ?? '',
+      伤害: entry.伤害 ?? '',
+      详细介绍: entry.详细介绍 ?? '',
+      ...(entry.附注 ? { 附注: entry.附注 } : {}),
+      重量: proto?.重量,
+      qty: q,
+      isAttuned: false,
+      magicBonus: 0,
+    }
+    const inv = char.inventory ?? []
+    updateCharacter(depositCharId, { inventory: [...inv, invEntry] })
+    if (q >= (Number(entry.qty) ?? 1)) {
+      removeFromWarehouse(depositIndex)
+    } else {
+      removeFromWarehouse(depositIndex, q)
+    }
+    setDepositIndex(null)
+    setDepositCharId('')
+    setDepositQty(1)
     refreshList()
   }
 
@@ -49,28 +128,123 @@ export default function Warehouse() {
         团队仓库
       </h1>
 
+      {/* 货币与金库 */}
+      <section className="mb-6">
+        <h2 className="text-dnd-text-muted text-sm font-medium mb-3 uppercase tracking-wider">货币与金库</h2>
+        <CurrencyPanel />
+      </section>
+
       <div className="rounded-xl bg-dnd-card border border-white/10 shadow-dnd-card p-4 space-y-4">
-        <div className="flex flex-wrap gap-2 items-center">
-          <select
-            value={selectedItemId}
-            onChange={(e) => setSelectedItemId(e.target.value)}
-            className="h-12 flex-1 min-w-[12rem] rounded-lg bg-gray-800 border border-gray-600 text-white px-3 focus:border-dnd-red focus:ring-1 focus:ring-dnd-red"
-            style={{ color: '#fff' }}
-          >
-            <option value="">— 从物品表选择 —</option>
-            {itemList.map((x) => (
-              <option key={x.id} value={x.id}>{x._display || x.类别}</option>
-            ))}
-          </select>
-          <button
-            type="button"
-            onClick={handleAddFromList}
-            disabled={!selectedItemId}
-            className="h-12 px-4 rounded-lg bg-dnd-red hover:bg-dnd-red-hover disabled:opacity-50 text-white font-bold text-sm shrink-0"
-          >
-            放入仓库
-          </button>
+        <p className="text-dnd-text-muted text-xs mb-1">从物品库选择原型，再基于该物品填写（可选）后放入仓库</p>
+        <div className="flex flex-wrap gap-2 items-end">
+          <div className="flex-1 min-w-[18rem]">
+            <ItemPicker
+              value={selectedItemId}
+              onChange={(id) => {
+                setSelectedItemId(id)
+                const proto = id ? getItemById(id) : null
+                setInstanceName('')
+                setInstanceQty(1)
+                setInstance攻击(proto?.攻击 ?? '')
+                setInstance伤害(proto?.伤害 ?? '')
+                setInstance详细介绍(proto?.详细介绍 ?? '')
+                setInstance附注(proto?.附注 ?? '')
+              }}
+              placeholder="— 选择物品（原型）—"
+            />
+          </div>
         </div>
+        {selectedItemId && selectedPrototype && (
+          <div className="rounded-lg border border-gray-600 bg-gray-800/60 p-3 space-y-3">
+            <p className="text-dnd-text-muted text-xs">
+              {showAttackDamage ? '基于「' + getItemDisplayName(selectedPrototype) + '」修改（选填，多数自定义需改伤害与描述）' : '基于「' + getItemDisplayName(selectedPrototype) + '」修改（选填）'}
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="sm:col-span-2">
+                <label className="block text-dnd-text-muted text-xs mb-1">自定义名称</label>
+                <input
+                  type="text"
+                  value={instanceName}
+                  onChange={(e) => setInstanceName(e.target.value)}
+                  placeholder={`不填则显示「${getItemDisplayName(selectedPrototype)}」`}
+                  className={inputClass}
+                />
+              </div>
+              {showArmorNote && (
+                <div className="sm:col-span-2">
+                  <label className="block text-dnd-text-muted text-xs mb-1">附注（护甲等级 AC、力量、隐匿）</label>
+                  <input
+                    type="text"
+                    value={instance附注}
+                    onChange={(e) => setInstance附注(e.target.value)}
+                    placeholder="如：AC 12+敏捷；力量—；隐匿—"
+                    className={inputClass}
+                  />
+                </div>
+              )}
+              {showAttackDamage && (
+                <>
+                  <div>
+                    <label className="block text-dnd-text-muted text-xs mb-1">伤害骰与类型（攻击）</label>
+                    <input
+                      type="text"
+                      value={instance攻击}
+                      onChange={(e) => setInstance攻击(e.target.value)}
+                      placeholder="如：1d8 挥砍"
+                      className={inputClass}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-dnd-text-muted text-xs mb-1">伤害类型</label>
+                    <input
+                      type="text"
+                      value={instance伤害}
+                      onChange={(e) => setInstance伤害(e.target.value)}
+                      placeholder="如：挥砍、穿刺、钝击"
+                      className={inputClass}
+                    />
+                  </div>
+                </>
+              )}
+              <div className="sm:col-span-2">
+                <label className="block text-dnd-text-muted text-xs mb-1">详细描述</label>
+                <textarea
+                  value={instance详细介绍}
+                  onChange={(e) => setInstance详细介绍(e.target.value)}
+                  placeholder="来历、附魔、特殊说明等"
+                  rows={3}
+                  className={textareaClass + ' min-h-[4rem]'}
+                />
+              </div>
+              <div className="flex flex-wrap gap-2 items-end sm:col-span-2">
+                <div className="w-24">
+                  <label className="block text-dnd-text-muted text-xs mb-1">数量</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={instanceQty}
+                    onChange={(e) => setInstanceQty(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                    className={inputClass}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleAddFromList({
+                    name: instanceName,
+                    攻击: instance攻击,
+                    伤害: instance伤害,
+                    详细介绍: instance详细介绍,
+                    附注: instance附注,
+                    qty: instanceQty,
+                  })}
+                  className="h-10 px-4 rounded-lg bg-dnd-red hover:bg-dnd-red-hover text-white font-bold text-sm shrink-0"
+                >
+                  放入仓库
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         <div className="flex gap-2">
           <input
             type="text"
@@ -78,7 +252,7 @@ export default function Warehouse() {
             onChange={(e) => setCustomName(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleAddCustomName()}
             placeholder="或直接输入物品名"
-            className="h-12 flex-1 rounded-lg bg-gray-800 border border-gray-600 text-white px-3 focus:border-dnd-red focus:ring-1 focus:ring-dnd-red placeholder:text-gray-500"
+            className={inputClass + ' h-12 flex-1'}
           />
           <button
             type="button"
@@ -93,120 +267,91 @@ export default function Warehouse() {
           {list.map((entry, i) => (
             <li
               key={i}
-              className="flex items-center justify-between rounded-lg border border-gray-600 bg-gray-800 px-4 py-3"
+              className="flex items-center justify-between gap-2 rounded-lg border border-gray-600 bg-gray-800 px-4 py-3"
             >
-              <span className="text-white">{displayName(entry)} {entry.qty > 1 ? `×${entry.qty}` : ''}</span>
-              <button
-                type="button"
-                onClick={() => handleRemove(i)}
-                className="text-dnd-red text-sm font-bold hover:underline"
-              >
-                移除
-              </button>
+              <span className="text-white flex-1 min-w-0 truncate">{displayName(entry)} {entry.qty > 1 ? `×${entry.qty}` : ''}</span>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => openDeposit(i)}
+                  className="text-sm font-bold text-amber-400 hover:text-amber-300 hover:underline"
+                >
+                  存入角色
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleRemove(i)}
+                  className="text-dnd-red text-sm font-bold hover:underline"
+                >
+                  移除
+                </button>
+              </div>
             </li>
           ))}
         </ul>
         {list.length === 0 && (
           <p className="text-gray-500 text-sm py-4">仓库暂无物品，可从上方下拉选择或输入名称添加。</p>
         )}
+      </div>
 
-        <div className="border-t border-gray-600 pt-4 mt-4">
-          <button
-            type="button"
-            onClick={() => setShowAddCustom(!showAddCustom)}
-            className="text-dnd-gold-light text-sm font-bold"
+      {/* 存入角色弹窗 */}
+      {depositIndex != null && list[depositIndex] && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70" onClick={() => setDepositIndex(null)}>
+          <div
+            className="rounded-xl bg-dnd-card border border-white/10 shadow-xl w-full max-w-md overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
           >
-            {showAddCustom ? '收起' : '+ 新增自定义物品到资料表'}
-          </button>
-          {showAddCustom && (
-            <AddCustomItemForm
-              onSuccess={() => {
-                setShowAddCustom(false)
-              }}
-            />
-          )}
+            <div className="px-4 py-3 border-b border-white/10">
+              <h2 className="font-display font-semibold text-white">存入角色</h2>
+              <p className="text-dnd-text-muted text-sm mt-1">{displayName(list[depositIndex])}</p>
+            </div>
+            <div className="p-4 space-y-4">
+              <div>
+                <label className="block text-dnd-text-muted text-xs mb-1">选择角色</label>
+                <select
+                  value={depositCharId}
+                  onChange={(e) => setDepositCharId(e.target.value)}
+                  className="w-full rounded-lg bg-gray-800 border border-gray-600 text-white px-3 py-2 focus:border-dnd-red focus:ring-1 focus:ring-dnd-red focus:outline-none"
+                >
+                  {characters.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name || '未命名'}</option>
+                  ))}
+                </select>
+              </div>
+              {(Number(list[depositIndex]?.qty) ?? 1) > 1 && (
+                <div>
+                  <label className="block text-dnd-text-muted text-xs mb-1">数量</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={Number(list[depositIndex]?.qty) ?? 1}
+                    value={depositQty}
+                    onChange={(e) => setDepositQty(Math.max(1, Math.min(Number(list[depositIndex]?.qty) ?? 1, parseInt(e.target.value, 10) || 1)))}
+                    className={inputClass + ' w-full'}
+                  />
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 px-4 py-3 border-t border-white/10">
+              <button
+                type="button"
+                onClick={() => setDepositIndex(null)}
+                className="px-4 py-2 rounded-lg border border-gray-600 text-gray-300 hover:bg-gray-800"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeposit}
+                disabled={!depositCharId}
+                className="px-4 py-2 rounded-lg bg-dnd-red hover:bg-dnd-red-hover text-white font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                确认存入
+              </button>
+            </div>
+          </div>
         </div>
-      </div>
+      )}
     </div>
-  )
-}
-
-function AddCustomItemForm({ onSuccess }) {
-  const [类别, set类别] = useState('')
-  const [名称, set名称] = useState('')
-  const [攻击, set攻击] = useState('')
-  const [附注, set附注] = useState('')
-  const [伤害, set伤害] = useState('')
-  const [重量, set重量] = useState('')
-  const [价格, set价格] = useState('')
-  const [详细介绍, set详细介绍] = useState('')
-
-  const handleSubmit = (e) => {
-    e.preventDefault()
-    if (!类别.trim()) return
-    addCustomItem({
-      类别: 类别.trim(),
-      名称: 名称.trim(),
-      攻击: 攻击.trim(),
-      附注: 附注.trim(),
-      伤害: 伤害.trim(),
-      重量: 重量.trim(),
-      价格: 价格.trim(),
-      详细介绍: 详细介绍.trim(),
-    })
-    set类别('')
-    set名称('')
-    set攻击('')
-    set附注('')
-    set伤害('')
-    set重量('')
-    set价格('')
-    set详细介绍('')
-    onSuccess?.()
-  }
-
-  const inputCls = 'h-10 w-full rounded-lg bg-gray-800 border border-gray-600 text-white px-3 text-sm focus:border-dnd-red focus:ring-1 focus:ring-dnd-red'
-  const labelCls = 'block text-gray-400 text-xs font-bold mb-1'
-
-  return (
-    <form onSubmit={handleSubmit} className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
-      <div>
-        <label className={labelCls}>类别 *</label>
-        <input value={类别} onChange={(e) => set类别(e.target.value)} className={inputCls} placeholder="e.g. 长剑 (Longsword)" required />
-      </div>
-      <div>
-        <label className={labelCls}>名称（选填，无则显示类别）</label>
-        <input value={名称} onChange={(e) => set名称(e.target.value)} className={inputCls} placeholder="自定义显示名" />
-      </div>
-      <div>
-        <label className={labelCls}>攻击</label>
-        <input value={攻击} onChange={(e) => set攻击(e.target.value)} className={inputCls} placeholder="e.g. 1d8 挥砍" />
-      </div>
-      <div>
-        <label className={labelCls}>附注</label>
-        <input value={附注} onChange={(e) => set附注(e.target.value)} className={inputCls} placeholder="e.g. 多用 (1d10)" />
-      </div>
-      <div>
-        <label className={labelCls}>伤害</label>
-        <input value={伤害} onChange={(e) => set伤害(e.target.value)} className={inputCls} placeholder="e.g. 挥砍" />
-      </div>
-      <div>
-        <label className={labelCls}>重量</label>
-        <input value={重量} onChange={(e) => set重量(e.target.value)} className={inputCls} placeholder="e.g. 3磅" />
-      </div>
-      <div>
-        <label className={labelCls}>价格</label>
-        <input value={价格} onChange={(e) => set价格(e.target.value)} className={inputCls} placeholder="e.g. 15GP" />
-      </div>
-      <div className="sm:col-span-2">
-        <label className={labelCls}>详细介绍</label>
-        <textarea value={详细介绍} onChange={(e) => set详细介绍(e.target.value)} className={inputCls + ' min-h-[4rem]'} placeholder="物品描述、来历等" />
-      </div>
-      <div className="sm:col-span-2">
-        <button type="submit" className="h-10 px-4 rounded-lg bg-dnd-red hover:bg-dnd-red-hover text-white font-bold text-sm">
-          添加到资料表
-        </button>
-      </div>
-    </form>
   )
 }

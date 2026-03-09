@@ -1,24 +1,30 @@
+import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from './contexts/AuthContext'
 import Login from './pages/Login'
 import Layout from './components/Layout'
+import ErrorBoundary from './components/ErrorBoundary'
 import Dashboard from './pages/Dashboard'
 import Characters from './pages/Characters'
 import CharacterNew from './pages/CharacterNew'
-import CharacterSheet from './pages/CharacterSheet'
 import Warehouse from './pages/Warehouse'
 import Spells from './pages/Spells'
 import More from './pages/More'
 import HouseRules from './pages/HouseRules'
 import DataMaintain from './pages/DataMaintain'
 
+const CharacterSheet = lazy(() => import('./pages/CharacterSheet'))
+
 function AppRoutes() {
   const { user } = useAuth()
 
   if (user === undefined) {
     return (
-      <div className="min-h-screen bg-dnd-bg flex items-center justify-center">
-        <p className="text-dnd-text-label">加载中…</p>
+      <div
+        className="min-h-screen bg-dnd-bg flex items-center justify-center"
+        style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#121212' }}
+      >
+        <p style={{ color: '#94a3b8', fontSize: '1.125rem' }}>加载中…</p>
       </div>
     )
   }
@@ -32,7 +38,7 @@ function AppRoutes() {
         <Route path="/" element={<Dashboard />} />
         <Route path="/characters" element={<Characters />} />
         <Route path="/characters/new" element={<CharacterNew />} />
-        <Route path="/characters/:id" element={<CharacterSheet />} />
+        <Route path="/characters/:id" element={<Suspense fallback={<div className="min-h-screen flex items-center justify-center bg-dnd-bg text-dnd-text-muted">加载角色卡…</div>}><CharacterSheet /></Suspense>} />
         <Route path="/warehouse" element={<Warehouse />} />
         <Route path="/spells" element={<Spells />} />
         <Route path="/more" element={<More />} />
@@ -46,8 +52,10 @@ function AppRoutes() {
 
 export default function App() {
   return (
-    <BrowserRouter>
-      <AppRoutes />
-    </BrowserRouter>
+    <ErrorBoundary>
+      <BrowserRouter>
+        <AppRoutes />
+      </BrowserRouter>
+    </ErrorBoundary>
   )
 }

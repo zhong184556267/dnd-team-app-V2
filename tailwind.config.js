@@ -69,6 +69,14 @@ export default {
         'dnd-glow': '0 0 12px rgba(224, 28, 47, 0.4)',
         'dnd-gold-glow': '0 0 8px rgba(184, 134, 11, 0.6)',
       },
+      keyframes: {
+        shake: { '0%,100%': { transform: 'translateX(0)' }, '25%': { transform: 'translateX(-4px)' }, '75%': { transform: 'translateX(4px)' } },
+        flash: { '0%,100%': { opacity: '1' }, '50%': { opacity: '0.7' } },
+      },
+      animation: {
+        shake: 'shake 0.2s ease-in-out 2',
+        flash: 'flash 0.3s ease-out',
+      },
     },
   },
   plugins: [],

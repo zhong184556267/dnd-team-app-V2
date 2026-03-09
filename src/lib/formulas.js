@@ -7,6 +7,8 @@
  * 技能/豁免 = d20 + 属性调整值 + 熟练加值(等级查表) + 专精加成 + Buff
  * HP 当前 = 上限 + 临时 HP + Buff - 累计伤害
  */
+import { CLASS_HIT_DICE, getHitDice } from '../data/classDatabase'
+import { getLayerSlotData, useLayersForAC } from '../lib/equipmentLayers'
 
 /** 属性调整值：(属性值 - 10) / 2 向下取整 */
 export function abilityModifier(value) {
@@ -46,18 +48,158 @@ export function getArmorInfo(armorTypeKey) {
 }
 
 /**
+ * 从护甲附注字符串解析 AC 规则，用于自动计算 AC。
+ * 支持格式：AC 14+敏捷(最大2)；AC 11+敏捷；AC 18；AC +2（盾牌）
+ * @param {string} note - 附注（护甲等级 AC、力量、隐匿）
+ * @returns {{ baseAC: number, addDex: boolean, dexCap: number | null } | { isShield: true, bonus: number } | null}
+ */
+export function parseArmorNote(note) {
+  if (!note || typeof note !== 'string') return null
+  const s = note.trim()
+  if (!s) return null
+  // 盾牌：AC +2
+  const shieldMatch = s.match(/AC\s*\+\s*(\d+)/i)
+  if (shieldMatch) {
+    const bonus = parseInt(shieldMatch[1], 10)
+    if (!Number.isNaN(bonus)) return { isShield: true, bonus }
+  }
+  // 护甲：AC 14+敏捷(最大2) 或 AC 14+敏捷（最大2）（全角括号）
+  const armorDexCapMatch = s.match(/AC\s*(\d+)\s*\+\s*敏捷\s*[（(]\s*最大\s*(\d+)\s*[）)]/i)
+  if (armorDexCapMatch) {
+    const baseAC = parseInt(armorDexCapMatch[1], 10)
+    const dexCap = parseInt(armorDexCapMatch[2], 10)
+    if (!Number.isNaN(baseAC)) return { baseAC, addDex: true, dexCap: Number.isNaN(dexCap) ? null : dexCap }
+  }
+  // 护甲：AC 14+敏捷（无上限）
+  const armorDexMatch = s.match(/AC\s*(\d+)\s*\+\s*敏捷/i)
+  if (armorDexMatch) {
+    const baseAC = parseInt(armorDexMatch[1], 10)
+    if (!Number.isNaN(baseAC)) return { baseAC, addDex: true, dexCap: null }
+  }
+  // 护甲：仅 AC 14（重甲，不加敏捷）
+  const armorFixedMatch = s.match(/AC\s*(\d+)(?:\s*[;；]|\s*$)/i)
+  if (armorFixedMatch) {
+    const baseAC = parseInt(armorFixedMatch[1], 10)
+    if (!Number.isNaN(baseAC)) return { baseAC, addDex: false, dexCap: 0 }
+  }
+  return null
+}
+
+/**
+ * 根据解析出的护甲规则与敏捷调整值计算护甲贡献的 AC
+ */
+export function computeACFromParsed(parsed, dexMod) {
+  if (!parsed || parsed.isShield) return null
+  const base = parsed.baseAC ?? 10
+  const dexCap = parsed.dexCap
+  const dexContrib = !parsed.addDex ? 0 : (dexCap === null ? dexMod : Math.min(dexMod, dexCap))
+  return base + dexContrib
+}
+
+/**
+ * 三层穿戴 AC 计算：Base(10) + Dex(受盔甲限制) + Max(内袍Base, 身体盔甲Base) 取代 10 + 外袍魔法加值 + 盾牌 + 其他 + Buff
+ * 内袍/身体盔甲提供“基础防御”，取高者；敏捷上限由身体盔甲优先决定。
+ */
+function getACFromLayers(character, getLayerSlotData) {
+  const abilities = character?.abilities ?? {}
+  const equipment = character?.equipment ?? {}
+  const dexMod = abilityModifier(abilities.dex ?? 10)
+
+  const inner = getLayerSlotData(character, "innerRobe")
+  const body = getLayerSlotData(character, "bodyArmor")
+  const outer = getLayerSlotData(character, "outerRobe")
+  const shieldData = getLayerSlotData(character, "shield")
+
+  const innerParsed = inner.note ? parseArmorNote(inner.note) : null
+  const bodyParsed = body.note ? parseArmorNote(body.note) : null
+  const outerParsed = outer.note ? parseArmorNote(outer.note) : null
+  const shieldParsed = shieldData.note ? parseArmorNote(shieldData.note) : null
+
+  let innerBase = 10
+  let innerDexCap = null
+  if (innerParsed && !innerParsed.isShield) {
+    innerBase = innerParsed.baseAC ?? 10
+    innerDexCap = innerParsed.dexCap
+  }
+
+  let bodyBase = 0
+  let bodyDexCap = 0
+  if (bodyParsed && !bodyParsed.isShield) {
+    bodyBase = bodyParsed.baseAC ?? 0
+    bodyDexCap = bodyParsed.addDex ? (bodyParsed.dexCap != null ? bodyParsed.dexCap : 99) : 0
+  }
+
+  const effectiveBase = Math.max(innerBase, bodyBase) || 10
+  const dexCap = bodyBase >= innerBase ? bodyDexCap : innerDexCap
+  const dexContrib = dexCap === null ? dexMod : (dexCap >= 99 ? dexMod : Math.min(dexMod, dexCap))
+
+  let outerMagic = Number(equipment.outerRobe?.magicACBonus) || 0
+  if (!outerMagic && outerParsed && !outerParsed.isShield && outerParsed.baseAC != null && outerParsed.baseAC > 0) {
+    outerMagic = outerParsed.baseAC
+  }
+
+  let shield = 0
+  if (shieldParsed && shieldParsed.isShield) shield = shieldParsed.bonus || 2
+  else if (equipment.useShield) shield = Number(equipment.shieldBonus) || 2
+
+  const other = Number(equipment.otherAC) || 0
+  const buffSum = (character?.buffs ?? []).reduce((s, b) => s + (Number(b.ac) || 0), 0)
+  const total = effectiveBase + dexContrib + outerMagic + shield + other + buffSum
+  return {
+    total,
+    base: effectiveBase,
+    dexContrib,
+    outerMagic,
+    shield,
+    other,
+    buff: buffSum,
+  }
+}
+
+/**
  * AC = 护甲基础 + 敏捷调整(按上限) + 盾牌 + 其他装备 + Buff
+ * 若装备使用三层穿戴槽位则按 Max(内袍,身体盔甲)+外袍+盾牌 计算；否则用 armorNote / armorType
  */
 export function getAC(character) {
   const abilities = character?.abilities ?? {}
   const equipment = character?.equipment ?? {}
   const dexMod = abilityModifier(abilities.dex ?? 10)
-  const armorKey = equipment.armorType || 'unarmored'
-  const armor = getArmorInfo(armorKey)
-  const base = armor.base ?? 10
-  const dexCap = armor.dexCap
-  const dexContrib = dexCap === null ? dexMod : dexCap === 0 ? 0 : Math.min(dexMod, dexCap)
-  const shield = equipment.useShield ? (Number(equipment.shieldBonus) || 2) : 0
+
+  if (useLayersForAC(equipment, character)) {
+    const result = getACFromLayers(character, getLayerSlotData)
+    return {
+      ...result,
+      base: result.base,
+      dexContrib: result.dexContrib,
+      shield: result.shield,
+      other: result.other,
+      buff: result.buff,
+    }
+  }
+
+  const armorNote = equipment.armorNote != null ? String(equipment.armorNote).trim() : ''
+  const parsed = armorNote ? parseArmorNote(armorNote) : null
+
+  let base = 10
+  let dexContrib = dexMod
+
+  if (parsed && parsed.isShield) {
+    base = 10
+    dexContrib = dexMod
+  } else if (parsed && !parsed.isShield) {
+    base = parsed.baseAC ?? 10
+    const dexCap = parsed.dexCap
+    dexContrib = !parsed.addDex ? 0 : (dexCap === null ? dexMod : Math.min(dexMod, dexCap))
+  } else {
+    const armorKey = equipment.armorType || 'unarmored'
+    const armor = getArmorInfo(armorKey)
+    base = armor.base ?? 10
+    const dexCap = armor.dexCap
+    dexContrib = dexCap === null ? dexMod : dexCap === 0 ? 0 : Math.min(dexMod, dexCap)
+  }
+
+  let shield = equipment.useShield ? (Number(equipment.shieldBonus) || 2) : 0
+  if (parsed && parsed.isShield) shield = parsed.bonus || 2
   const other = Number(equipment.otherAC) || 0
   const buffSum = (character?.buffs ?? []).reduce((s, b) => s + (Number(b.ac) || 0), 0)
   const total = base + dexContrib + shield + other + buffSum
@@ -71,26 +213,8 @@ export function getAC(character) {
   }
 }
 
-/**
- * D&D 5e 职业生命骰：职业名 -> 骰面 (d6=6, d8=8, d10=10, d12=12)
- */
-export const CLASS_HIT_DICE = {
-  野蛮人: 12,
-  吟游诗人: 8,
-  牧师: 8,
-  德鲁伊: 8,
-  战士: 10,
-  武僧: 8,
-  圣武士: 10,
-  游侠: 10,
-  游荡者: 8,
-  术士: 6,
-  邪术师: 8,
-  法师: 6,
-  // 繁星进阶职业
-  圣魂之刃: 10,
-  蓝御法师: 6,
-}
+/** 职业生命骰由职业库统一提供，此处 re-export；calcMaxHP 使用 getHitDice 以支持别名 */
+export { CLASS_HIT_DICE }
 
 /** 骰面对应的「每级平均」：(HD+1)/2 向上取整，PHB 标准 */
 function hitDieAverage(hd) {
@@ -107,7 +231,7 @@ export function calcMaxHP(character) {
   const conMod = abilityModifier(character?.abilities?.con ?? 10)
   const classes = []
 
-  const main = character?.class
+  const main = character?.['class']
   const mainLevel = Math.max(0, Math.min(20, Number(character?.classLevel) ?? 0))
   if (main && mainLevel > 0) {
     classes.push({ name: main, level: mainLevel })
@@ -115,14 +239,14 @@ export function calcMaxHP(character) {
 
   const multiclass = character?.multiclass ?? []
   multiclass.forEach((m) => {
-    const name = m?.class
+    const name = m?.['class']
     const level = Math.max(0, Math.min(20, Number(m?.level) ?? 0))
     if (name && level > 0) classes.push({ name, level })
   })
 
   const prestige = character?.prestige ?? []
   prestige.forEach((p) => {
-    const name = p?.class
+    const name = p?.['class']
     const level = Math.max(0, Math.min(20, Number(p?.level) ?? 0))
     if (name && level > 0) classes.push({ name, level })
   })
@@ -131,7 +255,7 @@ export function calcMaxHP(character) {
 
   let total = 0
   for (const { name, level } of classes) {
-    const hd = CLASS_HIT_DICE[name] ?? 8
+    const hd = getHitDice(name)
     const avg = hitDieAverage(hd)
     total += hd + conMod
     total += (level - 1) * (avg + conMod)

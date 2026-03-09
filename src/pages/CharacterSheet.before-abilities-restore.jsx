@@ -1,7 +1,6 @@
 /**
  * 角色卡（重写版 - 从简出发，不依赖 formulas）
  * 含：角色名、外观/基础、经验与等级、职业、Buff、背包、同调位。
- * 备份于恢复战斗状态之前。
  */
 import { useState, useEffect, useCallback, useRef, forwardRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
@@ -23,9 +22,7 @@ import { ABILITY_NAMES_ZH } from '../data/buffTypes'
 import { FEATS, FEATS_BY_CATEGORY } from '../data/feats'
 import { useCombatState } from '../hooks/useCombatState'
 import BuffManager from '../components/BuffManager'
-import CombatStatus from '../components/CombatStatus'
-import EquipmentAndInventory from '../components/EquipmentAndInventory'
-import AbilityModule from '../components/AbilityModule'
+import CharacterInventory from '../components/CharacterInventory'
 import { inputClass, labelClass } from '../lib/inputStyles'
 
 const NameInput = forwardRef(function NameInput({ value, onChange, onFocus, onBlur, onKeyDown, className }, ref) {
@@ -801,36 +798,12 @@ export default function CharacterSheet() {
             <ClassSection char={char} level={level} canEdit={canEdit} onSave={persist} />
           </section>
           <section className="mt-6">
-            <h3 className="text-dnd-gold-light text-sm font-bold mb-2">属性与技能</h3>
-            <div className="rounded-lg border border-gray-600 bg-gray-800/50 p-4">
-              <AbilityModule
-                char={char}
-                abilities={char.abilities ?? { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 }}
-                buffStats={{}}
-                level={level}
-                canEdit={canEdit}
-                onSave={persist}
-              />
-            </div>
-          </section>
-          <section className="mt-6">
             <h3 className="text-dnd-gold-light text-sm font-bold mb-2">Buff / 状态</h3>
             <BuffManager buffs={char.buffs} baseAbilities={char.abilities ?? {}} onSave={(buffsList) => persist({ buffs: buffsList })} canEdit={canEdit} />
           </section>
           <section className="mt-6">
-            <h3 className="text-dnd-gold-light text-sm font-bold mb-2">战斗状态</h3>
-            <CombatStatus
-              char={char}
-              hp={char.hp ?? { current: 0, max: 0, temp: 0 }}
-              abilities={char.abilities ?? { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 }}
-              level={level}
-              canEdit={canEdit}
-              onSave={persist}
-            />
-          </section>
-          <section className="mt-6">
-            <h3 className="text-dnd-gold-light text-sm font-bold mb-2">装备与背包</h3>
-            <EquipmentAndInventory character={char} canEdit={canEdit} onSave={persist} onWalletSuccess={noop} />
+            <h3 className="text-dnd-gold-light text-sm font-bold mb-2">背包</h3>
+            <CharacterInventory character={char} canEdit={canEdit} onSave={persist} onWalletSuccess={noop} />
           </section>
           <section className="mt-6">
             <div className="grid grid-cols-1 md:grid-cols-5 gap-4">

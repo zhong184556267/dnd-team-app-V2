@@ -21,15 +21,18 @@ function getEffectDisplay(buff, baseAbilities = {}) {
       const typeLabel = getDamageTypeLabel(buff.value.type)
       return { label: `${effectLabel}(${typeLabel})`, value: `${sign}${buff.value.val}` }
     }
-    // 属性值增强/设定：用中文名，数值显示扣除后的总值
+    // 属性值增强：显示加减值（如 智力 +2）；属性值上限：显示设定总值（如 智力 18）
     if (buff.effectType === 'ability_score' || buff.effectType === 'ability_override') {
       const parts = Object.entries(buff.value)
         .filter(([, v]) => v != null && v !== 0)
         .map(([k, v]) => {
           const nameZh = ABILITY_NAMES_ZH[k] ?? k
-          const base = baseAbilities[k] ?? 10
-          const effective = buff.effectType === 'ability_override' ? Number(v) : base + Number(v)
-          return `${nameZh} ${effective}`
+          const num = Number(v)
+          if (buff.effectType === 'ability_override') {
+            return `${nameZh} ${num}` // 上限：显示设定总值
+          }
+          const sign = num >= 0 ? '+' : ''
+          return `${nameZh} ${sign}${num}` // 增强：显示加减值
         })
       return { label: effectLabel, value: parts.length ? parts.join('、') : null }
     }
@@ -56,41 +59,72 @@ function isNegativeValue(val) {
   return s.startsWith('-') || (s.includes('-') && !s.startsWith('+'))
 }
 
+/**
+ * 自动识别减益：显示值为负、或原始数值为负的条目归为减益栏。
+ * 无需在表单里选择“增益/减益”，根据数值正负自动分栏。
+ */
+export function isDebuff(buff, baseAbilities = {}) {
+  const v = buff.value
+  if (typeof v === 'number' && v < 0) return true
+  if (v && typeof v === 'object' && typeof v.val === 'number' && v.val < 0) return true
+  const { value } = getEffectDisplay(buff, baseAbilities)
+  return isNegativeValue(value)
+}
+
+/**
+ * 统一行布局：固定列宽 Grid，同列内所有行严格垂直对齐。
+ * 窄屏用 min-width 允许收缩，桌面用固定宽度。
+ */
+const GRID_COLS = {
+  withActions: 'grid-cols-[minmax(10rem,1fr)_5.5rem_4.5rem_4rem]',
+  noActions: 'grid-cols-[minmax(10rem,1fr)_5.5rem_4.5rem]',
+}
+
 export default function BuffListItem({ buff, baseAbilities, onEdit, onDelete, canEdit }) {
   const { label, value } = getEffectDisplay(buff, baseAbilities)
+  const sourceLabel = buff.source?.trim() || '未知来源'
 
   return (
     <div
-      className={`flex items-center flex-nowrap gap-2 px-2 h-[44px] border-b border-gray-800 last:border-b-0 bg-gray-800/30 ${!buff.enabled ? 'opacity-50' : ''}`}
+      className={`grid ${canEdit ? GRID_COLS.withActions : GRID_COLS.noActions} items-center gap-x-2 md:gap-x-3 px-2 min-h-[44px] py-2 border-b border-gray-800 last:border-b-0 bg-gray-800/30 ${!buff.enabled ? 'opacity-50' : ''}`}
+      role="row"
     >
-      {/* 名称 | 效果词条+数值 | 时间，三列平均分配，名称预留约 8 字宽 */}
-      <div className="min-w-0 flex-1 flex items-center gap-2 flex-nowrap overflow-hidden">
-        <span className="text-white font-bold text-sm truncate flex-1 min-w-[8em]" title={buff.source}>{buff.source}</span>
-        <span className="text-gray-400 text-sm flex-1 min-w-0 flex items-center gap-2 overflow-hidden">
-          <span className="truncate min-w-0" title={label}>{label}</span>
-          <span className="shrink-0 w-12 text-right">
-            {value != null ? (
-              <span
-                className={`inline-block font-mono font-bold text-sm px-2 py-0.5 rounded ${
-                  isNegativeValue(value)
-                    ? 'bg-red-900/50 text-red-400'
-                    : 'bg-gray-700 text-white'
-                }`}
-              >
-                {value}
-              </span>
-            ) : null}
-          </span>
+      {/* 列1：名称（来源）+ 效果类型（左对齐，无背景色块） */}
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="text-amber-400 text-sm font-medium shrink-0 truncate" title={sourceLabel}>
+          {sourceLabel}
         </span>
-        <span className="text-gray-500 text-xs truncate flex-1 min-w-0 text-right" title={buff.duration || '—'}>
+        <span className="text-gray-400 text-sm min-w-0 truncate" title={label}>
+          {label}
+        </span>
+      </div>
+
+      {/* 列2：数值（右对齐、等宽字体、固定列宽） */}
+      <div className="flex items-center justify-end min-w-0">
+        {value != null ? (
+          <span
+            className={`font-mono font-bold text-sm px-2 py-0.5 rounded whitespace-nowrap truncate max-w-full ${
+              isNegativeValue(value)
+                ? 'bg-red-900/50 text-red-400'
+                : 'bg-gray-700 text-white'
+            }`}
+            title={value}
+          >
+            {value}
+          </span>
+        ) : null}
+      </div>
+
+      {/* 列3：持续时间（右对齐） */}
+      <div className="flex items-center justify-end min-w-0">
+        <span className="text-gray-500 text-xs truncate" title={buff.duration || '—'}>
           {buff.duration || '—'}
         </span>
       </div>
 
-      {/* 右侧：分隔线 + 操作区 */}
+      {/* 列4：操作按钮（右对齐） */}
       {canEdit && (
-        <div className="flex items-center gap-2 shrink-0">
-          <span className="text-gray-600 text-sm">—</span>
+        <div className="flex items-center justify-end gap-1">
           <button
             type="button"
             onClick={() => onEdit?.(buff.id)}

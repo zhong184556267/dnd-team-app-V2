@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { BUFF_TYPES, getCategories, DAMAGE_TYPES, CONDITION_OPTIONS, ABILITY_KEYS } from '../data/buffTypes'
+import { inputClass, textareaClass } from '../lib/inputStyles'
 
 const ABILITY_LABELS = { str: '力量', dex: '敏捷', con: '体质', int: '智力', wis: '感知', cha: '魅力' }
 
@@ -57,7 +58,7 @@ export default function BuffForm({ initial, onSave, onCancel }) {
           value={source}
           onChange={(e) => setSource(e.target.value)}
           placeholder="牧师的祝福术、狂暴、法师护甲..."
-          className="w-full h-10 rounded-lg bg-gray-900 border border-gray-600 text-white px-3 focus:border-dnd-red focus:ring-1 focus:ring-dnd-red"
+          className={inputClass}
           required
         />
       </div>
@@ -68,7 +69,7 @@ export default function BuffForm({ initial, onSave, onCancel }) {
           value={duration}
           onChange={(e) => setDuration(e.target.value)}
           placeholder="1分钟、直到下次长休、专注..."
-          className="w-full h-10 rounded-lg bg-gray-900 border border-gray-600 text-white px-3 focus:border-dnd-red focus:ring-1 focus:ring-dnd-red"
+          className={inputClass}
         />
       </div>
       <div className="grid grid-cols-2 gap-3">
@@ -77,7 +78,7 @@ export default function BuffForm({ initial, onSave, onCancel }) {
           <select
             value={category}
             onChange={(e) => setCategory(e.target.value)}
-            className="w-full h-10 rounded-lg bg-gray-900 border border-gray-600 text-white px-3 focus:border-dnd-red"
+            className={inputClass}
           >
             {getCategories().map((c) => (
               <option key={c.key} value={c.key}>{c.label}</option>
@@ -89,7 +90,7 @@ export default function BuffForm({ initial, onSave, onCancel }) {
           <select
             value={effectType}
             onChange={(e) => setEffectType(e.target.value)}
-            className="w-full h-10 rounded-lg bg-gray-900 border border-gray-600 text-white px-3 focus:border-dnd-red"
+            className={inputClass}
           >
             {effects.map((e) => (
               <option key={e.key} value={e.key}>{e.label}</option>
@@ -108,14 +109,14 @@ export default function BuffForm({ initial, onSave, onCancel }) {
               onChange={(e) => setCustomText(e.target.value)}
               placeholder="自由填写规则描述..."
               rows={3}
-              className="w-full rounded-lg bg-gray-900 border border-gray-600 text-white px-3 py-2 focus:border-dnd-red focus:ring-1 focus:ring-dnd-red"
+              className={textareaClass}
             />
           ) : isNumber ? (
             <input
               type="number"
               value={value}
               onChange={(e) => setValue(parseInt(e.target.value, 10) || 0)}
-              className="w-full h-10 rounded-lg bg-gray-900 border border-gray-600 text-white px-3 focus:border-dnd-red"
+              className={inputClass}
             />
           ) : isDamageTypeArray ? (
             <div className="flex flex-wrap gap-2">
@@ -143,7 +144,7 @@ export default function BuffForm({ initial, onSave, onCancel }) {
               <select
                 value={(typeof value === 'object' && value?.type) || 'bludgeoning'}
                 onChange={(e) => setValue((v) => ({ ...(typeof v === 'object' && v && !Array.isArray(v) ? v : {}), type: e.target.value }))}
-                className="h-10 rounded-lg bg-gray-900 border border-gray-600 text-white px-3 min-w-[8rem]"
+                className={inputClass + ' min-w-[8rem]'}
               >
                 {DAMAGE_TYPES.map((d) => (
                   <option key={d.value} value={d.value}>{d.label}</option>
@@ -153,7 +154,7 @@ export default function BuffForm({ initial, onSave, onCancel }) {
                 type="number"
                 value={(typeof value === 'object' && value?.val) ?? 0}
                 onChange={(e) => setValue((v) => ({ ...(typeof v === 'object' && v && !Array.isArray(v) ? v : {}), val: parseInt(e.target.value, 10) || 0 }))}
-                className="h-10 w-20 rounded-lg bg-gray-900 border border-gray-600 text-white px-2 text-center"
+                className={inputClass + ' w-20 text-center'}
               />
             </div>
           ) : needsSubSelect === 'abilityScores' ? (

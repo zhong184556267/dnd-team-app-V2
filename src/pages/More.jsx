@@ -20,7 +20,7 @@ export default function More() {
           to="/more/house-rules"
           className="block py-3 px-4 rounded-xl bg-dnd-card border border-white/10 text-white hover:border-dnd-red/50 transition-colors"
         >
-          繁星特色（房规/模组）
+          繁星特色（房规 / 模组 / 职业库）
         </Link>
         {isAdmin && (
           <Link

@@ -85,11 +85,28 @@ export function useBuffCalculator(character, activeBuffs) {
       else if (b.effectType === 'disadv_all') disadvAll++
     }
 
-    const advantage = {
+    let advantage = {
       melee: disadvAll > 0 ? 'disadvantage' : advMelee + advAllAttack > 0 ? 'advantage' : 'normal',
       ranged: disadvAll > 0 ? 'disadvantage' : advRanged + advAllAttack > 0 ? 'advantage' : 'normal',
       save: disadvAll > 0 ? 'disadvantage' : advSave > 0 ? 'advantage' : 'normal',
       skill: disadvAll > 0 ? 'disadvantage' : advSkill > 0 ? 'advantage' : 'normal',
+    }
+
+    // 7. 状态效果与力竭的减益（力竭规则参考 D&D 2024）
+    const conditions = Array.isArray(character?.conditions) ? character.conditions : []
+    const exhaustionLevel = Math.max(0, Math.min(6, Number(character?.exhaustionLevel) || 0))
+    let speedMultiplier = 1
+    let maxHpMultiplier = 1
+    const disadvantageKeys = new Set()
+    // D&D 2024 力竭：d20 检定 -2×等级，速度 -5尺×等级，6级死亡（不再用劣势/生命减半）
+    const d20ExhaustionPenalty = exhaustionLevel >= 6 ? -12 : -2 * exhaustionLevel
+    const speedExhaustionPenalty = exhaustionLevel >= 6 ? 999 : 5 * exhaustionLevel
+    if (conditions.includes('poisoned')) { disadvantageKeys.add('melee'); disadvantageKeys.add('ranged'); disadvantageKeys.add('skill') }
+    if (conditions.includes('blinded')) { disadvantageKeys.add('melee'); disadvantageKeys.add('ranged') }
+    if (conditions.includes('frightened')) disadvantageKeys.add('skill')
+    if (['stunned', 'paralyzed', 'unconscious'].some((c) => conditions.includes(c))) speedMultiplier = 0
+    if (disadvantageKeys.size) {
+      advantage = { ...advantage, ...Object.fromEntries([...disadvantageKeys].map((k) => [k, 'disadvantage'])) }
     }
 
     // 4. AC、速度、先攻、DC、熟练
@@ -161,6 +178,10 @@ export function useBuffCalculator(character, activeBuffs) {
       immuneTypes,
       vulnerableTypes,
       dmgTypeBonus,
+      speedMultiplier,
+      maxHpMultiplier,
+      d20ExhaustionPenalty,
+      speedExhaustionPenalty,
     }
   }, [character, activeBuffs])
 }

@@ -15,7 +15,7 @@ export default function CharacterNew() {
     const n = name.trim()
     if (!n || !user?.name) return
     setSaving(true)
-    const char = addCharacter(user.name, { name: n, class: classVal.trim() })
+    const char = addCharacter(user.name, { name: n, 'class': classVal.trim() })
     setSaving(false)
     navigate(`/characters/${char.id}`, { replace: true })
   }

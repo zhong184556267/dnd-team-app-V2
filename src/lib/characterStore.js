@@ -5,6 +5,13 @@ export function abilityModifier(value) {
   return Math.floor(((Number(value) || 10) - 10) / 2)
 }
 
+/** D&D 5e 熟练加值：按等级 1–20 查表 */
+const PROFICIENCY_BY_LEVEL = [2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 6, 6, 6, 6]
+export function proficiencyBonus(level) {
+  const L = Math.max(1, Math.min(20, Math.floor(Number(level) || 1)))
+  return PROFICIENCY_BY_LEVEL[L - 1] ?? 2
+}
+
 const defaultAbilities = () => ({ str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 })
 
 export function getCharacters(ownerName, isAdmin) {
@@ -46,7 +53,7 @@ export function addCharacter(ownerName, data = {}) {
     id,
     owner: ownerName,
     name: data.name?.trim() || '未命名',
-    class: data.class?.trim() || '',
+    'class': data['class']?.trim() || '',
     classLevel: typeof data.classLevel === 'number' ? data.classLevel : 1,
     multiclass: Array.isArray(data.multiclass) ? data.multiclass : [],
     prestige: Array.isArray(data.prestige) ? data.prestige : [],
@@ -59,6 +66,7 @@ export function addCharacter(ownerName, data = {}) {
     avatar: data.avatar ?? null,
     appearance: data.appearance ?? {},
     inventory: data.inventory ?? [],
+    wallet: data.wallet ?? {},
     equipment: data.equipment ?? {},
     buffs: data.buffs ?? [],
     notes: data.notes ?? '',

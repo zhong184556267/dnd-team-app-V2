@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Plus } from 'lucide-react'
-import BuffListItem from './BuffListItem'
+import BuffListItem, { isDebuff } from './BuffListItem'
 import BuffForm from './BuffForm'
 
 export default function BuffManager({ buffs = [], baseAbilities = {}, onSave, canEdit }) {
@@ -8,6 +8,16 @@ export default function BuffManager({ buffs = [], baseAbilities = {}, onSave, ca
   const [editingId, setEditingId] = useState(null)
 
   const list = Array.isArray(buffs) ? buffs : []
+
+  const { buffsList, debuffsList } = useMemo(() => {
+    const left = []
+    const right = []
+    list.forEach((b) => {
+      if (isDebuff(b, baseAbilities)) right.push(b)
+      else left.push(b)
+    })
+    return { buffsList: left, debuffsList: right }
+  }, [list, baseAbilities])
 
   const handleAdd = () => {
     setEditingId(null)
@@ -41,9 +51,29 @@ export default function BuffManager({ buffs = [], baseAbilities = {}, onSave, ca
     onSave(next)
   }
 
+  const renderColumn = (items, emptyText) => {
+    if (items.length === 0) {
+      return <p className="text-gray-500 text-xs py-3 text-center">{emptyText}</p>
+    }
+    return (
+      <div className="overflow-hidden rounded-lg border border-gray-700 bg-gray-800/50">
+        {items.map((buff) => (
+          <BuffListItem
+            key={buff.id}
+            buff={buff}
+            baseAbilities={baseAbilities}
+            onEdit={handleEdit}
+            onDelete={handleDelete}
+            canEdit={canEdit}
+          />
+        ))}
+      </div>
+    )
+  }
+
   return (
-    <div className="rounded-xl border border-gray-600 bg-dnd-card p-3">
-      <div className="flex items-center justify-end mb-2">
+    <div className="rounded-xl border border-gray-600 bg-gray-800/30 p-4">
+      <div className="flex items-center justify-end mb-3">
         {canEdit && (
           <button
             type="button"
@@ -56,22 +86,24 @@ export default function BuffManager({ buffs = [], baseAbilities = {}, onSave, ca
         )}
       </div>
 
-      <div className="overflow-hidden">
-        {list.length === 0 ? (
-          <p className="text-gray-500 text-xs py-4 text-center">暂无增益/减值</p>
-        ) : (
-          list.map((buff) => (
-            <BuffListItem
-              key={buff.id}
-              buff={buff}
-              baseAbilities={baseAbilities}
-              onEdit={handleEdit}
-              onDelete={handleDelete}
-              canEdit={canEdit}
-            />
-          ))
-        )}
-      </div>
+      {list.length === 0 ? (
+        <p className="text-gray-500 text-xs py-4 text-center">暂无增益/减值</p>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="min-w-0">
+            <h3 className="text-xs font-bold text-emerald-400/90 mb-2 flex items-center gap-1">
+              <span aria-hidden>✨</span> 增益效果
+            </h3>
+            {renderColumn(buffsList, '暂无增益')}
+          </div>
+          <div className="min-w-0">
+            <h3 className="text-xs font-bold text-red-400/90 mb-2 flex items-center gap-1">
+              <span aria-hidden>💀</span> 减益效果
+            </h3>
+            {renderColumn(debuffsList, '暂无减益')}
+          </div>
+        </div>
+      )}
 
       {showForm && (
         <>

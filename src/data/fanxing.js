@@ -6,4 +6,6 @@
 export const FANXING_PRESTIGE_CLASSES = [
   '圣魂之刃',
   '蓝御法师',
+  '奥音实验者',
+  '斯兰亲卫',
 ]

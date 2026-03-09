@@ -30,6 +30,7 @@ export const CONDITION_OPTIONS = [
   { value: 'paralyzed', label: '麻痹' },
   { value: 'stunned', label: '震慑' },
   { value: 'unconscious', label: '昏迷' },
+  { value: 'psychic_collapse', label: '灵崩' },
   { value: 'exhaustion', label: '力竭' },
 ]
 
@@ -49,9 +50,9 @@ export const BUFF_TYPES = {
     label: '攻击与检定',
     color: 'red', // 左边框颜色
     effects: [
-      { key: 'attack_melee', label: '近战攻击加值', dataType: 'number' },
-      { key: 'attack_ranged', label: '远程攻击加值', dataType: 'number' },
-      { key: 'attack_all', label: '通用攻击加值', dataType: 'number' },
+      { key: 'attack_melee', label: '近战攻击', dataType: 'number' },
+      { key: 'attack_ranged', label: '远程攻击', dataType: 'number' },
+      { key: 'attack_all', label: '通用攻击', dataType: 'number' },
       { key: 'adv_melee', label: '近战攻击优势', dataType: 'boolean' },
       { key: 'adv_ranged', label: '远程攻击优势', dataType: 'boolean' },
       { key: 'adv_all_attack', label: '所有攻击优势', dataType: 'boolean' },
@@ -65,10 +66,10 @@ export const BUFF_TYPES = {
     label: '伤害与抗性',
     color: 'orange',
     effects: [
-      { key: 'dmg_bonus_melee', label: '近战伤害加值', dataType: 'number' },
-      { key: 'dmg_bonus_ranged', label: '远程伤害加值', dataType: 'number' },
-      { key: 'dmg_bonus_all', label: '通用伤害加值', dataType: 'number' },
-      { key: 'dmg_type_specific', label: '特定类型伤害加成', dataType: 'object', subSelect: 'damageType' },
+      { key: 'dmg_bonus_melee', label: '近战伤害', dataType: 'number' },
+      { key: 'dmg_bonus_ranged', label: '远程伤害', dataType: 'number' },
+      { key: 'dmg_bonus_all', label: '通用伤害', dataType: 'number' },
+      { key: 'dmg_type_specific', label: '特定类型伤害', dataType: 'object', subSelect: 'damageType' },
       { key: 'resist_type', label: '伤害抗性', dataType: 'array', subSelect: 'damageType' },
       { key: 'immune_type', label: '伤害免疫', dataType: 'array', subSelect: 'damageType' },
       { key: 'vulnerable_type', label: '伤害易伤', dataType: 'array', subSelect: 'damageType' },
@@ -79,13 +80,14 @@ export const BUFF_TYPES = {
     label: '属性与能力',
     color: 'gold',
     effects: [
-      { key: 'ability_score', label: '属性值增强', dataType: 'object', subSelect: 'abilityScores' },
-      { key: 'ability_override', label: '属性值设定', dataType: 'object', subSelect: 'abilityScores' },
-      { key: 'ac_bonus', label: 'AC 加值', dataType: 'number' },
-      { key: 'speed_bonus', label: '移动速度加成', dataType: 'number' },
-      { key: 'reach_bonus', label: '攻击距离延伸', dataType: 'number' },
-      { key: 'init_bonus', label: '先攻加值', dataType: 'number' },
-      { key: 'save_dc_bonus', label: '豁免 DC 加值', dataType: 'number' },
+      { key: 'ability_score', label: '属性调整', dataType: 'object', subSelect: 'abilityScores' },
+      { key: 'ability_override', label: '属性值上限', dataType: 'object', subSelect: 'abilityScores' },
+      { key: 'extra_attunement_slots', label: '额外同调位', dataType: 'number' },
+      { key: 'ac_bonus', label: 'AC', dataType: 'number' },
+      { key: 'speed_bonus', label: '移动速度', dataType: 'number' },
+      { key: 'reach_bonus', label: '攻击距离', dataType: 'number' },
+      { key: 'init_bonus', label: '先攻', dataType: 'number' },
+      { key: 'save_dc_bonus', label: '豁免 DC', dataType: 'number' },
       { key: 'proficiency_override', label: '熟练加值覆写', dataType: 'number' },
       { key: 'custom_stat', label: '📝 自由填写 (属性)', dataType: 'text' },
     ],
@@ -94,8 +96,7 @@ export const BUFF_TYPES = {
     label: '生命与状态',
     color: 'purple',
     effects: [
-      { key: 'temp_hp', label: '临时生命值', dataType: 'number' },
-      { key: 'max_hp_bonus', label: '生命上限加成', dataType: 'number' },
+      { key: 'max_hp_bonus', label: '生命上限', dataType: 'number' },
       { key: 'regeneration', label: '再生', dataType: 'number' },
       { key: 'condition_immunity', label: '状态免疫', dataType: 'array', subSelect: 'condition' },
       { key: 'custom_condition', label: '📝 自由填写 (状态)', dataType: 'text' },
@@ -117,8 +118,14 @@ export function getConditionLabel(value) {
   return found ? found.label : value
 }
 
+/** 已移除的效果类型（仅用于显示旧数据，不可新增） */
+const DEPRECATED_EFFECTS = { temp_hp: { key: 'temp_hp', label: '临时生命值（已移至血条）', dataType: 'number' } }
+
 /** 扁平化：所有 effect key -> { category, effect } */
 export function getEffectInfo(key) {
+  if (DEPRECATED_EFFECTS[key]) {
+    return { category: 'condition', effect: DEPRECATED_EFFECTS[key] }
+  }
   for (const [cat, data] of Object.entries(BUFF_TYPES)) {
     const effect = data.effects.find((e) => e.key === key)
     if (effect) return { category: cat, ...data, effect }

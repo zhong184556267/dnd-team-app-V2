@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react'
 import { Plus, Minus, ArrowRightLeft } from 'lucide-react'
+import { useModule } from '../contexts/ModuleContext'
 import { getTeamVault, adjustVault, convertVaultCurrency, convertCurrency } from '../lib/currencyStore'
 import { CURRENCY_CONFIG, getCurrencyDisplayName } from '../data/currencyConfig'
 import { CurrencyGrid } from './CurrencyDisplay'
 
 /** 团队仓库页用：金库兑换 + 金库 +/- 输入 + 团队金库展示 */
 export default function CurrencyPanel() {
+  const { currentModuleId } = useModule()
   const [vault, setVault] = useState({})
   const [sign, setSign] = useState('+')
   const [amountInput, setAmountInput] = useState('')
@@ -17,11 +19,11 @@ export default function CurrencyPanel() {
   const [convertAmount, setConvertAmount] = useState('')
   const [convertError, setConvertError] = useState('')
 
-  const refresh = () => setVault(getTeamVault())
+  const refresh = () => setVault(getTeamVault(currentModuleId))
 
   useEffect(() => {
     refresh()
-  }, [])
+  }, [currentModuleId])
 
   useEffect(() => {
     if (convertFrom === convertTo) {
@@ -38,7 +40,7 @@ export default function CurrencyPanel() {
       return
     }
     const delta = sign === '+' ? num : -num
-    const result = adjustVault(currencyId, delta)
+    const result = adjustVault(currentModuleId, currencyId, delta)
     if (result.success) {
       refresh()
       setAmountInput('')
@@ -65,7 +67,7 @@ export default function CurrencyPanel() {
       setConvertError('请输入有效数量或「全部」')
       return
     }
-    const result = convertVaultCurrency(convertFrom, convertTo, amt)
+    const result = convertVaultCurrency(currentModuleId, convertFrom, convertTo, amt)
     if (result.success) {
       refresh()
       setConvertAmount('')

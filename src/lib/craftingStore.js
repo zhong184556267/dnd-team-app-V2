@@ -3,7 +3,11 @@
  * 结构：{ id, 类型, 物品名称, 详细介绍?, 制作天数, 已制作天数, 消耗金额, 消耗经验, 制作需求人, 状态, ... }
  */
 
-const CRAFTING_KEY = 'dnd_magic_crafting'
+const CRAFTING_KEY_PREFIX = 'dnd_magic_crafting_'
+
+function craftingKey(moduleId) {
+  return CRAFTING_KEY_PREFIX + (moduleId || 'default')
+}
 
 export const MAGIC_ITEM_TYPES = [
   { id: 'weapon_armor', label: '武器&盔甲', formula: 'manual' },
@@ -16,9 +20,9 @@ export const MAGIC_ITEM_TYPES = [
   { id: 'potion', label: '药水', formula: 'potion', maxSl: 4 },
 ]
 
-function getRaw() {
+function getRaw(moduleId) {
   try {
-    const raw = localStorage.getItem(CRAFTING_KEY)
+    const raw = localStorage.getItem(craftingKey(moduleId))
     const list = raw ? JSON.parse(raw) : []
     return Array.isArray(list) ? list : []
   } catch {
@@ -26,20 +30,20 @@ function getRaw() {
   }
 }
 
-function save(list) {
+function save(moduleId, list) {
   try {
-    localStorage.setItem(CRAFTING_KEY, JSON.stringify(list))
+    localStorage.setItem(craftingKey(moduleId), JSON.stringify(list))
   } catch (_) {}
 }
 
 /** 获取所有制作项目 */
-export function getCraftingProjects() {
-  return getRaw()
+export function getCraftingProjects(moduleId) {
+  return getRaw(moduleId)
 }
 
 /** 新增制作项目 */
-export function addCraftingProject(project) {
-  const list = getRaw()
+export function addCraftingProject(moduleId, project) {
+  const list = getRaw(moduleId)
   const id = 'craft_' + Date.now()
   const days = Math.max(0, Number(project.制作天数) || 0)
   const entry = {
@@ -61,13 +65,13 @@ export function addCraftingProject(project) {
     ...(project.数量 != null ? { 数量: Math.max(1, Number(project.数量) || 1) } : {}),
   }
   list.push(entry)
-  save(list)
+  save(moduleId, list)
   return list
 }
 
 /** 更新制作项目 */
-export function updateCraftingProject(index, updates) {
-  const list = getRaw()
+export function updateCraftingProject(moduleId, index, updates) {
+  const list = getRaw(moduleId)
   if (index < 0 || index >= list.length) return list
   const next = [...list]
   const cur = next[index]
@@ -75,26 +79,26 @@ export function updateCraftingProject(index, updates) {
   if (patch.制作天数 != null) patch.制作天数 = Math.max(0, Number(patch.制作天数) || 0)
   if (patch.消耗经验 != null) patch.消耗经验 = Math.max(0, Number(patch.消耗经验) || 0)
   next[index] = { ...cur, ...patch }
-  save(next)
+  save(moduleId, next)
   return next
 }
 
 /** 删除制作项目 */
-export function removeCraftingProject(index) {
-  const list = getRaw()
+export function removeCraftingProject(moduleId, index) {
+  const list = getRaw(moduleId)
   if (index < 0 || index >= list.length) return list
   const next = list.filter((_, i) => i !== index)
-  save(next)
+  save(moduleId, next)
   return next
 }
 
 /** 重排制作项目顺序 */
-export function reorderCraftingProjects(fromIndex, toIndex) {
-  const list = getRaw()
+export function reorderCraftingProjects(moduleId, fromIndex, toIndex) {
+  const list = getRaw(moduleId)
   if (fromIndex < 0 || fromIndex >= list.length || toIndex < 0 || toIndex >= list.length) return list
   const next = [...list]
   const [removed] = next.splice(fromIndex, 1)
   next.splice(toIndex, 0, removed)
-  save(next)
+  save(moduleId, next)
   return next
 }

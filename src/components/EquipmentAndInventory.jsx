@@ -424,8 +424,9 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
     if (!e) { setStoreToVaultIndex(null); return }
     const q = Math.max(1, Number(e.qty) ?? 1)
     const toStore = Math.min(Math.max(1, storeToVaultQty), q)
+    const moduleId = character?.moduleId ?? 'default'
     if (e.itemId) {
-      addToWarehouse({
+      addToWarehouse(moduleId, {
         itemId: e.itemId,
         name: e.name,
         攻击: e.攻击,
@@ -436,7 +437,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
         qty: toStore,
       })
     } else {
-      addToWarehouse({ name: e.name || '—', qty: toStore })
+      addToWarehouse(moduleId, { name: e.name || '—', qty: toStore })
     }
     if (toStore >= q) {
       onSave({ inventory: inv.filter((_, i) => i !== storeToVaultIndex) })

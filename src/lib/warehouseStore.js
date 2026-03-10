@@ -1,8 +1,28 @@
-const WAREHOUSE_KEY = 'dnd_warehouse'
+const WAREHOUSE_KEY_PREFIX = 'dnd_warehouse_'
+const WAREHOUSE_KEY_LEGACY = 'dnd_warehouse'
 
-export function getWarehouse() {
+function warehouseKey(moduleId) {
+  return WAREHOUSE_KEY_PREFIX + (moduleId || 'default')
+}
+
+/** 迁移：默认模组首次读取时从旧 key 迁入 */
+function migrateWarehouseIfNeeded(moduleId) {
+  if (moduleId !== 'default') return
   try {
-    const raw = localStorage.getItem(WAREHOUSE_KEY)
+    const legacy = localStorage.getItem(WAREHOUSE_KEY_LEGACY)
+    if (!legacy) return
+    const list = JSON.parse(legacy)
+    if (Array.isArray(list) && list.length > 0) {
+      localStorage.setItem(warehouseKey('default'), JSON.stringify(list))
+      localStorage.removeItem(WAREHOUSE_KEY_LEGACY)
+    }
+  } catch (_) {}
+}
+
+export function getWarehouse(moduleId) {
+  migrateWarehouseIfNeeded(moduleId)
+  try {
+    const raw = localStorage.getItem(warehouseKey(moduleId))
     const list = raw ? JSON.parse(raw) : []
     return Array.isArray(list) ? list : []
   } catch {
@@ -10,15 +30,15 @@ export function getWarehouse() {
   }
 }
 
-function saveWarehouse(list) {
+function saveWarehouse(moduleId, list) {
   try {
-    localStorage.setItem(WAREHOUSE_KEY, JSON.stringify(list))
+    localStorage.setItem(warehouseKey(moduleId), JSON.stringify(Array.isArray(list) ? list : []))
   } catch (_) {}
 }
 
 /** 往仓库添加：{ itemId, name?, 攻击?, 伤害?, 详细介绍?, 附注?, qty?, magicBonus?, charge? } 或 { name, qty }。带 攻击/伤害/详细介绍/附注 时视为不同实例不合并。 */
-export function addToWarehouse(entry) {
-  const list = getWarehouse()
+export function addToWarehouse(moduleId, entry) {
+  const list = getWarehouse(moduleId)
   const { itemId, name, 攻击, 伤害, 攻击距离, 详细介绍, 附注, qty = 1, magicBonus, charge } = entry
   const nameTrim = name != null ? String(name).trim() : ''
   const hasOverrides = 攻击 != null || 伤害 != null || 攻击距离 != null || 详细介绍 != null || 附注 != null || magicBonus != null || charge != null
@@ -42,46 +62,46 @@ export function addToWarehouse(entry) {
   } else if (nameTrim) {
     list.push({ name: nameTrim, qty: qty || 1 })
   } else return
-  saveWarehouse(list)
+  saveWarehouse(moduleId, list)
   return list
 }
 
 /** 更新仓库中某条物品 */
-export function updateWarehouseItem(index, updates) {
-  const list = getWarehouse()
+export function updateWarehouseItem(moduleId, index, updates) {
+  const list = getWarehouse(moduleId)
   if (index < 0 || index >= list.length) return list
   const next = [...list]
   next[index] = { ...next[index], ...updates }
-  saveWarehouse(next)
+  saveWarehouse(moduleId, next)
   return next
 }
 
 /** 从仓库移除或减少数量 */
-export function removeFromWarehouse(index, amount = null) {
-  const list = getWarehouse()
+export function removeFromWarehouse(moduleId, index, amount = null) {
+  const list = getWarehouse(moduleId)
   if (index < 0 || index >= list.length) return list
   const item = list[index]
   if (amount != null && item.qty > amount) {
     item.qty -= amount
-    saveWarehouse(list)
+    saveWarehouse(moduleId, list)
   } else {
     list.splice(index, 1)
-    saveWarehouse(list)
+    saveWarehouse(moduleId, list)
   }
   return list
 }
 
-export function setWarehouse(list) {
-  saveWarehouse(Array.isArray(list) ? list : [])
+export function setWarehouse(moduleId, list) {
+  saveWarehouse(moduleId, Array.isArray(list) ? list : [])
 }
 
 /** 重排仓库物品顺序 */
-export function reorderWarehouse(fromIndex, toIndex) {
-  const list = getWarehouse()
+export function reorderWarehouse(moduleId, fromIndex, toIndex) {
+  const list = getWarehouse(moduleId)
   if (fromIndex < 0 || fromIndex >= list.length || toIndex < 0 || toIndex >= list.length || fromIndex === toIndex) return list
   const next = [...list]
   const [item] = next.splice(fromIndex, 1)
   next.splice(toIndex, 0, item)
-  saveWarehouse(next)
+  saveWarehouse(moduleId, next)
   return next
 }

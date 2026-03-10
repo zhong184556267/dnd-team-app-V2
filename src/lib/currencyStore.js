@@ -6,11 +6,16 @@
 import { CURRENCY_CONFIG, CURRENCY_IDS, getEmptyBalances, getCurrencyById } from '../data/currencyConfig'
 import { getCharacter, updateCharacter } from './characterStore'
 
-const VAULT_KEY = 'dnd_team_vault'
+const VAULT_KEY_PREFIX = 'dnd_team_vault_'
+const VAULT_KEY_LEGACY = 'dnd_team_vault'
 
-function getVaultRaw() {
+function vaultKey(moduleId) {
+  return VAULT_KEY_PREFIX + (moduleId || 'default')
+}
+
+function getVaultRaw(moduleId) {
   try {
-    const raw = localStorage.getItem(VAULT_KEY)
+    const raw = localStorage.getItem(vaultKey(moduleId))
     const data = raw ? JSON.parse(raw) : null
     return data && typeof data === 'object' ? data : {}
   } catch {
@@ -18,15 +23,30 @@ function getVaultRaw() {
   }
 }
 
-function saveVault(data) {
+/** 迁移：默认模组首次读取时从旧 key 迁入 */
+function migrateVaultIfNeeded(moduleId) {
+  if (moduleId !== 'default') return
   try {
-    localStorage.setItem(VAULT_KEY, JSON.stringify(data))
+    const legacy = localStorage.getItem(VAULT_KEY_LEGACY)
+    if (!legacy) return
+    const data = JSON.parse(legacy)
+    if (data && typeof data === 'object' && Object.keys(data).length > 0) {
+      localStorage.setItem(vaultKey('default'), JSON.stringify(data))
+      localStorage.removeItem(VAULT_KEY_LEGACY)
+    }
+  } catch (_) {}
+}
+
+function saveVault(moduleId, data) {
+  try {
+    localStorage.setItem(vaultKey(moduleId), JSON.stringify(data))
   } catch (_) {}
 }
 
 /** 团队金库余额（缺省为 0） */
-export function getTeamVault() {
-  const raw = getVaultRaw()
+export function getTeamVault(moduleId) {
+  migrateVaultIfNeeded(moduleId)
+  const raw = getVaultRaw(moduleId)
   const out = getEmptyBalances()
   CURRENCY_IDS.forEach((id) => {
     const v = raw[id]
@@ -37,7 +57,7 @@ export function getTeamVault() {
 }
 
 /** 写入团队金库（全量替换，仅用于内部或管理员） */
-export function setTeamVault(balances) {
+export function setTeamVault(moduleId, balances) {
   const out = getEmptyBalances()
   if (balances && typeof balances === 'object') {
     CURRENCY_IDS.forEach((id) => {
@@ -46,41 +66,38 @@ export function setTeamVault(balances) {
       out[id] = n < 0 ? 0 : n
     })
   }
-  saveVault(out)
+  saveVault(moduleId, out)
   return out
 }
 
 /**
  * 金库直接增减：+ 增加、- 减少（如经验值输入）
+ * @param {string} moduleId 模组 id
  * @param {string} currencyId 货币 id
  * @param {number} delta 正数增加、负数减少
  * @returns {{ success: boolean, error?: string }}
  */
-export function adjustVault(currencyId, delta) {
+export function adjustVault(moduleId, currencyId, delta) {
   const n = Number(delta)
   if (Number.isNaN(n) || n === 0) return { success: false, error: '请输入有效数量' }
   if (!CURRENCY_IDS.includes(currencyId)) return { success: false, error: '无效货币类型' }
-  const vault = getTeamVault()
+  const vault = getTeamVault(moduleId)
   const current = vault[currencyId] ?? 0
   if (n < 0 && current + n < 0) return { success: false, error: '金库余额不足' }
   const next = { ...vault, [currencyId]: Math.max(0, current + n) }
-  setTeamVault(next)
+  setTeamVault(moduleId, next)
   return { success: true }
 }
 
 /**
  * 金库内货币兑换：从一种货币转为另一种（按汇率），直接更新金库
- * @param {string} fromId 源货币 id
- * @param {string} toId 目标货币 id
- * @param {number | 'all'} amount 兑换数量，'all' 表示全部
- * @returns {{ success: boolean, error?: string }}
  */
-export function convertVaultCurrency(fromId, toId, amount) {
+export function convertVaultCurrency(moduleId, fromId, toId, amount) {
   if (!CURRENCY_IDS.includes(fromId) || !CURRENCY_IDS.includes(toId)) {
     return { success: false, error: '无效货币类型' }
   }
   if (fromId === toId) return { success: false, error: '请选择不同的货币' }
-  const vault = getTeamVault()
+  const vault = getTeamVault(moduleId)
   let amt = amount
   if (amt === 'all') {
     amt = vault[fromId] ?? 0
@@ -94,7 +111,7 @@ export function convertVaultCurrency(fromId, toId, amount) {
   const next = { ...vault }
   next[fromId] = Math.max(0, have - amt)
   next[toId] = (next[toId] ?? 0) + toAmount
-  setTeamVault(next)
+  setTeamVault(moduleId, next)
   return { success: true }
 }
 
@@ -146,15 +163,10 @@ export function convertCurrency(amount, fromType, toType) {
 
 /**
  * 转账：角色 ↔ 团队金库
- * @param {'toVault' | 'fromVault'} direction 存入金库 / 从金库取出
- * @param {string} characterId 角色 id
- * @param {string} currencyId 货币类型
- * @param {number} amount 数量；若为 'all' 则全部
- * @returns {{ success: boolean, error?: string }}
  */
-export function transferCurrency(direction, characterId, currencyId, amount) {
+export function transferCurrency(moduleId, direction, characterId, currencyId, amount) {
   const wallet = getCharacterWallet(characterId)
-  const vault = getTeamVault()
+  const vault = getTeamVault(moduleId)
 
   let amt = amount
   if (amt === 'all' || amt === undefined) {
@@ -174,7 +186,7 @@ export function transferCurrency(direction, characterId, currencyId, amount) {
     const newWallet = { ...wallet, [currencyId]: have - amt }
     const newVault = { ...vault, [currencyId]: (vault[currencyId] ?? 0) + amt }
     updateCharacter(characterId, { wallet: newWallet })
-    setTeamVault(newVault)
+    setTeamVault(moduleId, newVault)
     return { success: true }
   }
 
@@ -185,7 +197,7 @@ export function transferCurrency(direction, characterId, currencyId, amount) {
     }
     const newVault = { ...vault, [currencyId]: inVault - amt }
     const newWallet = { ...wallet, [currencyId]: (wallet[currencyId] ?? 0) + amt }
-    setTeamVault(newVault)
+    setTeamVault(moduleId, newVault)
     updateCharacter(characterId, { wallet: newWallet })
     return { success: true }
   }

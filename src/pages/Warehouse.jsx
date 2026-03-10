@@ -1,5 +1,6 @@
 import { useState, useEffect, Fragment } from 'react'
 import { Package, Pencil, Trash2, GripVertical } from 'lucide-react'
+import { useModule } from '../contexts/ModuleContext'
 import { getItemById, getItemDisplayName } from '../data/itemDatabase'
 import { getWarehouse, addToWarehouse, removeFromWarehouse, updateWarehouseItem, reorderWarehouse } from '../lib/warehouseStore'
 import { getAllCharacters, updateCharacter } from '../lib/characterStore'
@@ -59,6 +60,7 @@ function buildArmorNoteFromFields(fields) {
 }
 
 export default function Warehouse() {
+  const { currentModuleId } = useModule()
   const [list, setList] = useState([])
   const [selectedItemId, setSelectedItemId] = useState('')
   const [instanceName, setInstanceName] = useState('')
@@ -86,17 +88,17 @@ export default function Warehouse() {
   const [editMagicBonus, setEditMagicBonus] = useState(0)
   const [editCharge, setEditCharge] = useState(0)
 
-  const characters = getAllCharacters()
+  const characters = getAllCharacters(currentModuleId)
   const selectedPrototype = selectedItemId ? getItemById(selectedItemId) : null
   const itemType = selectedPrototype?.类型 ?? ''
   const showAttackDamage = itemType === '武器' || itemType === '枪械'
   const showArmorNote = itemType === '盔甲'
 
   useEffect(() => {
-    setList(getWarehouse())
-  }, [])
+    setList(getWarehouse(currentModuleId))
+  }, [currentModuleId])
 
-  const refreshList = () => setList(getWarehouse())
+  const refreshList = () => setList(getWarehouse(currentModuleId))
 
   const handleAddFromList = (overrides = {}) => {
     if (!selectedItemId) return
@@ -110,7 +112,7 @@ export default function Warehouse() {
     const 附注Value = showArmorNote ? buildArmorNoteFromFields(overrides.armorFields ?? instanceArmorFields) : (overrides.附注 != null ? String(overrides.附注).trim() : instance附注?.trim() || '')
     const magicBonus = overrides.magicBonus != null ? Number(overrides.magicBonus) || 0 : (Number(instanceMagicBonus) || 0)
     const charge = overrides.charge != null ? Number(overrides.charge) || 0 : (Number(instanceCharge) || 0)
-    addToWarehouse({
+    addToWarehouse(currentModuleId, {
       itemId: selectedItemId,
       ...(name ? { name } : {}),
       ...(攻击 ? { 攻击 } : {}),
@@ -137,14 +139,14 @@ export default function Warehouse() {
   }
 
   const handleRemove = (i) => {
-    removeFromWarehouse(i)
+    removeFromWarehouse(currentModuleId, i)
     refreshList()
   }
 
   const reorderList = (fromIndex, toIndex) => {
     if (fromIndex === toIndex) return
     setEditingIndex(null)
-    setList(reorderWarehouse(fromIndex, toIndex))
+    setList(reorderWarehouse(currentModuleId, fromIndex, toIndex))
   }
   const handleDragStart = (e, index) => {
     e.dataTransfer.setData('text/plain', String(index))
@@ -162,13 +164,13 @@ export default function Warehouse() {
 
   const setQty = (i, value) => {
     const n = Math.max(1, parseInt(value, 10) || 1)
-    const next = updateWarehouseItem(i, { qty: n })
+    const next = updateWarehouseItem(currentModuleId, i, { qty: n })
     setList(next)
   }
 
   const setCharge = (i, value) => {
     const n = Math.max(0, parseInt(value, 10) || 0)
-    const next = updateWarehouseItem(i, { charge: n })
+    const next = updateWarehouseItem(currentModuleId, i, { charge: n })
     setList(next)
   }
 
@@ -194,7 +196,7 @@ export default function Warehouse() {
     const e = list[editingIndex]
     const proto = e.itemId ? getItemById(e.itemId) : null
     const 附注Value = proto?.类型 === '盔甲' ? buildArmorNoteFromFields(editArmorFields) : (edit附注 != null && String(edit附注).trim() !== '' ? String(edit附注).trim() : (e.附注 ?? ''))
-    const next = updateWarehouseItem(editingIndex, {
+    const next = updateWarehouseItem(currentModuleId, editingIndex, {
       name: (editName && editName.trim()) || (proto ? getItemDisplayName(proto) : null) || e.name || '—',
       攻击: (edit攻击 && edit攻击.trim()) ?? e.攻击,
       伤害: (edit伤害 && edit伤害.trim()) ?? e.伤害,
@@ -244,9 +246,9 @@ export default function Warehouse() {
     const inv = char.inventory ?? []
     updateCharacter(depositCharId, { inventory: [...inv, invEntry] })
     if (q >= (Number(entry.qty) ?? 1)) {
-      removeFromWarehouse(depositIndex)
+      removeFromWarehouse(currentModuleId, depositIndex)
     } else {
-      removeFromWarehouse(depositIndex, q)
+      removeFromWarehouse(currentModuleId, depositIndex, q)
     }
     setDepositIndex(null)
     setDepositCharId('')

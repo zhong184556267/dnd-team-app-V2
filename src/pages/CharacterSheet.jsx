@@ -769,6 +769,22 @@ export default function CharacterSheet() {
       {char ? (
         <>
           <section className="mt-4 w-full flex flex-col items-stretch">
+            <label className={labelClass + ' text-center'}>代号（可选，用于区分同名角色）</label>
+            {canEdit ? (
+              <input
+                type="text"
+                value={char.codename ?? ''}
+                onChange={(e) => persist({ codename: e.target.value || undefined })}
+                placeholder="如：一号、测试用"
+                className={inputClass + ' text-center text-dnd-text-muted text-sm'}
+              />
+            ) : char.codename ? (
+              <p className="text-sm text-dnd-text-muted text-center">{char.codename}</p>
+            ) : (
+              <p className="text-sm text-dnd-text-muted text-center">—</p>
+            )}
+          </section>
+          <section className="mt-4 w-full flex flex-col items-stretch">
             <label className={labelClass + ' text-center'}>角色名</label>
             {canEdit ? (
               <NameInput

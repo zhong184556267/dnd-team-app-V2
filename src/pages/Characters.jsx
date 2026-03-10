@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
-import { Plus, User, Star, Trash2 } from 'lucide-react'
+import { Link, useNavigate } from 'react-router-dom'
+import { Plus, User, Star, Trash2, Copy } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
-import { getCharacters, getDefaultCharacterId, setDefaultCharacterId, deleteCharacter } from '../lib/characterStore'
+import { useModule } from '../contexts/ModuleContext'
+import { getCharacters, getDefaultCharacterId, setDefaultCharacterId, deleteCharacter, duplicateCharacter, updateCharacter } from '../lib/characterStore'
 import { levelFromXP } from '../lib/xp5e'
 
 /** 角色等级显示：优先经验换算，否则职业等级之和 */
@@ -38,14 +39,17 @@ function displayClassLevel(c) {
 
 export default function Characters() {
   const { user, isAdmin } = useAuth()
+  const { currentModuleId } = useModule()
+  const navigate = useNavigate()
   const [list, setList] = useState([])
+  const [editingCodename, setEditingCodename] = useState({})
   const defaultId = user?.name ? getDefaultCharacterId(user.name) : null
 
-  const refresh = () => setList(getCharacters(user?.name, isAdmin))
+  const refresh = () => setList(getCharacters(user?.name, isAdmin, currentModuleId))
 
   useEffect(() => {
     refresh()
-  }, [user?.name, isAdmin])
+  }, [user?.name, isAdmin, currentModuleId])
 
   const handleSetDefault = (e, c) => {
     e.preventDefault()
@@ -64,6 +68,36 @@ export default function Characters() {
     refresh()
     if (defaultId === c.id) setDefaultCharacterId(user?.name, null)
   }
+
+  const handleDuplicate = (e, c) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const copy = duplicateCharacter(c.id)
+    if (copy) {
+      refresh()
+      navigate(`/characters/${copy.id}`)
+    }
+  }
+
+  const handleCodenameChange = (c, value) => {
+    setEditingCodename((prev) => ({ ...prev, [c.id]: value }))
+  }
+
+  const handleCodenameBlur = (c) => {
+    const value = editingCodename[c.id] ?? c.codename ?? ''
+    const trimmed = value?.trim() || ''
+    setEditingCodename((prev) => {
+      const next = { ...prev }
+      delete next[c.id]
+      return next
+    })
+    if (trimmed !== (c.codename ?? '')) {
+      updateCharacter(c.id, { codename: trimmed || undefined })
+      refresh()
+    }
+  }
+
+  const getCodenameDisplay = (c) => editingCodename[c.id] ?? c.codename ?? ''
 
   return (
     <div className="p-4 pb-24 min-h-screen bg-dnd-bg">
@@ -115,7 +149,20 @@ export default function Characters() {
                       )}
                     </span>
                     <div className="min-w-0 flex-1">
-                      <p className="font-semibold text-white truncate">
+                      {canEdit ? (
+                        <input
+                          type="text"
+                          value={getCodenameDisplay(c)}
+                          onChange={(e) => handleCodenameChange(c, e.target.value)}
+                          onBlur={() => handleCodenameBlur(c)}
+                          onClick={(e) => e.stopPropagation()}
+                          placeholder="代号（可选，用于区分同名角色）"
+                          className="w-full text-base font-semibold text-white placeholder:text-dnd-text-muted bg-transparent border-0 border-b border-transparent hover:border-gray-600 focus:border-dnd-red focus:outline-none focus:ring-0 pb-0.5 mb-0.5"
+                        />
+                      ) : c.codename ? (
+                        <p className="text-base font-semibold text-white truncate mb-0.5">{c.codename}</p>
+                      ) : null}
+                      <p className="text-xs text-dnd-text-muted truncate">
                         {c.name || '未命名'}
                       </p>
                       <p className="text-dnd-text-muted text-sm">
@@ -135,6 +182,14 @@ export default function Characters() {
                   </Link>
                   {canEdit && (
                     <div className="flex shrink-0 items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={(e) => handleDuplicate(e, c)}
+                        title="复制角色"
+                        className="p-2 rounded-lg text-dnd-text-muted hover:text-emerald-400 hover:bg-emerald-400/20 transition-colors"
+                      >
+                        <Copy className="w-5 h-5" />
+                      </button>
                       <button
                         type="button"
                         onClick={(e) => handleSetDefault(e, c)}

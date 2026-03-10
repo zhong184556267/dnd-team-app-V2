@@ -23,6 +23,7 @@ import {
   calcWandMarketPrice,
   calcStaffMarketPrice,
 } from '../lib/craftingFormulas'
+import { useModule } from '../contexts/ModuleContext'
 import { getAllCharacters, getCharacter, updateCharacter } from '../lib/characterStore'
 import { CRAFTING_FEAT_IDS } from '../data/feats'
 import { getTeamVault, adjustVault } from '../lib/currencyStore'
@@ -68,6 +69,7 @@ function normalizeProject(p) {
 }
 
 export default function MagicCraftingPanel() {
+  const { currentModuleId } = useModule()
   const [projects, setProjects] = useState([])
   const [expandedIndex, setExpandedIndex] = useState(null)
   const [selectedProjectIndex, setSelectedProjectIndex] = useState(null)
@@ -93,16 +95,16 @@ export default function MagicCraftingPanel() {
   const [depositCharId, setDepositCharId] = useState('')
   const [depositToWarehouse, setDepositToWarehouse] = useState(true)
 
-  const characters = getAllCharacters()
+  const characters = getAllCharacters(currentModuleId)
   const eligibleCrafters = getEligibleCrafters(characters)
-  const vault = getTeamVault()
+  const vault = getTeamVault(currentModuleId)
   const vaultGp = vault.gp ?? 0
 
-  const refresh = () => setProjects(getCraftingProjects())
+  const refresh = () => setProjects(getCraftingProjects(currentModuleId))
 
   useEffect(() => {
     refresh()
-  }, [])
+  }, [currentModuleId])
 
   const computeNewProjectStats = () => {
     const type = new类型
@@ -137,7 +139,7 @@ export default function MagicCraftingPanel() {
     const name = new物品名称?.trim()
     if (!name) return
     const { costStr, xp, days } = computeNewProjectStats()
-    addCraftingProject({
+    addCraftingProject(currentModuleId, {
       类型: new类型,
       物品名称: name,
       详细介绍: new详细介绍,
@@ -167,12 +169,12 @@ export default function MagicCraftingPanel() {
   }
 
   const handleUpdate = (index, patch) => {
-    updateCraftingProject(index, patch)
+    updateCraftingProject(currentModuleId, index, patch)
     refresh()
   }
 
   const handleRemove = (index) => {
-    removeCraftingProject(index)
+    removeCraftingProject(currentModuleId, index)
     refresh()
     if (expandedIndex === index) setExpandedIndex(null)
     else if (expandedIndex != null && expandedIndex > index) setExpandedIndex(expandedIndex - 1)
@@ -202,7 +204,7 @@ export default function MagicCraftingPanel() {
       alert(`制作人「${crafter?.name || '未命名'}」经验不足！需要 ${Math.ceil(dailyXp)} XP，当前 ${Math.round(crafterXp)} XP`)
       return
     }
-    const vaultResult = adjustVault('gp', -dailyGp)
+    const vaultResult = adjustVault(currentModuleId, 'gp', -dailyGp)
     if (!vaultResult.success) {
       alert(vaultResult.error || '扣除金币失败')
       return
@@ -212,7 +214,7 @@ export default function MagicCraftingPanel() {
     }
     const nextDone = daysDone + 1
     const isComplete = nextDone >= daysTotal
-    updateCraftingProject(selectedProjectIndex, {
+    updateCraftingProject(currentModuleId, selectedProjectIndex, {
       已制作天数: nextDone,
       状态: isComplete ? 'COMPLETED' : 'IN_PROGRESS',
     })
@@ -227,7 +229,7 @@ export default function MagicCraftingPanel() {
 
   const handleReorder = (fromIndex, toIndex) => {
     if (fromIndex === toIndex) return
-    reorderCraftingProjects(fromIndex, toIndex)
+    reorderCraftingProjects(currentModuleId, fromIndex, toIndex)
     refresh()
     if (selectedProjectIndex === fromIndex) setSelectedProjectIndex(toIndex)
     else if (selectedProjectIndex === toIndex) setSelectedProjectIndex(fromIndex)
@@ -249,7 +251,7 @@ export default function MagicCraftingPanel() {
     const name = p.物品名称?.trim() || '未命名魔法物品'
     const desc = p.详细介绍?.trim() ?? ''
     if (depositToWarehouse) {
-      addToWarehouse({ name, 详细介绍: desc, qty: 1 })
+      addToWarehouse(currentModuleId, { name, 详细介绍: desc, qty: 1 })
     } else {
       if (!depositCharId) return
       const char = characters.find((c) => c.id === depositCharId)
@@ -262,7 +264,7 @@ export default function MagicCraftingPanel() {
         inventory: [...inv, { id: 'inv_' + Date.now(), name, 详细介绍: desc, qty: 1 }],
       })
     }
-    removeCraftingProject(depositProjectIndex)
+    removeCraftingProject(currentModuleId, depositProjectIndex)
     refresh()
     setDepositProjectIndex(null)
     setDepositCharId('')

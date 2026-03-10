@@ -4,28 +4,30 @@
 import { useState, useEffect } from 'react'
 import { BookOpen } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import { useModule } from '../contexts/ModuleContext'
 import { getCharacters, getCharacter, updateCharacter } from '../lib/characterStore'
 import CharacterSpells from './CharacterSpells'
 import { inputClass } from '../lib/inputStyles'
 
 export default function CharacterSpellsFAB() {
   const { user, isAdmin } = useAuth()
+  const { currentModuleId } = useModule()
   const [open, setOpen] = useState(false)
   const [list, setList] = useState([])
   const [selectedCharId, setSelectedCharId] = useState('')
 
   useEffect(() => {
     if (user?.name !== undefined) {
-      setList(getCharacters(user?.name, isAdmin))
+      setList(getCharacters(user?.name, isAdmin, currentModuleId))
     }
-  }, [user?.name, isAdmin, open])
+  }, [user?.name, isAdmin, open, currentModuleId])
 
   const selectedChar = selectedCharId ? getCharacter(selectedCharId) : null
   const canEditChar = selectedChar && (isAdmin || selectedChar.owner === user?.name)
   const persistSpells = (patch) => {
     if (!selectedChar?.id) return
     updateCharacter(selectedChar.id, patch)
-    setList(getCharacters(user?.name, isAdmin))
+    setList(getCharacters(user?.name, isAdmin, currentModuleId))
   }
 
   return (

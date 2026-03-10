@@ -1,15 +1,17 @@
 import { useState, useEffect } from 'react'
 import { X } from 'lucide-react'
+import { useModule } from '../contexts/ModuleContext'
 import { CURRENCY_CONFIG, getCurrencyDisplayName } from '../data/currencyConfig'
 import { getTeamVault, getCharacterWallet, transferCurrency } from '../lib/currencyStore'
 
 export default function TransferModal({ open, onClose, direction, characterId, characterName, onSuccess }) {
+  const { currentModuleId } = useModule()
   const [currencyId, setCurrencyId] = useState('gp')
   const [amount, setAmount] = useState('')
   const [error, setError] = useState('')
   const [shake, setShake] = useState(false)
 
-  const vault = open ? getTeamVault() : {}
+  const vault = open ? getTeamVault(currentModuleId) : {}
   const wallet = open && characterId ? getCharacterWallet(characterId) : {}
   const maxSource = direction === 'toVault' ? (wallet[currencyId] ?? 0) : (vault[currencyId] ?? 0)
   const canAll = maxSource > 0
@@ -32,7 +34,7 @@ export default function TransferModal({ open, onClose, direction, characterId, c
       setTimeout(() => setShake(false), 400)
       return
     }
-    const result = transferCurrency(direction, characterId, currencyId, amt)
+    const result = transferCurrency(currentModuleId, direction, characterId, currencyId, amt)
     if (result.success) {
       onSuccess?.()
       onClose()

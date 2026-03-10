@@ -19,22 +19,30 @@ export function proficiencyBonus(level) {
 
 const defaultAbilities = () => ({ str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 })
 
-export function getCharacters(ownerName, isAdmin) {
+/** @param {string} [moduleId] 模组 id，传入则只返回该模组下的角色 */
+export function getCharacters(ownerName, isAdmin, moduleId) {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     const list = raw ? JSON.parse(raw) : []
-    if (isAdmin) return list
-    return list.filter((c) => c.owner === ownerName)
+    let out = isAdmin ? list : list.filter((c) => c.owner === ownerName)
+    if (moduleId != null && moduleId !== '') {
+      out = out.filter((c) => (c.moduleId ?? 'default') === moduleId)
+    }
+    return out
   } catch {
     return []
   }
 }
 
-/** 获取所有角色（用于首页展示，不按创建人过滤） */
-export function getAllCharacters() {
+/** 获取所有角色（可按模组过滤） */
+export function getAllCharacters(moduleId) {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    return raw ? JSON.parse(raw) : []
+    const list = raw ? JSON.parse(raw) : []
+    if (moduleId != null && moduleId !== '') {
+      return list.filter((c) => (c.moduleId ?? 'default') === moduleId)
+    }
+    return list
   } catch {
     return []
   }
@@ -69,8 +77,8 @@ export function setDefaultCharacterId(ownerName, characterId) {
 }
 
 /** 获取最后编辑的角色 ID（按 updatedAt 排序，取最新） */
-export function getLastEditedCharacterId(ownerName, isAdmin) {
-  const list = getCharacters(ownerName, isAdmin)
+export function getLastEditedCharacterId(ownerName, isAdmin, moduleId) {
+  const list = getCharacters(ownerName, isAdmin, moduleId)
   if (list.length === 0) return null
   const sorted = [...list].sort((a, b) => {
     const ta = new Date(a.updatedAt || a.createdAt || 0).getTime()
@@ -91,6 +99,7 @@ export function addCharacter(ownerName, data = {}) {
   const character = {
     id,
     owner: ownerName,
+    moduleId: data.moduleId ?? 'default',
     name: data.name?.trim() || '未命名',
     'class': data['class']?.trim() || '',
     classLevel: typeof data.classLevel === 'number' ? data.classLevel : 1,
@@ -138,4 +147,19 @@ export function deleteCharacter(id) {
   }
   saveCharacters(next)
   return true
+}
+
+/** 复制角色：深拷贝并生成新 ID，保留原所有者 */
+export function duplicateCharacter(id) {
+  const raw = localStorage.getItem(STORAGE_KEY)
+  const list = raw ? JSON.parse(raw) : []
+  const src = list.find((c) => c.id === id)
+  if (!src) return null
+  const copy = JSON.parse(JSON.stringify(src))
+  copy.id = crypto.randomUUID()
+  copy.createdAt = new Date().toISOString()
+  copy.updatedAt = new Date().toISOString()
+  list.push(copy)
+  saveCharacters(list)
+  return copy
 }

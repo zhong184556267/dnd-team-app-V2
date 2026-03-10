@@ -17,6 +17,12 @@ export default function More() {
       </h1>
       <div className="space-y-2">
         <Link
+          to="/spells"
+          className="block py-3 px-4 rounded-xl bg-dnd-card border border-white/10 text-white hover:border-dnd-red/50 transition-colors"
+        >
+          法术大全
+        </Link>
+        <Link
           to="/more/house-rules"
           className="block py-3 px-4 rounded-xl bg-dnd-card border border-white/10 text-white hover:border-dnd-red/50 transition-colors"
         >

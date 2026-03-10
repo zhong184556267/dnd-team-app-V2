@@ -152,14 +152,11 @@ export default function EquipmentBar({ character, canEdit, onSave }) {
               {isWorn && isArmorOrShield && (
                 <div className="flex items-center gap-1 shrink-0">
                   <span className="text-gray-500 text-[10px]">增强加值</span>
-                  <input
-                    type="number"
-                    min={0}
-                    value={magicBonus || ''}
-                    onChange={(e) => setWornMagicBonus(index, e.target.value)}
-                    placeholder="0"
-                    className="w-12 h-7 rounded bg-gray-700 border border-gray-600 text-white text-xs text-center tabular-nums focus:border-dnd-red focus:ring-1 focus:ring-dnd-red"
-                  />
+                  <div className="flex items-center rounded border border-gray-600 bg-gray-800 overflow-hidden h-7">
+                    <button type="button" onClick={() => setWornMagicBonus(index, String(Math.max(0, (Number(magicBonus) || 0) - 1)))} className="px-1.5 h-full flex items-center justify-center text-dnd-text-muted hover:text-white hover:bg-gray-700 border-r border-gray-600 font-medium text-sm shrink-0">−</button>
+                    <input type="number" min={0} value={magicBonus || ''} onChange={(e) => setWornMagicBonus(index, e.target.value)} className="w-10 h-full bg-transparent border-0 text-center text-white text-xs tabular-nums px-0.5 focus:outline-none focus:ring-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]" />
+                    <button type="button" onClick={() => setWornMagicBonus(index, String((Number(magicBonus) || 0) + 1))} className="px-1.5 h-full flex items-center justify-center text-dnd-text-muted hover:text-white hover:bg-gray-700 border-l border-gray-600 font-medium text-sm shrink-0">+</button>
+                  </div>
                 </div>
               )}
               {canRemove && (

@@ -3,7 +3,8 @@
  * 显示：HP、AC、先攻、死亡豁免、状态效果、力竭、其它职业资源
  */
 import { useState, useEffect } from 'react'
-import { Plus, Minus, Trash2 } from 'lucide-react'
+import { Plus, Minus, Trash2, Dices } from 'lucide-react'
+import { useRoll } from '../contexts/RollContext'
 import { abilityModifier, proficiencyBonus, getAC, calcMaxHP, getHPBuffSum } from '../lib/formulas'
 import { useBuffCalculator } from '../hooks/useBuffCalculator'
 import { skillProfFactor } from '../data/dndSkills'
@@ -48,6 +49,7 @@ const CONDITION_LABELS = Object.fromEntries(
 )
 
 export default function CombatStatus({ char, hp, abilities, level, canEdit, onSave }) {
+  const { openForCheck } = useRoll()
   const buffStats = useBuffCalculator(char, char?.buffs)
   const acResult = getAC(char)
   const acTotal = acResult.total + (buffStats?.acBonus ?? 0)
@@ -317,6 +319,9 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
           <span className="text-gray-400 text-2xl font-medium">先攻</span>
           <span className="text-gray-600 text-2xl">|</span>
           <span className="text-white font-bold text-4xl font-mono">{init}</span>
+          <button type="button" onClick={() => openForCheck('先攻', init)} title="投掷先攻" className="p-2 rounded bg-dnd-red hover:bg-dnd-red-hover text-white shrink-0">
+            <Dices className="w-4 h-4" aria-hidden />
+          </button>
         </div>
         <div className="rounded-lg border border-gray-600 bg-gray-800/50 p-5 min-h-[5rem] flex items-center justify-center gap-3">
           <span className="text-gray-400 text-2xl font-medium">被动察觉</span>
@@ -403,8 +408,8 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
               <span className="text-gray-500 text-[10px]">d20={deathSaves.lastRoll.roll}</span>
             )}
             <div className="flex gap-1.5">
-              <button type="button" onClick={rollDeathSave} className="px-2 py-1 rounded text-[11px] bg-dnd-red text-white">
-                投掷
+              <button type="button" onClick={rollDeathSave} title="投掷死亡豁免" className="p-1.5 rounded bg-dnd-red hover:bg-dnd-red-hover text-white">
+                <Dices className="w-3.5 h-3.5" aria-hidden />
               </button>
               <button type="button" onClick={resetDeathSaves} className="px-2 py-1 rounded text-[11px] border border-gray-500 text-gray-400">
                 重置

@@ -9,6 +9,7 @@ import Characters from './pages/Characters'
 import CharacterNew from './pages/CharacterNew'
 import Warehouse from './pages/Warehouse'
 import Spells from './pages/Spells'
+import CharacterSpellsPage from './pages/CharacterSpellsPage'
 import More from './pages/More'
 import HouseRules from './pages/HouseRules'
 import DataMaintain from './pages/DataMaintain'
@@ -39,6 +40,7 @@ function AppRoutes() {
         <Route path="/characters" element={<Characters />} />
         <Route path="/characters/new" element={<CharacterNew />} />
         <Route path="/characters/:id" element={<Suspense fallback={<div className="min-h-screen flex items-center justify-center bg-dnd-bg text-dnd-text-muted">加载角色卡…</div>}><CharacterSheet /></Suspense>} />
+        <Route path="/character-spells" element={<CharacterSpellsPage />} />
         <Route path="/warehouse" element={<Warehouse />} />
         <Route path="/spells" element={<Spells />} />
         <Route path="/more" element={<More />} />

@@ -1,21 +1,37 @@
 import { NavLink } from 'react-router-dom'
-import { Home, User, Package, BookOpen, MoreHorizontal } from 'lucide-react'
+import { Home, User, BookOpen, Package, MoreHorizontal } from 'lucide-react'
+import { useAuth } from '../contexts/AuthContext'
+import { getDefaultCharacterId, getLastEditedCharacterId } from '../lib/characterStore'
 
 const tabs = [
-  { to: '/', label: '首页', icon: Home },
-  { to: '/characters', label: '我的角色', icon: User },
-  { to: '/warehouse', label: '团队仓库', icon: Package },
-  { to: '/spells', label: '法术大全', icon: BookOpen },
-  { to: '/more', label: '更多', icon: MoreHorizontal },
+  { key: 'home', to: '/', label: '首页', icon: Home },
+  { key: 'characters', to: '/characters', label: '我的角色', icon: User, useLastEdited: true },
+  { key: 'spells', to: '/character-spells', label: '角色法术', icon: BookOpen, useLastEditedForSpells: true },
+  { key: 'warehouse', to: '/warehouse', label: '团队仓库', icon: Package },
+  { key: 'more', to: '/more', label: '更多', icon: MoreHorizontal },
 ]
 
 export default function BottomNav() {
+  const { user, isAdmin } = useAuth()
+  const defaultId = getDefaultCharacterId(user?.name)
+  const lastEditedId = getLastEditedCharacterId(user?.name, isAdmin)
+  const preferredId = defaultId || lastEditedId
+
+  const getLinkTo = (tab) => {
+    if (tab.useLastEdited && preferredId) return `/characters/${preferredId}`
+    if (tab.useLastEditedForSpells && preferredId) return `/character-spells?char=${preferredId}`
+    return tab.to
+  }
+
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-40 bg-[#2D3748] border-t border-white/10 safe-area-pb shadow-[0_-4px_20px_rgba(0,0,0,0.5)]">
       <div className="flex items-center justify-around h-14 max-w-lg mx-auto">
-        {tabs.map(({ to, label, icon: Icon }) => (
+        {tabs.map((tab) => {
+          const to = getLinkTo(tab)
+          const Icon = tab.icon
+          return (
           <NavLink
-            key={to}
+            key={tab.key}
             to={to}
             end={to === '/'}
             className={({ isActive }) =>
@@ -35,11 +51,11 @@ export default function BottomNav() {
                   }`}
                   strokeWidth={isActive ? 2.2 : 1.8}
                 />
-                <span className={isActive ? 'font-semibold' : ''}>{label}</span>
+                <span className={isActive ? 'font-semibold' : ''}>{tab.label}</span>
               </>
             )}
           </NavLink>
-        ))}
+        )})}
       </div>
     </nav>
   )

@@ -2,8 +2,8 @@ import { CURRENCY_CONFIG, getCurrencyById, getCurrencyDisplayName } from '../dat
 
 /** 核心资产：奥拉 | 金币(居中最大) | 晶石 */
 const CORE_IDS = ['au', 'gp', 'gem_lb']
-/** 零钱：铜币、银币、铂金币 */
-const PETTY_IDS = ['cp', 'sp', 'pp']
+/** 零钱：铜币、银币、克朗、铂金币 */
+const PETTY_IDS = ['cp', 'sp', 'kr', 'pp']
 
 function formatAmount(amount) {
   if (typeof amount !== 'number' || Number.isNaN(amount)) return '0'

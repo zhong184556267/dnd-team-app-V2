@@ -1,5 +1,10 @@
 const STORAGE_KEY = 'starlight_characters'
 
+/** 常用角色 ID 的 localStorage 键（按用户名） */
+function defaultCharKey(ownerName) {
+  return `starlight_default_character_${ownerName || ''}`
+}
+
 /** 属性调整值 */
 export function abilityModifier(value) {
   return Math.floor(((Number(value) || 10) - 10) / 2)
@@ -39,6 +44,40 @@ export function getCharacter(id) {
   const raw = localStorage.getItem(STORAGE_KEY)
   const list = raw ? JSON.parse(raw) : []
   return list.find((c) => c.id === id) ?? null
+}
+
+/** 获取当前用户的常用角色 ID（设为默认的角色） */
+export function getDefaultCharacterId(ownerName) {
+  if (!ownerName) return null
+  try {
+    return localStorage.getItem(defaultCharKey(ownerName)) || null
+  } catch {
+    return null
+  }
+}
+
+/** 设置或清除常用角色 ID；传 null 表示清除 */
+export function setDefaultCharacterId(ownerName, characterId) {
+  if (!ownerName) return
+  try {
+    if (characterId) {
+      localStorage.setItem(defaultCharKey(ownerName), characterId)
+    } else {
+      localStorage.removeItem(defaultCharKey(ownerName))
+    }
+  } catch (_) {}
+}
+
+/** 获取最后编辑的角色 ID（按 updatedAt 排序，取最新） */
+export function getLastEditedCharacterId(ownerName, isAdmin) {
+  const list = getCharacters(ownerName, isAdmin)
+  if (list.length === 0) return null
+  const sorted = [...list].sort((a, b) => {
+    const ta = new Date(a.updatedAt || a.createdAt || 0).getTime()
+    const tb = new Date(b.updatedAt || b.createdAt || 0).getTime()
+    return tb - ta
+  })
+  return sorted[0]?.id ?? null
 }
 
 function saveCharacters(list) {
@@ -91,8 +130,12 @@ export function updateCharacter(id, patch) {
 export function deleteCharacter(id) {
   const raw = localStorage.getItem(STORAGE_KEY)
   const list = raw ? JSON.parse(raw) : []
+  const owner = list.find((c) => c.id === id)?.owner
   const next = list.filter((c) => c.id !== id)
   if (next.length === list.length) return false
+  if (owner && getDefaultCharacterId(owner) === id) {
+    setDefaultCharacterId(owner, null)
+  }
   saveCharacters(next)
   return true
 }

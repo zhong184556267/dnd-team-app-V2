@@ -14,6 +14,7 @@ const gp = 1
 const pp = 10
 const sp = 1 / 10
 const cp = 1 / 10
+const kr = 1 // 1 克朗 = 1 gp
 const au = AURUM_PER_GP
 const gemLb = AURUM_PER_GP * GEM_LB_PER_AURUM // 1 磅晶石 = 500000 gp
 
@@ -45,6 +46,14 @@ export const CURRENCY_CONFIG = [
     baseRate: gp,
     style: 'gold',
     order: 3,
+  },
+  {
+    id: 'kr',
+    name: '克朗',
+    short: 'kr',
+    baseRate: kr,
+    style: 'standard',
+    order: 3.5,
   },
   {
     id: 'pp',

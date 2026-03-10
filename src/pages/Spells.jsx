@@ -1,10 +1,13 @@
 import { useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { ChevronDown, ChevronRight, Search, Plus } from 'lucide-react'
 import {
   getMergedSpells,
+  getSpellById,
   SPELL_SCHOOLS,
   addCustomSpell,
 } from '../data/spellDatabase'
+import { getCharacter, updateCharacter } from '../lib/characterStore'
 
 const LEVEL_LABELS = {
   0: '戏法',
@@ -29,7 +32,7 @@ const SCHOOL_TAG_STYLES = {
   幻术: 'bg-fuchsia-500/20 text-fuchsia-200 border-fuchsia-500/40',
   死灵: 'bg-purple-600/25 text-purple-200 border-purple-500/40',
   变化: 'bg-teal-500/20 text-teal-200 border-teal-500/40',
-  灵能: 'bg-cyan-500/20 text-cyan-200 border-cyan-500/40',
+  灵能: 'bg-indigo-500/25 text-indigo-200 border-indigo-500/50',
 }
 function getSchoolTagStyle(school) {
   return SCHOOL_TAG_STYLES[school] ?? 'bg-gray-500/20 text-gray-300 border-gray-500/40'
@@ -215,6 +218,11 @@ function highlightSpellDescription(description) {
 }
 
 export default function Spells() {
+  const [searchParams] = useSearchParams()
+  const charId = searchParams.get('char')
+  const char = charId ? getCharacter(charId) : null
+  const charSpellIds = new Set((char?.spells ?? []).map((s) => s.spellId ?? s.id).filter(Boolean))
+
   const [spellsList, setSpellsList] = useState(() => getMergedSpells())
   const [searchQuery, setSearchQuery] = useState('')
   const [filterLevel, setFilterLevel] = useState('')
@@ -224,8 +232,19 @@ export default function Spells() {
   const [expandedLevels, setExpandedLevels] = useState(() => new Set([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]))
   const [showAddSpell, setShowAddSpell] = useState(false)
   const [spellForm, setSpellForm] = useState(initialSpellForm)
+  const [, setCharRefresh] = useState(0)
 
   const refreshSpells = () => setSpellsList(getMergedSpells())
+
+  const addSpellToChar = (spellId) => {
+    if (!char?.id) return
+    const spell = getSpellById(spellId)
+    const isCantrip = spell && (spell.level ?? 0) === 0
+    const current = char.spells ?? []
+    const next = [...current, { spellId, prepared: isCantrip }]
+    updateCharacter(char.id, { spells: next })
+    setCharRefresh((r) => r + 1)
+  }
 
   const handleSaveSpell = () => {
     addCustomSpell(spellForm)
@@ -282,7 +301,12 @@ export default function Spells() {
   const allClasses = Array.from(new Set(spellsList.flatMap((s) => s.source ?? []))).sort()
 
   return (
-    <div className="p-4 pb-24 min-h-screen bg-dnd-bg">
+    <div className="p-4 pb-32 min-h-screen bg-dnd-bg">
+      {char && (
+        <div className="mb-4 rounded-lg border border-dnd-gold/50 bg-dnd-gold/10 px-4 py-2 text-dnd-gold text-sm">
+          正在为角色 <span className="font-semibold">{char.name || '未命名'}</span> 添加法术，点击「添加至角色」将法术加入角色法术卡
+        </div>
+      )}
       <div className="flex items-center justify-between gap-4 mb-4">
         <h1 className="font-display text-xl font-semibold text-white">
           法术大全
@@ -402,38 +426,53 @@ export default function Spells() {
                   <ul className="divide-y divide-white/10">
                     {grouped[level].map((s) => {
                       const isOpen = expandedSpellIds.has(s.id)
+                      const canAddToChar = char && !charSpellIds.has(s.id)
                       return (
                         <li key={s.id}>
-                          <button
-                            type="button"
-                            onClick={() => toggleSpell(s.id)}
-                            className="w-full flex items-center gap-2 py-3 px-4 text-left text-white hover:bg-white/5 transition-colors"
-                          >
-                            {isOpen ? (
-                              <ChevronDown className="w-5 h-5 shrink-0" />
-                            ) : (
-                              <ChevronRight className="w-5 h-5 shrink-0" />
-                            )}
-                            <span className="font-medium">{s.name}</span>
-                            {s.school && (
-                              <span
-                                className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium border ${getSchoolTagStyle(s.school)}`}
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => toggleSpell(s.id)}
+                              className="flex-1 flex items-center gap-2 py-3 px-4 text-left text-white hover:bg-white/5 transition-colors min-w-0"
+                            >
+                              {isOpen ? (
+                                <ChevronDown className="w-5 h-5 shrink-0" />
+                              ) : (
+                                <ChevronRight className="w-5 h-5 shrink-0" />
+                              )}
+                              <span className="font-medium">{s.name}</span>
+                              {s.school && (
+                                <span
+                                  className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium border ${getSchoolTagStyle(s.school)}`}
+                                >
+                                  {s.school}
+                                </span>
+                              )}
+                              {s.ritual && (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] text-white/50 bg-white/5 border-0">
+                                  仪式
+                                </span>
+                              )}
+                              {s.source?.length > 0 && (
+                                <span className="text-dnd-text-muted text-xs ml-auto">
+                                  {s.source.slice(0, 3).join('、')}
+                                  {s.source.length > 3 ? '…' : ''}
+                                </span>
+                              )}
+                            </button>
+                            {canAddToChar && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  addSpellToChar(s.id)
+                                }}
+                                className="shrink-0 px-2 py-1 rounded bg-dnd-gold/30 text-dnd-gold hover:bg-dnd-gold/40 text-xs font-medium mr-2"
                               >
-                                {s.school}
-                              </span>
+                                添加至角色
+                              </button>
                             )}
-                            {s.ritual && (
-                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] text-white/50 bg-white/5 border-0">
-                                仪式
-                              </span>
-                            )}
-                            {s.source?.length > 0 && (
-                              <span className="text-dnd-text-muted text-xs ml-auto">
-                                {s.source.slice(0, 3).join('、')}
-                                {s.source.length > 3 ? '…' : ''}
-                              </span>
-                            )}
-                          </button>
+                          </div>
                           {isOpen && (
                             <div className="px-4 pb-4 pt-0 border-t border-white/10 text-sm text-dnd-text-muted">
                               <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-3 mb-2 text-xs">

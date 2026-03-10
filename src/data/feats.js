@@ -586,6 +586,70 @@ const PSIONIC_FEATS = [
   },
 ]
 
+/** 制作物品专长 ID 列表：用于判断角色是否具备制作资格 */
+export const CRAFTING_FEAT_IDS = [
+  'scribe_scroll', 'brew_potion', 'craft_magic_arms_armor', 'craft_rod',
+  'craft_staff', 'craft_wand', 'craft_wondrous_item', 'forge_ring',
+]
+
+/** 制作物品专长：D&D 3R 魔法物品制造 */
+const CRAFTING_FEATS = [
+  {
+    id: 'scribe_scroll',
+    name: '抄录法术卷轴',
+    category: '制作物品专长',
+    description: '你可以将你所知晓的法术抄录至卷轴上。',
+  },
+  {
+    id: 'brew_potion',
+    name: '调制药水',
+    category: '制作物品专长',
+    prerequisite: '二环法术施法者',
+    description: '你可以制造包含你所知晓法术的药水且必须以一个生物为目标。调制一瓶药水需要一天的时间。调制出来的药水为固定法术强度。',
+  },
+  {
+    id: 'craft_magic_arms_armor',
+    name: '制造魔法武器及防具',
+    category: '制作物品专长',
+    prerequisite: '二环法术施法者',
+    description: '你可以制造任何你已经满足其制造前提的魔法武器、盔甲或盾牌。给武器、盔甲或者盾牌附上特殊魔法。',
+  },
+  {
+    id: 'craft_rod',
+    name: '制造权杖',
+    category: '制作物品专长',
+    prerequisite: '二环法术施法者',
+    description: '你可以制造任何你已经满足其制造前提的权杖。',
+  },
+  {
+    id: 'craft_staff',
+    name: '制造法杖',
+    category: '制作物品专长',
+    prerequisite: '三环法术施法者',
+    description: '你可以制造任何你已经满足其制造前提的法杖。',
+  },
+  {
+    id: 'craft_wand',
+    name: '制造魔杖',
+    category: '制作物品专长',
+    prerequisite: '二环法术施法者',
+    description: '你可以制造存储你所知晓法术的魔杖，法术等级为四级或更低。',
+  },
+  {
+    id: 'craft_wondrous_item',
+    name: '制造奇物',
+    category: '制作物品专长',
+    description: '你可以制造任何你已经满足其制造前提的奇物。',
+  },
+  {
+    id: 'forge_ring',
+    name: '锻造戒指',
+    category: '制作物品专长',
+    prerequisite: '四环法术施法者',
+    description: '你可以制造任何你已经满足其制造前提的戒指。',
+  },
+]
+
 /** 星辰专长：专长选择每 5 级后可选择一个星辰之子特殊能力 */
 const STAR_FEATS = [
   {
@@ -661,9 +725,10 @@ export const FEATS_BY_CATEGORY = {
   起源专长: ORIGIN_FEATS,
   通用专长: GENERAL_FEATS,
   战斗风格专长: FIGHTING_STYLE_FEATS,
+  制作物品专长: CRAFTING_FEATS,
   灵能专长: PSIONIC_FEATS,
   星辰专长: STAR_FEATS,
 }
 
 /** 所有专长扁平列表（含分类），供角色卡等调用 */
-export const FEATS = [...ORIGIN_FEATS, ...GENERAL_FEATS, ...FIGHTING_STYLE_FEATS, ...PSIONIC_FEATS, ...STAR_FEATS]
+export const FEATS = [...ORIGIN_FEATS, ...GENERAL_FEATS, ...FIGHTING_STYLE_FEATS, ...CRAFTING_FEATS, ...PSIONIC_FEATS, ...STAR_FEATS]

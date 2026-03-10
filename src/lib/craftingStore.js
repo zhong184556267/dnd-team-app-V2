@@ -1,19 +1,19 @@
 /**
  * 魔法物品制作工厂：制作项目列表（localStorage）
- * 结构：{ id, 类型, 物品名称, 详细介绍?, 完成度, 制作天数, 消耗金额, 消耗经验, 制作需求人, 公式? }
+ * 结构：{ id, 类型, 物品名称, 详细介绍?, 制作天数, 已制作天数, 消耗金额, 消耗经验, 制作需求人, 状态, ... }
  */
 
 const CRAFTING_KEY = 'dnd_magic_crafting'
 
 export const MAGIC_ITEM_TYPES = [
-  { id: 'weapon_armor', label: '武器&盔甲' },
-  { id: 'wand', label: '魔杖' },
-  { id: 'staff', label: '法杖' },
-  { id: 'rod', label: '权杖' },
-  { id: 'wondrous', label: '奇物' },
-  { id: 'ring', label: '戒指' },
-  { id: 'scroll', label: '卷轴' },
-  { id: 'potion', label: '药水' },
+  { id: 'weapon_armor', label: '武器&盔甲', formula: 'manual' },
+  { id: 'wand', label: '魔杖', formula: 'wand', maxSl: 4 },
+  { id: 'staff', label: '法杖', formula: 'staff' },
+  { id: 'rod', label: '权杖', formula: 'manual' },
+  { id: 'wondrous', label: '奇物', formula: 'manual' },
+  { id: 'ring', label: '戒指', formula: 'manual' },
+  { id: 'scroll', label: '卷轴', formula: 'scroll' },
+  { id: 'potion', label: '药水', formula: 'potion', maxSl: 4 },
 ]
 
 function getRaw() {
@@ -41,19 +41,24 @@ export function getCraftingProjects() {
 export function addCraftingProject(project) {
   const list = getRaw()
   const id = 'craft_' + Date.now()
+  const days = Math.max(0, Number(project.制作天数) || 0)
   const entry = {
     id,
     类型: project.类型 ?? MAGIC_ITEM_TYPES[0].id,
     物品名称: project.物品名称?.trim() ?? '',
     详细介绍: project.详细介绍?.trim() ?? '',
-    完成度: Math.min(100, Math.max(0, Number(project.完成度) || 0)),
-    制作天数: Math.max(0, Number(project.制作天数) || 0),
+    制作天数: days,
+    已制作天数: 0,
     消耗金额: project.消耗金额?.trim() ?? '',
     材料费用: project.材料费用?.trim() ?? '',
     消耗经验: Math.max(0, Number(project.消耗经验) || 0),
     制作需求人: project.制作需求人?.trim() ?? '',
+    状态: 'IN_PROGRESS',
     ...(project.所含法术环级 != null ? { 所含法术环级: Number(project.所含法术环级) || 0 } : {}),
-    ...(project.公式 != null ? { 公式: project.公式 } : {}),
+    ...(project.充能次数 != null ? { 充能次数: Number(project.充能次数) || 50 } : {}),
+    ...(project.单次材料费 != null ? { 单次材料费: Number(project.单次材料费) || 0 } : {}),
+    ...(project.法术数量 != null ? { 法术数量: Number(project.法术数量) || 1 } : {}),
+    ...(project.数量 != null ? { 数量: Math.max(1, Number(project.数量) || 1) } : {}),
   }
   list.push(entry)
   save(list)
@@ -67,7 +72,6 @@ export function updateCraftingProject(index, updates) {
   const next = [...list]
   const cur = next[index]
   const patch = { ...updates }
-  if (patch.完成度 != null) patch.完成度 = Math.min(100, Math.max(0, Number(patch.完成度) || 0))
   if (patch.制作天数 != null) patch.制作天数 = Math.max(0, Number(patch.制作天数) || 0)
   if (patch.消耗经验 != null) patch.消耗经验 = Math.max(0, Number(patch.消耗经验) || 0)
   next[index] = { ...cur, ...patch }
@@ -80,6 +84,17 @@ export function removeCraftingProject(index) {
   const list = getRaw()
   if (index < 0 || index >= list.length) return list
   const next = list.filter((_, i) => i !== index)
+  save(next)
+  return next
+}
+
+/** 重排制作项目顺序 */
+export function reorderCraftingProjects(fromIndex, toIndex) {
+  const list = getRaw()
+  if (fromIndex < 0 || fromIndex >= list.length || toIndex < 0 || toIndex >= list.length) return list
+  const next = [...list]
+  const [removed] = next.splice(fromIndex, 1)
+  next.splice(toIndex, 0, removed)
   save(next)
   return next
 }

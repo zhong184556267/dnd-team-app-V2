@@ -1,0 +1,123 @@
+import { CURRENCY_CONFIG, getCurrencyById, getCurrencyDisplayName } from '../data/currencyConfig'
+
+/** 核心资产：奥拉 | 金币(居中最大) | 晶石 */
+const CORE_IDS = ['au', 'gp', 'gem_lb']
+/** 零钱：铜币、银币、铂金币 */
+const PETTY_IDS = ['cp', 'sp', 'pp']
+
+function formatAmount(amount) {
+  if (typeof amount !== 'number' || Number.isNaN(amount)) return '0'
+  return Number.isInteger(amount) ? amount.toLocaleString() : amount.toFixed(2)
+}
+
+/** 核心资产区单卡：金币 / 奥拉 / 晶石，大字号、高对比、发光边框 */
+function CoreCurrencyCard({ currencyId, amount }) {
+  const cfg = getCurrencyById(currencyId)
+  if (!cfg) return null
+  const isGold = cfg.style === 'gold'
+  const isAurum = cfg.style === 'aurum'
+  const isCrystal = cfg.style === 'crystal'
+  const unitLabel = getCurrencyDisplayName(cfg)
+
+  let cardClass = 'rounded-xl border-2 px-4 py-4 flex flex-col justify-center items-center gap-1 min-h-[4.5rem] '
+  let valueClass = 'font-bold tabular-nums '
+  if (isGold) {
+    cardClass += 'bg-gradient-to-br from-amber-950/60 to-amber-950/40 border-amber-500/60 shadow-[0_0_20px_rgba(245,158,11,0.2),inset_0_1px_0_rgba(255,255,255,0.08)]'
+    valueClass += 'text-2xl sm:text-3xl text-amber-200 drop-shadow-[0_0_12px_rgba(251,191,36,0.5)]'
+  } else if (isAurum) {
+    cardClass += 'bg-orange-950/40 border-orange-400/50 shadow-[0_0_16px_rgba(251,146,60,0.15)]'
+    valueClass += 'text-xl sm:text-2xl text-orange-200'
+  } else if (isCrystal) {
+    cardClass += 'bg-cyan-950/40 border-cyan-400/50 shadow-[0_0_16px_rgba(34,211,238,0.15)]'
+    valueClass += 'text-xl sm:text-2xl text-cyan-200'
+  } else {
+    cardClass += 'bg-gray-800/60 border-white/10'
+    valueClass += 'text-xl text-dnd-text-body'
+  }
+
+  return (
+    <div className={cardClass}>
+      <span className={valueClass}>{formatAmount(amount)}</span>
+      <span className="text-xs opacity-90 text-current font-medium">{unitLabel}</span>
+    </div>
+  )
+}
+
+/** 零钱区单条：铜/银/铂，小字号、紧凑横向 */
+function PettyCurrencyItem({ currencyId, amount }) {
+  const cfg = getCurrencyById(currencyId)
+  if (!cfg) return null
+  const unitLabel = getCurrencyDisplayName(cfg)
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-lg bg-gray-800/50 border border-white/5 px-3 py-2">
+      <span className="text-dnd-text-muted text-xs font-medium">{unitLabel}</span>
+      <span className="text-sm font-semibold text-gray-300 tabular-nums">{formatAmount(amount)}</span>
+    </div>
+  )
+}
+
+/**
+ * 分层货币仪表盘：核心资产区（金币/奥拉/晶石）+ 零钱区（铜/银/铂）
+ * 统一深色容器，内部有明确分区与层级
+ */
+export function CurrencyGrid({ balances, title, extraClass = '' }) {
+  return (
+    <div className={`rounded-xl bg-dnd-card border border-white/10 overflow-hidden ${extraClass}`}>
+      {title && (
+        <h3 className="text-dnd-text-muted text-xs font-medium uppercase tracking-wider px-4 pt-4 pb-2">
+          {title}
+        </h3>
+      )}
+      <div className="p-4 pt-0 space-y-4">
+        {/* 核心资产区：金币居中突出 */}
+        <div className="rounded-xl bg-gradient-to-b from-amber-950/20 to-transparent border border-amber-500/20 p-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {CORE_IDS.map((id) => (
+              <CoreCurrencyCard key={id} currencyId={id} amount={balances?.[id] ?? 0} />
+            ))}
+          </div>
+        </div>
+        {/* 零钱区：紧凑横条 */}
+        <div className="flex flex-wrap gap-2">
+          {PETTY_IDS.map((id) => (
+            <PettyCurrencyItem key={id} currencyId={id} amount={balances?.[id] ?? 0} />
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** 单种货币显示（兼容旧用法：选择器、弹窗等小范围展示） */
+export function CurrencyBlock({ currencyId, amount, label }) {
+  const cfg = getCurrencyById(currencyId)
+  if (!cfg) return null
+  const isGold = cfg.style === 'gold'
+  const isAurum = cfg.style === 'aurum'
+  const isCrystal = cfg.style === 'crystal'
+  const isMuted = cfg.style === 'muted'
+  const unitLabel = getCurrencyDisplayName(cfg)
+
+  let blockClass = 'rounded-lg border px-3 py-2 text-right '
+  if (isGold) {
+    blockClass += 'bg-gradient-to-br from-amber-900/40 to-amber-950/40 border-amber-500/50 text-amber-200 font-bold text-lg shadow-[0_0_12px_rgba(245,158,11,0.25)]'
+  } else if (isAurum) {
+    blockClass += 'bg-orange-950/30 border-orange-400/50 text-orange-200 font-semibold border-2 shadow-[0_0_8px_rgba(251,146,60,0.2)]'
+  } else if (isCrystal) {
+    blockClass += 'bg-cyan-950/30 border-cyan-400/50 text-cyan-200 font-semibold border-2 shadow-[0_0_8px_rgba(34,211,238,0.2)]'
+  } else if (isMuted) {
+    blockClass += 'bg-gray-800/60 border-white/5 text-gray-400 text-sm'
+  } else {
+    blockClass += 'bg-gray-800/60 border-white/10 text-dnd-text-body'
+  }
+
+  return (
+    <div className="flex flex-col items-end gap-0.5">
+      {label && <span className="text-dnd-text-muted text-xs">{label}</span>}
+      <div className={blockClass}>
+        <span>{formatAmount(amount)}</span>
+        <span className="ml-1 opacity-90 text-sm font-normal">{unitLabel}</span>
+      </div>
+    </div>
+  )
+}

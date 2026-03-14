@@ -1,7 +1,19 @@
 import { useMemo } from 'react'
 import { abilityModifier, getAC, getHPBuffSum } from '../lib/formulas'
-import { ABILITY_KEYS, getDamageTypeValue } from '../data/buffTypes'
-import { getFlatEffectEntries } from '../lib/effects/effectMapping'
+import { ABILITY_KEYS } from '../data/buffTypes'
+
+/** 将 buff 列表展平为单一效果列表，兼容旧格式(单 effect)与新格式(effects 数组) */
+function getFlatEffectEntries(buffs) {
+  const out = []
+  for (const b of buffs) {
+    if (Array.isArray(b.effects) && b.effects.length) {
+      b.effects.forEach((e) => out.push({ effectType: e.effectType, value: e.value }))
+    } else {
+      out.push({ effectType: b.effectType, value: b.value })
+    }
+  }
+  return out
+}
 
 /**
  * BUFF 计算引擎
@@ -63,18 +75,6 @@ export function useBuffCalculator(character, activeBuffs) {
         else if (b.effectType === 'dmg_bonus_melee') dmgMelee += v
         else if (b.effectType === 'dmg_bonus_ranged') dmgRanged += v
         else if (b.effectType === 'dmg_bonus_all') dmgAll += v
-        // 新表：命中/伤害加值（数字输入），数值同时加到命中与伤害
-        else if (b.effectType === 'attack_damage_bonus') {
-          attackAll += v
-          dmgAll += v
-        }
-      }
-      // 兼容旧数据：攻击/伤害数值加值（文本解析，如「攻击+2 / 伤害+3」）
-      if (b.effectType === 'attack_damage_bonus' && typeof raw === 'string') {
-        const attackMatch = raw.match(/攻击\s*[+＋]?\s*(\d+)/i)
-        const dmgMatch = raw.match(/伤害\s*[+＋]?\s*(\d+)/i)
-        if (attackMatch) attackAll += (parseInt(attackMatch[1], 10) || 0)
-        if (dmgMatch) dmgAll += (parseInt(dmgMatch[1], 10) || 0)
       }
     }
 
@@ -101,11 +101,6 @@ export function useBuffCalculator(character, activeBuffs) {
       } else if (b.effectType === 'skill_bonus') {
         if (objAdv === 'advantage') advSkill++
         else if (objAdv === 'disadvantage') disadvSkill++
-      }
-      // 命中/伤害加值上的优势/劣势：视为所有攻击的优势/劣势来源
-      if (b.effectType === 'attack_damage_bonus') {
-        if (objAdv === 'advantage') advAllAttack++
-        else if (objAdv === 'disadvantage') disadvAll++
       }
       if (b.value !== true && b.value !== 'true' && b.value !== 1 && !objAdv) continue
       if (b.effectType === 'adv_melee') advMelee++
@@ -157,10 +152,6 @@ export function useBuffCalculator(character, activeBuffs) {
     const skillBonusPerSkill = {}
     let concentrationBonus = 0
     let concentrationAdvantage = null
-    let ignoreDifficultTerrain = false
-    let spellRangeMultiplier = 1
-    let spellRangeBonus = 0
-    const ignoreResistanceTypes = []
 
     for (const b of entries) {
       const raw = b.value
@@ -193,63 +184,6 @@ export function useBuffCalculator(character, activeBuffs) {
           if (!Number.isNaN(n)) skillBonusPerSkill[k] = (skillBonusPerSkill[k] || 0) + n
         }
       }
-      // 新表：无视伤害抗性（防御与生存）
-      else if (b.effectType === 'ignore_resistance' && Array.isArray(raw)) {
-        ignoreResistanceTypes.push(...raw.map((t) => getDamageTypeValue(t) || String(t).toLowerCase()).filter(Boolean))
-      }
-      // 新表：伤害穿透特性 → 忽略伤害抗性（元素+光/暗 合并为 pierce 数组）
-      else if (b.effectType === 'damage_piercing_traits') {
-        if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-          const pierce = Array.isArray(raw.pierce)
-            ? raw.pierce
-            : [...(Array.isArray(raw.element) ? raw.element : []), ...(Array.isArray(raw.alignment) ? raw.alignment : [])]
-          ignoreResistanceTypes.push(...pierce.map((t) => getDamageTypeValue(t) || String(t).toLowerCase()))
-        } else if (Array.isArray(raw)) {
-          if (raw.includes('element')) ignoreResistanceTypes.push('fire', 'cold', 'lightning', 'acid', 'poison')
-          if (raw.includes('alignment')) ignoreResistanceTypes.push('radiant', 'necrotic')
-        }
-      }
-      // 新表：地形无视（移动与施法）
-      else if (b.effectType === 'terrain_ignore' && (raw === true || raw === 'true' || raw === 1)) {
-        ignoreDifficultTerrain = true
-      }
-      // 新表：专注增强（对象：val + advantage；兼容旧文本）
-      else if (b.effectType === 'concentration_save_enhance') {
-        if (raw && typeof raw === 'object') {
-          const cb = Number(raw.val)
-          if (!Number.isNaN(cb)) concentrationBonus += cb
-          if (raw.advantage === 'advantage') concentrationAdvantage = 'advantage'
-          else if (raw.advantage === 'disadvantage') concentrationAdvantage = 'disadvantage'
-        } else if (typeof raw === 'string') {
-          if (/优势/i.test(raw)) concentrationAdvantage = 'advantage'
-          const plusMatch = raw.match(/[+＋](\d+)/)
-          if (plusMatch) concentrationBonus += (parseInt(plusMatch[1], 10) || 0)
-        }
-      }
-      // 新表：施法距离延伸（x2 或 +N）
-      else if (b.effectType === 'spell_range_extension' && typeof raw === 'string') {
-        if (/x\s*2|2\s*倍|×\s*2/i.test(raw)) spellRangeMultiplier = Math.max(spellRangeMultiplier, 2)
-        const plusMatch = raw.match(/[+＋](\d+)/)
-        if (plusMatch) spellRangeBonus += (parseInt(plusMatch[1], 10) || 0)
-      }
-      // 新表：速度增加（统一数值，默认为地面速度 +X）
-      else if (b.effectType === 'base_speed_increment') {
-        if (typeof raw === 'number') {
-          speedBonus += raw
-        } else if (typeof raw === 'string') {
-          const walkMatch = raw.match(/行走\s*[+＋]?\s*(\d+)/i)
-          const flyMatch = raw.match(/飞行\s*[+＋]?\s*(\d+)/i)
-          if (walkMatch) speedBonus += (parseInt(walkMatch[1], 10) || 0)
-          if (flyMatch) {
-            const n = parseInt(flyMatch[1], 10) || 0
-            if (n > flightSpeed) flightSpeed = n
-          }
-          const swimMatch = raw.match(/游泳\s*[+＋]?\s*(\d+)/i)
-          const climbMatch = raw.match(/攀爬\s*[+＋]?\s*(\d+)/i)
-          if (swimMatch) speedBonus += (parseInt(swimMatch[1], 10) || 0)
-          if (climbMatch) speedBonus += (parseInt(climbMatch[1], 10) || 0)
-        }
-      }
     }
 
     // 5. 生命：temp_hp 取最大，max_hp_bonus 累加
@@ -272,14 +206,13 @@ export function useBuffCalculator(character, activeBuffs) {
 
     for (const b of entries) {
       const arr = Array.isArray(b.value) ? b.value : (b.value && b.value.types) ? b.value.types : []
-      const toValue = (t) => getDamageTypeValue(t) || String(t).toLowerCase()
-      if (b.effectType === 'resist_type') resistTypes.push(...arr.map(toValue).filter(Boolean))
-      else if (b.effectType === 'immune_type') immuneTypes.push(...arr.map(toValue).filter(Boolean))
-      else if (b.effectType === 'vulnerable_type') vulnerableTypes.push(...arr.map(toValue).filter(Boolean))
+      if (b.effectType === 'resist_type') resistTypes.push(...arr)
+      else if (b.effectType === 'immune_type') immuneTypes.push(...arr)
+      else if (b.effectType === 'vulnerable_type') vulnerableTypes.push(...arr)
       else if (b.effectType === 'dmg_type_specific' && b.value && typeof b.value === 'object' && b.value.type) {
-        const t = toValue(b.value.type)
+        const t = String(b.value.type).toLowerCase()
         const v = Number(b.value.val)
-        if (!Number.isNaN(v) && t) dmgTypeBonus[t] = (dmgTypeBonus[t] || 0) + v
+        if (!Number.isNaN(v)) dmgTypeBonus[t] = (dmgTypeBonus[t] || 0) + v
       }
     }
 
@@ -304,10 +237,6 @@ export function useBuffCalculator(character, activeBuffs) {
       skillBonusPerSkill,
       concentrationBonus,
       concentrationAdvantage,
-      ignoreDifficultTerrain,
-      spellRangeMultiplier,
-      spellRangeBonus,
-      ignoreResistanceTypes,
       tempHp,
       maxHpBonus,
       regeneration,
@@ -328,13 +257,13 @@ export function useBuffCalculator(character, activeBuffs) {
  */
 export function calculateDamage(baseRoll, damageType, buffStats) {
   if (!buffStats) return baseRoll
-  const { resistTypes = [], immuneTypes = [], vulnerableTypes = [], dmgTypeBonus = {}, ignoreResistanceTypes = [] } = buffStats
-  const type = getDamageTypeValue(damageType) || String(damageType || '').toLowerCase()
+  const { resistTypes, immuneTypes, vulnerableTypes, dmgTypeBonus = {} } = buffStats
+  const type = String(damageType || '').toLowerCase()
   const typeBonus = dmgTypeBonus[type] || 0
   let result = baseRoll + typeBonus
 
   if (immuneTypes.includes(type)) return 0
   if (vulnerableTypes.includes(type)) result *= 2
-  if (resistTypes.includes(type) && !ignoreResistanceTypes.includes(type)) result = Math.floor(result / 2)
+  if (resistTypes.includes(type)) result = Math.floor(result / 2)
   return result
 }

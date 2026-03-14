@@ -3,7 +3,7 @@
  *
  * 属性调整值：Math.floor((属性值 - 10) / 2)
  * 经验与等级：输入单次获得经验 → 累加总经验 → 查表自动换算当前等级
- * AC = 10 + 护甲基础(类型) + 敏捷调整值(按护甲限制) + 盾牌值 + 其他装备 + Buff
+ * AC = 基础AC + 敏调 + 盾AC + 盾牌增强加值 + 盔甲增强加值 + BUFF
  * 技能/豁免 = d20 + 属性调整值 + 熟练加值(等级查表) + 专精加成 + Buff
  * HP 当前 = 上限 + 临时 HP + Buff - 累计伤害
  */
@@ -57,12 +57,7 @@ export function parseArmorNote(note) {
   if (!note || typeof note !== 'string') return null
   const s = note.trim()
   if (!s) return null
-  // 盾牌：AC +2
-  const shieldMatch = s.match(/AC\s*\+\s*(\d+)/i)
-  if (shieldMatch) {
-    const bonus = parseInt(shieldMatch[1], 10)
-    if (!Number.isNaN(bonus)) return { isShield: true, bonus }
-  }
+  // 先匹配护甲基础 AC（避免附注中「AC 11+敏捷；…；AC+2」被误判为盾牌）
   // 护甲：AC 14+敏捷(最大2) 或 AC 14+敏捷（最大2）（全角括号）
   const armorDexCapMatch = s.match(/AC\s*(\d+)\s*\+\s*敏捷\s*[（(]\s*最大\s*(\d+)\s*[）)]/i)
   if (armorDexCapMatch) {
@@ -82,6 +77,12 @@ export function parseArmorNote(note) {
     const baseAC = parseInt(armorFixedMatch[1], 10)
     if (!Number.isNaN(baseAC)) return { baseAC, addDex: false, dexCap: 0 }
   }
+  // 盾牌：AC +2（仅当未匹配到护甲基础时）
+  const shieldMatch = s.match(/AC\s*\+\s*(\d+)/i)
+  if (shieldMatch) {
+    const bonus = parseInt(shieldMatch[1], 10)
+    if (!Number.isNaN(bonus)) return { isShield: true, bonus }
+  }
   return null
 }
 
@@ -97,7 +98,7 @@ export function computeACFromParsed(parsed, dexMod) {
 }
 
 /**
- * 三层穿戴 AC 计算：Base(10) + Dex(受盔甲限制) + Max(内袍Base, 身体盔甲Base) 取代 10 + 外袍魔法加值 + 盾牌 + 其他 + Buff
+ * 三层穿戴 AC 计算：AC = 基础AC + 敏调 + 盾AC + 盾牌增强加值 + 盔甲增强加值 + BUFF（+ 可选外袍/其他）
  * 内袍/身体盔甲提供“基础防御”，取高者；敏捷上限由身体盔甲优先决定。
  */
 function getACFromLayers(character, getLayerSlotData) {
@@ -133,32 +134,36 @@ function getACFromLayers(character, getLayerSlotData) {
   const dexCap = bodyBase >= innerBase ? bodyDexCap : innerDexCap
   const dexContrib = dexCap === null ? dexMod : (dexCap >= 99 ? dexMod : Math.min(dexMod, dexCap))
 
+  const armorMagic = Number(body.entry?.magicBonus) || 0
+  let shieldBase = 0
+  if (shieldParsed && shieldParsed.isShield) shieldBase = shieldParsed.bonus || 2
+  else if (equipment.useShield) shieldBase = Number(equipment.shieldBonus) || 2
+  const shieldMagic = Number(shieldData.entry?.magicBonus) || 0
+
   let outerMagic = Number(equipment.outerRobe?.magicACBonus) || 0
   if (!outerMagic && outerParsed && !outerParsed.isShield && outerParsed.baseAC != null && outerParsed.baseAC > 0) {
     outerMagic = outerParsed.baseAC
   }
-
-  let shield = 0
-  if (shieldParsed && shieldParsed.isShield) shield = shieldParsed.bonus || 2
-  else if (equipment.useShield) shield = Number(equipment.shieldBonus) || 2
-
   const other = Number(equipment.otherAC) || 0
   const buffSum = (character?.buffs ?? []).reduce((s, b) => s + (Number(b.ac) || 0), 0)
-  const total = effectiveBase + dexContrib + outerMagic + shield + other + buffSum
+
+  const total = effectiveBase + dexContrib + shieldBase + shieldMagic + armorMagic + outerMagic + other + buffSum
   return {
     total,
     base: effectiveBase,
     dexContrib,
+    shieldBase,
+    shieldMagic,
+    armorMagic,
     outerMagic,
-    shield,
     other,
     buff: buffSum,
   }
 }
 
 /**
- * AC = 护甲基础 + 敏捷调整(按上限) + 盾牌 + 其他装备 + Buff
- * 若装备使用三层穿戴槽位则按 Max(内袍,身体盔甲)+外袍+盾牌 计算；否则用 armorNote / armorType
+ * AC = 基础AC + 敏调 + 盾AC + 盾牌增强加值 + 盔甲增强加值 + BUFF
+ * 若装备使用三层穿戴槽位则按上述公式从槽位与背包条目取数；否则用 armorNote / armorType
  */
 export function getAC(character) {
   const abilities = character?.abilities ?? {}
@@ -171,7 +176,10 @@ export function getAC(character) {
       ...result,
       base: result.base,
       dexContrib: result.dexContrib,
-      shield: result.shield,
+      shield: result.shieldBase,
+      shieldBase: result.shieldBase,
+      shieldMagic: result.shieldMagic,
+      armorMagic: result.armorMagic,
       other: result.other,
       buff: result.buff,
     }
@@ -198,16 +206,20 @@ export function getAC(character) {
     dexContrib = dexCap === null ? dexMod : dexCap === 0 ? 0 : Math.min(dexMod, dexCap)
   }
 
-  let shield = equipment.useShield ? (Number(equipment.shieldBonus) || 2) : 0
-  if (parsed && parsed.isShield) shield = parsed.bonus || 2
+  const shieldBase = equipment.useShield ? (Number(equipment.shieldBonus) || 2) : (parsed && parsed.isShield ? (parsed.bonus || 2) : 0)
+  const shieldMagic = Number(equipment.shieldMagicBonus) || 0
+  const armorMagic = Number(equipment.armorMagicBonus) || 0
   const other = Number(equipment.otherAC) || 0
   const buffSum = (character?.buffs ?? []).reduce((s, b) => s + (Number(b.ac) || 0), 0)
-  const total = base + dexContrib + shield + other + buffSum
+  const total = base + dexContrib + shieldBase + shieldMagic + armorMagic + other + buffSum
   return {
     total,
     base,
     dexContrib,
-    shield,
+    shield: shieldBase,
+    shieldBase,
+    shieldMagic,
+    armorMagic,
     other,
     buff: buffSum,
   }

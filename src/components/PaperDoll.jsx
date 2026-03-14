@@ -30,7 +30,7 @@ export default function PaperDoll({ character, canEdit, onSave }) {
     ac = getAC(character)
   } catch (e) {
     console.error('PaperDoll getAC:', e)
-    ac = { total: 10, base: 10, dexContrib: 0, shield: 0, other: 0, buff: 0 }
+    ac = { total: 10, base: 10, dexContrib: 0, shield: 0, shieldBase: 0, shieldMagic: 0, armorMagic: 0, other: 0, buff: 0 }
   }
   const useLayers = useLayersForAC(eq, character)
 
@@ -162,20 +162,24 @@ export default function PaperDoll({ character, canEdit, onSave }) {
           <div className="text-dnd-text-muted text-xs mt-3 text-center space-y-0.5">
             {useLayers ? (
               <>
-                {ac.base != null && <p>基础 {ac.base}</p>}
-                {ac.dexContrib != null && ac.dexContrib !== 0 && <p>敏捷 {ac.dexContrib >= 0 ? '+' : ''}{ac.dexContrib}</p>}
+                {ac.base != null && <p>基础AC {ac.base}</p>}
+                {ac.dexContrib != null && ac.dexContrib !== 0 && <p>敏调 {ac.dexContrib >= 0 ? '+' : ''}{ac.dexContrib}</p>}
+                {(ac.shieldBase ?? ac.shield) != null && (ac.shieldBase ?? ac.shield) > 0 && <p>盾AC +{ac.shieldBase ?? ac.shield}</p>}
+                {ac.shieldMagic != null && ac.shieldMagic > 0 && <p>盾牌增强 +{ac.shieldMagic}</p>}
+                {ac.armorMagic != null && ac.armorMagic > 0 && <p>盔甲增强 +{ac.armorMagic}</p>}
                 {ac.outerMagic != null && ac.outerMagic > 0 && <p>外袍 +{ac.outerMagic}</p>}
-                {ac.shield != null && ac.shield > 0 && <p>盾牌 +{ac.shield}</p>}
                 {ac.other != null && ac.other !== 0 && <p>其他 {ac.other >= 0 ? '+' : ''}{ac.other}</p>}
-                {ac.buff != null && ac.buff !== 0 && <p>增益 {ac.buff >= 0 ? '+' : ''}{ac.buff}</p>}
+                {ac.buff != null && ac.buff !== 0 && <p>BUFF {ac.buff >= 0 ? '+' : ''}{ac.buff}</p>}
               </>
             ) : (
               <>
-                <p>基础 {ac.base}</p>
-                <p>敏捷 {ac.dexContrib >= 0 ? '+' : ''}{ac.dexContrib}</p>
-                {ac.shield > 0 && <p>盾牌 +{ac.shield}</p>}
+                <p>基础AC {ac.base}</p>
+                <p>敏调 {ac.dexContrib >= 0 ? '+' : ''}{ac.dexContrib}</p>
+                {(ac.shieldBase ?? ac.shield) > 0 && <p>盾AC +{ac.shieldBase ?? ac.shield}</p>}
+                {ac.shieldMagic > 0 && <p>盾牌增强 +{ac.shieldMagic}</p>}
+                {ac.armorMagic > 0 && <p>盔甲增强 +{ac.armorMagic}</p>}
                 {ac.other !== 0 && <p>其他 {ac.other >= 0 ? '+' : ''}{ac.other}</p>}
-                {ac.buff !== 0 && <p>增益 {ac.buff >= 0 ? '+' : ''}{ac.buff}</p>}
+                {ac.buff !== 0 && <p>BUFF {ac.buff >= 0 ? '+' : ''}{ac.buff}</p>}
               </>
             )}
           </div>

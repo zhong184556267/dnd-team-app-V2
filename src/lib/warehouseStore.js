@@ -36,10 +36,10 @@ function saveWarehouse(moduleId, list) {
   } catch (_) {}
 }
 
-/** 往仓库添加：{ itemId, name?, 攻击?, 伤害?, 详细介绍?, 附注?, qty?, magicBonus?, charge? } 或 { name, qty }。带 攻击/伤害/详细介绍/附注 时视为不同实例不合并。 */
+/** 往仓库添加：{ itemId, name?, 攻击?, 伤害?, 详细介绍?, 附注?, qty?, magicBonus?, charge?, effects? } 或 { name, qty }。带 攻击/伤害/详细介绍/附注 时视为不同实例不合并。 */
 export function addToWarehouse(moduleId, entry) {
   const list = getWarehouse(moduleId)
-  const { itemId, name, 攻击, 伤害, 攻击距离, 详细介绍, 附注, qty = 1, magicBonus, charge } = entry
+  const { itemId, name, 攻击, 伤害, 攻击距离, 攻击范围, 详细介绍, 附注, 精通, qty = 1, magicBonus, charge, effects } = entry
   const nameTrim = name != null ? String(name).trim() : ''
   const hasOverrides = 攻击 != null || 伤害 != null || 攻击距离 != null || 详细介绍 != null || 附注 != null || magicBonus != null || charge != null
   if (itemId) {
@@ -53,10 +53,13 @@ export function addToWarehouse(moduleId, entry) {
       if (攻击 != null && String(攻击).trim() !== '') newEntry.攻击 = String(攻击).trim()
       if (伤害 != null && String(伤害).trim() !== '') newEntry.伤害 = String(伤害).trim()
       if (攻击距离 != null && String(攻击距离).trim() !== '') newEntry.攻击距离 = String(攻击距离).trim()
+      if (攻击范围 != null && String(攻击范围).trim() !== '') newEntry.攻击范围 = String(攻击范围).trim()
       if (详细介绍 != null && String(详细介绍).trim() !== '') newEntry.详细介绍 = String(详细介绍).trim()
       if (附注 != null && String(附注).trim() !== '') newEntry.附注 = String(附注).trim()
+      if (精通 != null && String(精通).trim() !== '') newEntry.精通 = String(精通).trim()
       if (magicBonus != null && Number(magicBonus) !== 0) newEntry.magicBonus = Number(magicBonus) || 0
       if (charge != null && Number(charge) !== 0) newEntry.charge = Number(charge) || 0
+      if (Array.isArray(effects) && effects.length > 0) newEntry.effects = effects
       list.push(newEntry)
     }
   } else if (nameTrim) {

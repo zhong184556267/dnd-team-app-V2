@@ -85,7 +85,7 @@ export default function BuffManager({ buffs = [], baseAbilities = {}, onSave, ca
             aria-hidden
           />
           <div
-            className="fixed inset-4 sm:inset-auto sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 sm:max-w-3xl sm:w-full z-[201] overflow-auto max-h-[90vh]"
+            className="fixed inset-4 sm:inset-auto sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 sm:max-w-xl sm:w-full z-[201] overflow-auto max-h-[90vh]"
             onClick={(e) => e.stopPropagation()}
           >
             <BuffForm

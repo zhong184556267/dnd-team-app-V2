@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useModule } from '../contexts/ModuleContext'
 import { addCharacter } from '../lib/characterStore'
@@ -7,17 +7,20 @@ import { addCharacter } from '../lib/characterStore'
 export default function CharacterNew() {
   const { user } = useAuth()
   const { currentModuleId } = useModule()
+  const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const [name, setName] = useState('')
   const [classVal, setClassVal] = useState('')
   const [saving, setSaving] = useState(false)
+
+  const moduleId = searchParams.get('moduleId') ?? currentModuleId ?? 'default'
 
   const handleSubmit = (e) => {
     e.preventDefault()
     const n = name.trim()
     if (!n || !user?.name) return
     setSaving(true)
-    const char = addCharacter(user.name, { name: n, 'class': classVal.trim(), moduleId: currentModuleId ?? 'default' })
+    const char = addCharacter(user.name, { name: n, 'class': classVal.trim(), moduleId })
     setSaving(false)
     navigate(`/characters/${char.id}`, { replace: true })
   }

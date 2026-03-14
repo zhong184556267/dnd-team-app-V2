@@ -5,9 +5,11 @@ import { getItemById, getItemDisplayName } from '../data/itemDatabase'
 import { getWarehouse, addToWarehouse, removeFromWarehouse, updateWarehouseItem, reorderWarehouse } from '../lib/warehouseStore'
 import { getAllCharacters, updateCharacter } from '../lib/characterStore'
 import { getItemWeightLb, parseWeightString } from '../lib/encumbrance'
-import ItemPicker from '../components/ItemPicker'
+import ItemAddForm from '../components/ItemAddForm'
 import CurrencyPanel from '../components/CurrencyPanel'
 import MagicCraftingPanel from '../components/MagicCraftingPanel'
+import { DamageDiceInlineRow, NumberStepper } from '../components/BuffForm'
+import { parseDamageString, formatDamageForAttack } from '../data/buffTypes'
 import { inputClass, textareaClass } from '../lib/inputStyles'
 
 /** 从护甲附注字符串解析为分格字段 */
@@ -62,17 +64,7 @@ function buildArmorNoteFromFields(fields) {
 export default function Warehouse() {
   const { currentModuleId } = useModule()
   const [list, setList] = useState([])
-  const [selectedItemId, setSelectedItemId] = useState('')
-  const [instanceName, setInstanceName] = useState('')
-  const [instanceQty, setInstanceQty] = useState(1)
-  const [instance攻击, setInstance攻击] = useState('')
-  const [instance伤害, setInstance伤害] = useState('')
-  const [instance攻击距离, setInstance攻击距离] = useState('')
-  const [instance详细介绍, setInstance详细介绍] = useState('')
-  const [instance附注, setInstance附注] = useState('')
-  const [instanceArmorFields, setInstanceArmorFields] = useState(() => parseArmorNoteToFields(''))
-  const [instanceMagicBonus, setInstanceMagicBonus] = useState(0)
-  const [instanceCharge, setInstanceCharge] = useState(0)
+  const [addFormOpen, setAddFormOpen] = useState(false)
   const [depositIndex, setDepositIndex] = useState(null)
   const [depositCharId, setDepositCharId] = useState('')
   const [depositQty, setDepositQty] = useState(1)
@@ -89,54 +81,12 @@ export default function Warehouse() {
   const [editCharge, setEditCharge] = useState(0)
 
   const characters = getAllCharacters(currentModuleId)
-  const selectedPrototype = selectedItemId ? getItemById(selectedItemId) : null
-  const itemType = selectedPrototype?.类型 ?? ''
-  const showAttackDamage = itemType === '武器' || itemType === '枪械'
-  const showArmorNote = itemType === '盔甲'
 
   useEffect(() => {
     setList(getWarehouse(currentModuleId))
   }, [currentModuleId])
 
   const refreshList = () => setList(getWarehouse(currentModuleId))
-
-  const handleAddFromList = (overrides = {}) => {
-    if (!selectedItemId) return
-    const proto = getItemById(selectedItemId)
-    const name = overrides.name != null ? String(overrides.name).trim() : (instanceName?.trim() || '')
-    const qty = Math.max(1, overrides.qty != null ? (parseInt(overrides.qty, 10) || 1) : (instanceQty ?? 1))
-    const 攻击 = overrides.攻击 != null ? String(overrides.攻击).trim() : (instance攻击?.trim() || '')
-    const 伤害 = overrides.伤害 != null ? String(overrides.伤害).trim() : (instance伤害?.trim() || '')
-    const 攻击距离 = overrides.攻击距离 != null ? String(overrides.攻击距离).trim() : (instance攻击距离?.trim() || '')
-    const 详细介绍 = overrides.详细介绍 != null ? String(overrides.详细介绍).trim() : (instance详细介绍?.trim() || '')
-    const 附注Value = showArmorNote ? buildArmorNoteFromFields(overrides.armorFields ?? instanceArmorFields) : (overrides.附注 != null ? String(overrides.附注).trim() : instance附注?.trim() || '')
-    const magicBonus = overrides.magicBonus != null ? Number(overrides.magicBonus) || 0 : (Number(instanceMagicBonus) || 0)
-    const charge = overrides.charge != null ? Number(overrides.charge) || 0 : (Number(instanceCharge) || 0)
-    addToWarehouse(currentModuleId, {
-      itemId: selectedItemId,
-      ...(name ? { name } : {}),
-      ...(攻击 ? { 攻击 } : {}),
-      ...(伤害 ? { 伤害 } : {}),
-      ...(攻击距离 ? { 攻击距离 } : {}),
-      ...(详细介绍 ? { 详细介绍 } : {}),
-      ...(附注Value ? { 附注: 附注Value } : {}),
-      qty,
-      ...(magicBonus ? { magicBonus } : {}),
-      ...(charge ? { charge } : {}),
-    })
-    setSelectedItemId('')
-    setInstanceName('')
-    setInstanceQty(1)
-    setInstance攻击('')
-    setInstance伤害('')
-    setInstance攻击距离('')
-    setInstance详细介绍('')
-    setInstance附注('')
-    setInstanceArmorFields(parseArmorNoteToFields(''))
-    setInstanceMagicBonus(0)
-    setInstanceCharge(0)
-    refreshList()
-  }
 
   const handleRemove = (i) => {
     removeFromWarehouse(currentModuleId, i)
@@ -180,8 +130,8 @@ export default function Warehouse() {
     const proto = e.itemId ? getItemById(e.itemId) : null
     setEditingIndex(i)
     setEditName((e.name && e.name.trim()) || (proto ? getItemDisplayName(proto) : '') || '')
-    setEdit攻击((e.攻击 != null && e.攻击 !== '') ? String(e.攻击) : '')
-    setEdit伤害((e.伤害 != null && e.伤害 !== '') ? String(e.伤害) : '')
+    setEdit攻击((e.攻击 != null && e.攻击 !== '') ? String(e.攻击) : (proto?.攻击 ?? ''))
+    setEdit伤害((e.伤害 != null && e.伤害 !== '') ? String(e.伤害) : (proto?.伤害 ?? ''))
     setEdit攻击距离((e.攻击距离 != null && e.攻击距离 !== '') ? String(e.攻击距离) : '')
     setEdit详细介绍((e.详细介绍 != null && e.详细介绍 !== '') ? String(e.详细介绍) : '')
     setEdit附注((e.附注 != null && e.附注 !== '') ? String(e.附注) : '')
@@ -237,11 +187,14 @@ export default function Warehouse() {
       伤害: entry.伤害 ?? '',
       详细介绍: entry.详细介绍 ?? '',
       ...(entry.附注 ? { 附注: entry.附注 } : {}),
+      ...(entry.攻击距离 != null && entry.攻击距离 !== '' ? { 攻击距离: entry.攻击距离 } : {}),
+      ...(entry.精通 ? { 精通: entry.精通 } : {}),
       重量: proto?.重量,
       qty: q,
       isAttuned: false,
       magicBonus: Number(entry.magicBonus) || 0,
       charge: Number(entry.charge) || 0,
+      ...(Array.isArray(entry.effects) && entry.effects.length > 0 ? { effects: entry.effects } : {}),
     }
     const inv = char.inventory ?? []
     updateCharacter(depositCharId, { inventory: [...inv, invEntry] })
@@ -294,124 +247,12 @@ export default function Warehouse() {
       </section>
 
       <div className="rounded-xl bg-dnd-card border border-white/10 shadow-dnd-card p-4 space-y-4">
-        <p className="text-dnd-text-muted text-xs mb-1">从物品库选择原型，再基于该物品填写（可选）后放入仓库</p>
-        <div className="space-y-2">
-          <div className="flex-1 min-w-[18rem]">
-            <ItemPicker
-              value={selectedItemId}
-              onChange={(id) => {
-                setSelectedItemId(id)
-                const proto = id ? getItemById(id) : null
-                setInstanceName('')
-                setInstanceQty(1)
-                setInstance攻击(proto?.攻击 ?? '')
-                setInstance伤害(proto?.伤害 ?? '')
-                setInstance攻击距离(proto?.攻击距离 ?? '')
-                setInstance详细介绍(proto?.详细介绍 ?? '')
-                setInstance附注(proto?.附注 ?? '')
-                if (proto?.类型 === '盔甲') setInstanceArmorFields(parseArmorNoteToFields(proto?.附注 ?? ''))
-                else setInstanceArmorFields(parseArmorNoteToFields(''))
-                setInstanceMagicBonus(0)
-                setInstanceCharge(0)
-              }}
-              placeholder="通过下拉菜单选择类似物品再修改属性加入"
-            />
-          </div>
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={() => setAddFormOpen(true)} className="h-10 px-4 rounded-lg bg-dnd-red hover:bg-dnd-red-hover text-white font-bold text-sm">
+            添加物品
+          </button>
+          <ItemAddForm open={addFormOpen} onClose={() => setAddFormOpen(false)} onSave={(entry) => { addToWarehouse(currentModuleId, entry); refreshList(); }} submitLabel="放入仓库" />
         </div>
-        {selectedItemId && selectedPrototype && (
-          <div className="rounded-lg border border-gray-600 bg-gray-800/60 p-3 space-y-3">
-            <p className="text-dnd-text-muted text-xs">基于「{getItemDisplayName(selectedPrototype)}」修改后放入仓库</p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="sm:col-span-2">
-                <label className="block text-dnd-text-muted text-xs mb-1">名称</label>
-                <input
-                  type="text"
-                  value={instanceName}
-                  onChange={(e) => setInstanceName(e.target.value)}
-                  placeholder={`不填则用「${getItemDisplayName(selectedPrototype)}」`}
-                  className={inputClass + ' h-10'}
-                />
-              </div>
-              {showArmorNote && (
-                <div className="sm:col-span-2 space-y-2">
-                  <p className="text-dnd-text-muted text-xs">附注（护甲 AC、力量、隐匿）</p>
-                  {instanceArmorFields.isShield ? (
-                    <div>
-                      <label className="block text-dnd-text-muted text-[10px] mb-0.5">AC 加值</label>
-                      <input type="number" min={0} value={instanceArmorFields.shieldBonus} onChange={(e) => setInstanceArmorFields((f) => ({ ...f, shieldBonus: e.target.value }))} className={inputClass + ' h-9 w-20'} />
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                      <div>
-                        <label className="block text-dnd-text-muted text-[10px] mb-0.5">基础 AC</label>
-                        <input type="number" min={0} value={instanceArmorFields.baseAC} onChange={(e) => setInstanceArmorFields((f) => ({ ...f, baseAC: e.target.value }))} placeholder="12" className={inputClass + ' h-9'} />
-                      </div>
-                      <div>
-                        <label className="block text-dnd-text-muted text-[10px] mb-0.5">敏调</label>
-                        <select value={instanceArmorFields.dexMode} onChange={(e) => setInstanceArmorFields((f) => ({ ...f, dexMode: e.target.value }))} className="h-9 w-full rounded-lg bg-gray-800 border border-gray-600 text-white text-xs px-2 focus:border-dnd-red focus:ring-1 focus:ring-dnd-red">
-                          <option value="none">不加</option>
-                          <option value="full">加敏捷</option>
-                          <option value="cap2">加敏捷（最大）</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-dnd-text-muted text-[10px] mb-0.5">力量要求</label>
-                        <input type="text" value={instanceArmorFields.strReq} onChange={(e) => setInstanceArmorFields((f) => ({ ...f, strReq: e.target.value }))} placeholder="— 或 13" className={inputClass + ' h-9'} />
-                      </div>
-                      <div>
-                        <label className="block text-dnd-text-muted text-[10px] mb-0.5">隐匿</label>
-                        <select value={instanceArmorFields.stealth} onChange={(e) => setInstanceArmorFields((f) => ({ ...f, stealth: e.target.value }))} className="h-9 w-full rounded-lg bg-gray-800 border border-gray-600 text-white text-xs px-2 focus:border-dnd-red focus:ring-1 focus:ring-dnd-red">
-                          <option value="—">—</option>
-                          <option value="劣势">劣势</option>
-                        </select>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-              {showAttackDamage && (
-                <>
-                  <div>
-                    <label className="block text-dnd-text-muted text-xs mb-1">攻击（伤害骰与类型）</label>
-                    <input type="text" value={instance攻击} onChange={(e) => setInstance攻击(e.target.value)} placeholder="如：1d8 挥砍" className={inputClass + ' h-10'} />
-                  </div>
-                  <div>
-                    <label className="block text-dnd-text-muted text-xs mb-1">伤害类型</label>
-                    <input type="text" value={instance伤害} onChange={(e) => setInstance伤害(e.target.value)} placeholder="如：挥砍、穿刺、贯穿" className={inputClass + ' h-10'} />
-                  </div>
-                  <div>
-                    <label className="block text-dnd-text-muted text-xs mb-1">攻击距离</label>
-                    <input type="text" value={instance攻击距离} onChange={(e) => setInstance攻击距离(e.target.value)} placeholder="如：20/40、30/60" className={inputClass + ' h-10'} />
-                  </div>
-                </>
-              )}
-              <div className="sm:col-span-2">
-                <label className="block text-dnd-text-muted text-xs mb-1">详细描述</label>
-                <textarea value={instance详细介绍} onChange={(e) => setInstance详细介绍(e.target.value)} placeholder="附魔、说明等" rows={2} className={textareaClass} />
-              </div>
-              <div className="flex flex-wrap items-end gap-2 sm:col-span-2">
-                <div className="w-20">
-                  <label className="block text-dnd-text-muted text-xs mb-1">数量</label>
-                  <input type="number" min={1} value={instanceQty} onChange={(e) => setInstanceQty(Math.max(1, parseInt(e.target.value, 10) || 1))} className={inputClass + ' h-10'} />
-                </div>
-                <div className="w-28">
-                  <label className="block text-dnd-text-muted text-xs mb-1">增强加值</label>
-                  <div className="flex items-center rounded-lg border border-gray-600 bg-gray-800 overflow-hidden h-10">
-                    <button type="button" onClick={() => setInstanceMagicBonus(Math.max(0, (instanceMagicBonus || 0) - 1))} className="px-2.5 h-full flex items-center justify-center text-dnd-text-muted hover:text-white hover:bg-gray-700 border-r border-gray-600 font-medium text-lg shrink-0">−</button>
-                    <input type="number" min={0} value={instanceMagicBonus || ''} onChange={(e) => setInstanceMagicBonus(parseInt(e.target.value, 10) || 0)} className="w-12 h-full bg-transparent border-0 text-center text-white text-sm tabular-nums px-1 focus:outline-none focus:ring-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]" />
-                    <button type="button" onClick={() => setInstanceMagicBonus((instanceMagicBonus || 0) + 1)} className="px-2.5 h-full flex items-center justify-center text-dnd-text-muted hover:text-white hover:bg-gray-700 border-l border-gray-600 font-medium text-lg shrink-0">+</button>
-                  </div>
-                </div>
-                <div className="w-16">
-                  <label className="block text-dnd-text-muted text-xs mb-1">充能</label>
-                  <input type="number" min={0} value={instanceCharge || ''} onChange={(e) => setInstanceCharge(parseInt(e.target.value, 10) || 0)} placeholder="0" className={inputClass + ' h-10'} />
-                </div>
-                <button type="button" onClick={() => handleAddFromList()} className="h-10 px-4 rounded-lg bg-dnd-red hover:bg-dnd-red-hover text-white font-bold text-sm">放入仓库</button>
-              </div>
-            </div>
-          </div>
-        )}
-
         <div className="rounded border border-gray-600 overflow-hidden mt-4">
           <table className="w-full text-xs">
             <thead>
@@ -456,14 +297,14 @@ export default function Warehouse() {
                         <span className="line-clamp-2" title={getEntryBriefFull(entry)}>{getEntryBriefFull(entry) || '—'}</span>
                       </td>
                       <td className="py-1.5 px-1.5 text-right">
-                        <input
-                          type="number"
-                          min={0}
-                          value={Number(entry.charge) || ''}
-                          onChange={(e) => setCharge(i, e.target.value)}
-                          placeholder="0"
-                          className="w-12 h-7 rounded bg-gray-700 border border-gray-600 text-white text-right text-xs tabular-nums px-1 focus:border-dnd-red focus:ring-1 focus:ring-dnd-red placeholder:text-gray-500"
-                        />
+                        <div className="inline-flex items-center w-20">
+                          <NumberStepper
+                            value={Number(entry.charge) || 0}
+                            onChange={(v) => setCharge(i, String(v))}
+                            min={0}
+                            compact
+                          />
+                        </div>
                       </td>
                       <td className="py-1.5 px-1.5 text-right">
                         <input
@@ -500,16 +341,22 @@ export default function Warehouse() {
                               </div>
                               {(() => {
                                 const editingProto = list[editingIndex]?.itemId ? getItemById(list[editingIndex].itemId) : null
-                                const showEditAttackDamage = editingProto && (editingProto.类型 === '武器' || editingProto.类型 === '枪械')
+                                const showEditAttackDamage = editingProto && (editingProto.类型 === '近战武器' || editingProto.类型 === '远程武器' || editingProto.类型 === '枪械')
                                 return showEditAttackDamage ? (
                                   <>
-                                    <div>
-                                      <label className="block text-dnd-text-muted text-xs mb-1">攻击（伤害骰与类型）</label>
-                                      <input type="text" value={edit攻击} onChange={(e) => setEdit攻击(e.target.value)} placeholder="如：1d8 挥砍" className={inputClass + ' h-10'} />
-                                    </div>
-                                    <div>
-                                      <label className="block text-dnd-text-muted text-xs mb-1">伤害类型</label>
-                                      <input type="text" value={edit伤害} onChange={(e) => setEdit伤害(e.target.value)} placeholder="如：挥砍、穿刺、贯穿" className={inputClass + ' h-10'} />
+                                    <div className="sm:col-span-2">
+                                      <DamageDiceInlineRow
+                                        value={parseDamageString(edit攻击)}
+                                        onChange={(next) => {
+                                          if (next.value != null) {
+                                            setEdit攻击(formatDamageForAttack(next.value))
+                                            setEdit伤害(next.value.type ?? '')
+                                          }
+                                        }}
+                                        module={{ id: 'warehouse-dmg', value: parseDamageString(edit攻击) }}
+                                        compact
+                                        leftLabel="伤害"
+                                      />
                                     </div>
                                     <div>
                                       <label className="block text-dnd-text-muted text-xs mb-1">攻击距离</label>
@@ -591,7 +438,7 @@ export default function Warehouse() {
           </table>
         </div>
         {list.length === 0 && (
-          <p className="text-gray-500 text-sm py-4">仓库暂无物品，可从上方下拉选择物品添加。</p>
+          <p className="text-gray-500 text-sm py-4">仓库暂无物品，可点击「添加物品」添加。</p>
         )}
       </div>
 

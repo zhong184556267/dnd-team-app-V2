@@ -16,18 +16,18 @@ export default function EncumbranceBar({ character, multiplier = ENCUMBRANCE_MUL
         : 'bg-emerald-500'
 
   return (
-    <div className="flex items-center gap-3">
-      <div className="flex-1 min-w-0 h-6 rounded-full bg-gray-800 border border-white/10 overflow-hidden">
+    <div className="flex items-center gap-2">
+      <div className="flex-1 min-w-0 h-4 rounded-full bg-gray-800 border border-white/10 overflow-hidden">
         <div
           className={`h-full rounded-full transition-all duration-300 ${barColor}`}
           style={{ width: `${Math.min(100, percent)}%` }}
         />
       </div>
-      <span className="text-sm font-mono text-dnd-text-body shrink-0 tabular-nums whitespace-nowrap">
+      <span className="text-xs font-mono text-dnd-text-body shrink-0 tabular-nums whitespace-nowrap">
         {total} / {max} lbs
       </span>
       <span
-        className={`shrink-0 text-xs font-medium px-2 py-0.5 rounded ${
+        className={`shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded ${
           statusColor === 'red'
             ? 'bg-red-900/40 text-red-300'
             : statusColor === 'yellow'

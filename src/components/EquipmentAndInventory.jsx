@@ -11,11 +11,12 @@ import { addToWarehouse } from '../lib/warehouseStore'
 import { CurrencyGrid } from './CurrencyDisplay'
 import { getItemWeightLb, parseWeightString } from '../lib/encumbrance'
 import { getMaxAttunementSlots, getAttunedCountFromInventory } from '../lib/combatState'
-import ItemPicker from './ItemPicker'
+import ItemAddForm from './ItemAddForm'
 import EncumbranceBar from './EncumbranceBar'
 import TransferModal from './TransferModal'
 import { parseArmorNote } from '../lib/formulas'
-import { inputClass, textareaClass, labelClass } from '../lib/inputStyles'
+import { inputClass } from '../lib/inputStyles'
+import { NumberStepper } from './BuffForm'
 
 const HELD_LABELS = ['主手', '副手']
 const WORN_SLOT_OPTIONS = [
@@ -37,64 +38,15 @@ function getEntryDisplayName(entry) {
   return getItemDisplayName(proto) || '—'
 }
 
-/** 从护甲附注解析 */
-function parseArmorNoteToFields(note) {
-  const empty = { isShield: false, baseAC: '', dexMode: 'full', dexCap: 2, strReq: '', stealth: '—', shieldBonus: '' }
-  if (!note || typeof note !== 'string') return empty
-  const s = note.trim()
-  if (!s) return empty
-  const shieldMatch = s.match(/AC\s*\+\s*(\d+)/i)
-  if (shieldMatch) return { ...empty, isShield: true, shieldBonus: shieldMatch[1] }
-  let baseAC = '', dexMode = 'none', dexCap = 2
-  const armorDexCapMatch = s.match(/AC\s*(\d+)\s*\+\s*敏捷\s*[（(]\s*最大\s*(\d+)\s*[）)]/i)
-  if (armorDexCapMatch) {
-    baseAC = armorDexCapMatch[1]
-    dexMode = 'cap2'
-    dexCap = parseInt(armorDexCapMatch[2], 10) || 2
-  } else {
-    const armorDexMatch = s.match(/AC\s*(\d+)\s*\+\s*敏捷/i)
-    if (armorDexMatch) {
-      baseAC = armorDexMatch[1]
-      dexMode = 'full'
-    } else {
-      const armorFixedMatch = s.match(/AC\s*(\d+)/i)
-      if (armorFixedMatch) {
-        baseAC = armorFixedMatch[1]
-        dexMode = 'none'
-      }
-    }
-  }
-  let strReq = ''
-  const strMatch = s.match(/力量\s*(\d+)/i)
-  if (strMatch) strReq = strMatch[1]
-  const stealth = /隐匿\s*劣势/i.test(s) ? '劣势' : '—'
-  return { ...empty, isShield: false, baseAC, dexMode, dexCap, strReq, stealth }
-}
-
-function buildArmorNoteFromFields(fields) {
-  if (!fields) return ''
-  if (fields.isShield) {
-    const n = fields.shieldBonus === '' ? '0' : String(fields.shieldBonus)
-    return `AC +${n}；力量—；隐匿—`
-  }
-  const base = fields.baseAC === '' ? '0' : String(fields.baseAC)
-  let acPart = `AC ${base}`
-  if (fields.dexMode === 'full') acPart += '+敏捷'
-  else if (fields.dexMode === 'cap2') acPart += `+敏捷（最大${fields.dexCap ?? 2}）`
-  const strPart = fields.strReq === '' ? '—' : fields.strReq
-  const stealthPart = fields.stealth === '劣势' ? '劣势' : '—'
-  return `${acPart}；力量${strPart}；隐匿${stealthPart}`
-}
-
 /** 手持：主手 武器+法器+枪械, 副手 盾牌+武器+枪械, 备用 法器+武器 */
 function getHeldOptions(inv, slotIndex) {
   return inv.filter((e) => {
     const proto = e.itemId ? getItemById(e.itemId) : null
     const t = proto?.类型 ?? ''
     const sub = proto?.子类型 ?? ''
-    if (slotIndex === 0) return t === '武器' || t === '枪械' || t === '法器'
-    if (slotIndex === 1) return (t === '盔甲' && sub === '盾牌') || t === '武器' || t === '枪械'
-    return t === '法器' || t === '武器'
+    if (slotIndex === 0) return t === '近战武器' || t === '远程武器' || t === '枪械' || t === '法器'
+    if (slotIndex === 1) return (t === '盔甲' && sub === '盾牌') || t === '近战武器' || t === '远程武器' || t === '枪械'
+    return t === '法器' || t === '近战武器' || t === '远程武器'
   })
 }
 
@@ -132,9 +84,9 @@ function migrateSlots(character) {
   return { held, worn }
 }
 
-/** 构建 equipment 以支持 AC 计算 */
+/** 构建 equipment 以支持 AC 计算（卸下时显式置空，便于 getAC 正确回退） */
 function buildEquipmentForAC(heldSlots, wornSlots, inv) {
-  const eq = {}
+  const eq = { bodyArmor: null, shield: null }
   const bodySlot = wornSlots.find((s) => s.id === 'body' || s.slotId === 'body')
   if (bodySlot?.inventoryId) {
     const entry = inv.find((e) => e.id === bodySlot.inventoryId)
@@ -187,53 +139,14 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
   const [wallet, setWallet] = useState({})
   const [transferOpen, setTransferOpen] = useState(false)
   const [transferDirection, setTransferDirection] = useState('toVault')
-  const [selectedItemId, setSelectedItemId] = useState('')
-  const [instanceName, setInstanceName] = useState('')
-  const [instance攻击, setInstance攻击] = useState('')
-  const [instance伤害, setInstance伤害] = useState('')
-  const [instance攻击距离, setInstance攻击距离] = useState('')
-  const [instance详细介绍, setInstance详细介绍] = useState('')
-  const [instance附注, setInstance附注] = useState('')
-  const [instanceArmorFields, setInstanceArmorFields] = useState(() => parseArmorNoteToFields(''))
-  const [instanceQty, setInstanceQty] = useState(1)
-  const [instanceMagicBonus, setInstanceMagicBonus] = useState(0)
-  const [instanceCharge, setInstanceCharge] = useState(0)
+  const [addFormOpen, setAddFormOpen] = useState(false)
   const [editingIndex, setEditingIndex] = useState(null)
-  const [editName, setEditName] = useState('')
-  const [edit攻击, setEdit攻击] = useState('')
-  const [edit伤害, setEdit伤害] = useState('')
-  const [edit攻击距离, setEdit攻击距离] = useState('')
-  const [edit详细介绍, setEdit详细介绍] = useState('')
-  const [edit附注, setEdit附注] = useState('')
-  const [editArmorFields, setEditArmorFields] = useState(() => parseArmorNoteToFields(''))
-  const [editQty, setEditQty] = useState(1)
-  const [editMagicBonus, setEditMagicBonus] = useState(0)
-  const [editCharge, setEditCharge] = useState(0)
   const [storeToVaultIndex, setStoreToVaultIndex] = useState(null)
   const [storeToVaultQty, setStoreToVaultQty] = useState(1)
-
-  const selectedPrototype = selectedItemId ? getItemById(selectedItemId) : null
-  const showAttackDamage = selectedPrototype && (selectedPrototype.类型 === '武器' || selectedPrototype.类型 === '枪械')
-  const showArmorNote = selectedPrototype && selectedPrototype.类型 === '盔甲'
 
   useEffect(() => {
     if (character?.id) setWallet(getCharacterWallet(character.id))
   }, [character?.id, character?.wallet])
-
-  useEffect(() => {
-    if (!selectedItemId) return
-    const proto = getItemById(selectedItemId)
-    setInstanceName('')
-    setInstance攻击(proto?.攻击 ?? '')
-    setInstance伤害(proto?.伤害 ?? '')
-    setInstance攻击距离(proto?.攻击距离 ?? '')
-    setInstance详细介绍(proto?.详细介绍 ?? '')
-    setInstance附注(proto?.附注 ?? '')
-    if (proto?.类型 === '盔甲') setInstanceArmorFields(parseArmorNoteToFields(proto?.附注 ?? ''))
-    setInstanceQty(1)
-    setInstanceMagicBonus(0)
-    setInstanceCharge(0)
-  }, [selectedItemId])
 
   const saveWithEquipment = (patch) => {
     const nextHeld = patch.equippedHeld ?? heldSlots
@@ -308,34 +221,6 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
     setHeld(heldSlots.filter((_, j) => j !== i))
   }
 
-  const handleAddFromPicker = () => {
-    if (!selectedItemId) return
-    const proto = getItemById(selectedItemId)
-    const 附注Value = showArmorNote ? buildArmorNoteFromFields(instanceArmorFields) : (instance附注?.trim() || '')
-    const entry = {
-      id: 'inv_' + Date.now(),
-      itemId: selectedItemId,
-      name: (instanceName && instanceName.trim()) || proto?.类别 || getItemDisplayName(proto) || '—',
-      攻击: (instance攻击 && instance攻击.trim()) || (proto?.攻击 ?? ''),
-      伤害: (instance伤害 && instance伤害.trim()) || (proto?.伤害 ?? ''),
-      攻击距离: (instance攻击距离 && instance攻击距离.trim()) || (proto?.攻击距离 ?? ''),
-      详细介绍: instance详细介绍?.trim() ?? '',
-      ...(附注Value ? { 附注: 附注Value } : {}),
-      重量: proto?.重量,
-      qty: Math.max(1, instanceQty),
-      isAttuned: false,
-      magicBonus: Number(instanceMagicBonus) || 0,
-      charge: Number(instanceCharge) || 0,
-    }
-    onSave({ inventory: [...inv, entry] })
-    setSelectedItemId('')
-    setInstanceName('')
-    setInstance攻击距离('')
-    setInstanceQty(1)
-    setInstanceMagicBonus(0)
-    setInstanceCharge(0)
-  }
-
   const removeItem = (index) => onSave({ inventory: inv.filter((_, i) => i !== index) })
 
   const reorderInventory = (fromIndex, toIndex) => {
@@ -376,43 +261,15 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
   }
 
   const startEdit = (index) => {
-    const e = inv[index]
-    if (!e) return
-    const proto = e.itemId ? getItemById(e.itemId) : null
-    setEditingIndex(index)
-    setEditName((e.name && e.name.trim()) || (proto ? getItemDisplayName(proto) : '') || '')
-    setEdit攻击((e.攻击 != null && e.攻击 !== '') ? String(e.攻击) : '')
-    setEdit伤害((e.伤害 != null && e.伤害 !== '') ? String(e.伤害) : '')
-    setEdit攻击距离((e.攻击距离 != null && e.攻击距离 !== '') ? String(e.攻击距离) : '')
-    setEdit详细介绍((e.详细介绍 != null && e.详细介绍 !== '') ? String(e.详细介绍) : '')
-    setEdit附注((e.附注 != null && e.附注 !== '') ? String(e.附注) : '')
-    if (proto?.类型 === '盔甲') setEditArmorFields(parseArmorNoteToFields(e.附注 ?? ''))
-    setEditQty(Math.max(1, Number(e.qty) ?? 1))
-    setEditMagicBonus(Number(e.magicBonus) || 0)
-    setEditCharge(Number(e.charge) || 0)
+    if (inv[index]) setEditingIndex(index)
   }
-  const saveEdit = () => {
+  const applyEditSave = (entry) => {
     if (editingIndex == null) return
-    const e = inv[editingIndex]
-    const proto = e.itemId ? getItemById(e.itemId) : null
-    const 附注Value = proto?.类型 === '盔甲' ? buildArmorNoteFromFields(editArmorFields) : (edit附注 != null && String(edit附注).trim() !== '' ? String(edit附注).trim() : (e.附注 ?? ''))
     const next = [...inv]
-    next[editingIndex] = {
-      ...e,
-      name: (editName && editName.trim()) || (proto ? getItemDisplayName(proto) : null) || e.name || '—',
-      攻击: (edit攻击 && edit攻击.trim()) ?? e.攻击,
-      伤害: (edit伤害 && edit伤害.trim()) ?? e.伤害,
-      攻击距离: (edit攻击距离 && edit攻击距离.trim()) ?? e.攻击距离 ?? '',
-      详细介绍: edit详细介绍?.trim() ?? e.详细介绍 ?? '',
-      附注: 附注Value,
-      qty: Math.max(1, editQty),
-      magicBonus: Number(editMagicBonus) || 0,
-      charge: Number(editCharge) || 0,
-    }
+    next[editingIndex] = entry
     onSave({ inventory: next })
     setEditingIndex(null)
   }
-  const cancelEdit = () => setEditingIndex(null)
 
   const openStoreToVault = (index) => {
     setStoreToVaultIndex(index)
@@ -480,21 +337,24 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
   }
 
   const selectClass = 'h-8 rounded bg-gray-800 border border-gray-600 focus:border-dnd-red focus:ring-1 focus:ring-dnd-red text-white text-xs px-2 min-w-0'
-  const slotBaseClass = 'flex flex-col gap-0.5 rounded border border-gray-600 bg-gray-800/80 px-2 py-1.5 min-w-[10rem]'
-  const subTitleClass = 'text-dnd-gold-light text-xs font-bold uppercase tracking-wider mb-1'
+  const slotBaseClass = 'flex flex-col gap-0.5 rounded border border-gray-600 bg-gray-800/80 px-1.5 py-1 min-w-[10rem]'
+  const subTitleClass = 'text-dnd-gold-light text-xs font-bold uppercase tracking-wider mb-0.5'
 
   return (
-    <div className="rounded-xl border border-gray-600 bg-gray-800/30 overflow-hidden pb-28">
+    <div className="rounded-xl border border-gray-600 bg-gray-800/30 overflow-hidden pb-3">
       {/* 上方：手持与身穿 */}
-      <div className="p-3 border-b border-gray-600">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div className="p-1.5 border-b border-gray-600">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
           {/* 左：手持 */}
-          <div className="space-y-1.5">
+          <div className="space-y-1">
             <h4 className={subTitleClass}>手持</h4>
             {/* 主手、副手 */}
-            <div className="flex flex-col gap-1.5">
+            <div className="flex flex-col gap-1">
               {heldSlots.slice(0, HELD_FIXED).map((slot, i) => {
                 const entry = slot.inventoryId ? inv.find((e) => e.id === slot.inventoryId) ?? null : null
+                const proto = entry?.itemId ? getItemById(entry.itemId) : null
+                const isShield = proto?.类型 === '盔甲' && proto?.子类型 === '盾牌'
+                const shieldMagicBonus = Number(entry?.magicBonus) || 0
                 const options = getHeldOptions(inv, i)
                 return (
                   <div key={slot.id} className={slotBaseClass}>
@@ -512,6 +372,16 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                               <option key={e.id} value={e.id}>{getEntryDisplayName(e)}</option>
                             ))}
                           </select>
+                          {i === 1 && isShield && entry && (
+                            <div className="flex items-center gap-1 shrink-0">
+                              <span className="text-gray-500 text-[10px]">盾牌增强</span>
+                              <div className="flex items-center rounded border border-gray-600 bg-gray-800 overflow-hidden h-7">
+                                <button type="button" onClick={() => setWornMagicBonus(entry.id, String(Math.max(0, shieldMagicBonus - 1)))} className="px-1.5 h-full flex items-center justify-center text-dnd-text-muted hover:text-white hover:bg-gray-700 border-r border-gray-600 font-medium text-sm shrink-0">−</button>
+                                <input type="number" min={0} value={shieldMagicBonus || ''} onChange={(e) => setWornMagicBonus(entry.id, e.target.value)} className="w-10 h-full bg-transparent border-0 text-center text-white text-xs tabular-nums px-0.5 focus:outline-none focus:ring-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]" />
+                                <button type="button" onClick={() => setWornMagicBonus(entry.id, String(shieldMagicBonus + 1))} className="px-1.5 h-full flex items-center justify-center text-dnd-text-muted hover:text-white hover:bg-gray-700 border-l border-gray-600 font-medium text-sm shrink-0">+</button>
+                              </div>
+                            </div>
+                          )}
                           <label className={`flex items-center gap-1 shrink-0 ${entry ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`} title="同调">
                             <input
                               type="checkbox"
@@ -524,15 +394,29 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                           </label>
                         </>
                       ) : (
-                        <span className="text-white text-sm flex-1">{getEntryDisplayName(entry)}</span>
+                        <>
+                          <span className="text-white text-sm flex-1">{getEntryDisplayName(entry)}</span>
+                          {i === 1 && isShield && shieldMagicBonus > 0 && (
+                            <span className="text-amber-200/90 text-xs font-mono shrink-0" title="盾牌增强加值">+{shieldMagicBonus}</span>
+                          )}
+                        </>
                       )}
                     </div>
+                    {i === 1 && entry && isShield && (() => {
+                      const parsed = parseArmorNote(entry.附注 ?? proto?.附注 ?? '')
+                      const baseAC = parsed?.isShield ? (parsed.bonus || 2) : 2
+                      return (
+                        <p className="text-amber-200/90 text-[10px]">
+                          AC +{baseAC}{shieldMagicBonus > 0 ? <span className="ml-1">盾牌增强 +{shieldMagicBonus}</span> : null}
+                        </p>
+                      )
+                    })()}
                   </div>
                 )
               })}
             </div>
             {/* 备用栏 */}
-            <div className="flex flex-col gap-1.5">
+            <div className="flex flex-col gap-1">
               {heldSlots.slice(HELD_FIXED).map((slot, i) => {
                   const idx = HELD_FIXED + i
                   const entry = slot.inventoryId ? inv.find((e) => e.id === slot.inventoryId) ?? null : null
@@ -577,7 +461,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                   )
                 })}
               {canEdit && (
-                <div className="flex items-center justify-between mt-2">
+                <div className="flex items-center justify-between mt-1">
                   <span className="text-gray-500 text-xs">可增加备用栏</span>
                   <button
                     type="button"
@@ -592,7 +476,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
           </div>
 
           {/* 右：身穿 */}
-          <div className="space-y-1.5">
+          <div className="space-y-1">
             <h4 className={subTitleClass}>身穿</h4>
             {/* 身体（固定） */}
             <div className={slotBaseClass}>
@@ -664,7 +548,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
               })()}
             </div>
             {/* 可添加部位 */}
-            <div className="flex flex-col gap-1.5">
+            <div className="flex flex-col gap-1">
               {wornAddable.map((slot, i) => {
                   const entry = slot.inventoryId ? inv.find((e) => e.id === slot.inventoryId) ?? null : null
                   const proto = entry?.itemId ? getItemById(entry.itemId) : null
@@ -741,7 +625,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                   )
                 })}
               {canEdit && (
-                <div className="flex items-center justify-between mt-2">
+                <div className="flex items-center justify-between mt-1">
                   <span className="text-gray-500 text-xs">可添加部位</span>
                   <button
                     type="button"
@@ -757,139 +641,34 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
         </div>
       </div>
 
-      {/* 下方：背包 */}
-      <div className="p-3 grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-3">
-        <div className="min-w-0">
-          <h3 className={subTitleClass + ' mb-1.5'}>背包</h3>
-          {canEdit && (
-            <div className="space-y-2 mb-2">
-              <div className="flex-1 min-w-[18rem]">
-                <ItemPicker
-                  value={selectedItemId}
-                  onChange={setSelectedItemId}
-                  placeholder="通过下拉菜单选择类似物品再修改属性加入"
-                />
-              </div>
-              {selectedItemId && selectedPrototype && (
-                <div className="rounded border border-gray-600 bg-gray-800/60 p-2 space-y-2">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div className="sm:col-span-2">
-                      <label className="block text-dnd-text-muted text-xs mb-1">名称</label>
-                      <input
-                        type="text"
-                        value={instanceName}
-                        onChange={(e) => setInstanceName(e.target.value)}
-                        placeholder={`不填则用「${getItemDisplayName(selectedPrototype)}」`}
-                        className={inputClass + ' h-10'}
-                      />
-                    </div>
-                    {showArmorNote && (
-                      <div className="sm:col-span-2 space-y-2">
-                        <p className="text-dnd-text-muted text-xs">附注（护甲等级 AC、力量、隐匿）</p>
-                        {instanceArmorFields.isShield ? (
-                          <div>
-                            <label className="block text-dnd-text-muted text-[10px] mb-0.5">AC 加值</label>
-                            <input
-                              type="number"
-                              min={0}
-                              value={instanceArmorFields.shieldBonus}
-                              onChange={(e) => setInstanceArmorFields((f) => ({ ...f, shieldBonus: e.target.value }))}
-                              className={inputClass + ' h-9 w-20'}
-                            />
-                          </div>
-                        ) : (
-                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                            <div>
-                              <label className="block text-dnd-text-muted text-[10px] mb-0.5">基础 AC</label>
-                              <input type="number" min={0} value={instanceArmorFields.baseAC} onChange={(e) => setInstanceArmorFields((f) => ({ ...f, baseAC: e.target.value }))} placeholder="12" className={inputClass + ' h-9'} />
-                            </div>
-                            <div>
-                              <label className="block text-dnd-text-muted text-[10px] mb-0.5">敏调</label>
-                              <select
-                                value={instanceArmorFields.dexMode}
-                                onChange={(e) => setInstanceArmorFields((f) => ({ ...f, dexMode: e.target.value }))}
-                                className="h-9 w-full rounded-lg bg-gray-800 border border-gray-600 text-gray-200 text-xs px-2 focus:border-dnd-red focus:ring-1 focus:ring-dnd-red"
-                              >
-                                <option value="none">不加</option>
-                                <option value="full">加敏捷</option>
-                                <option value="cap2">加敏捷（最大）</option>
-                              </select>
-                            </div>
-                            <div>
-                              <label className="block text-dnd-text-muted text-[10px] mb-0.5">力量要求</label>
-                              <input type="text" value={instanceArmorFields.strReq} onChange={(e) => setInstanceArmorFields((f) => ({ ...f, strReq: e.target.value }))} placeholder="— 或 13" className={inputClass + ' h-9'} />
-                            </div>
-                            <div>
-                              <label className="block text-dnd-text-muted text-[10px] mb-0.5">隐匿</label>
-                              <select
-                                value={instanceArmorFields.stealth}
-                                onChange={(e) => setInstanceArmorFields((f) => ({ ...f, stealth: e.target.value }))}
-                                className="h-9 w-full rounded-lg bg-gray-800 border border-gray-600 text-gray-200 text-xs px-2 focus:border-dnd-red focus:ring-1 focus:ring-dnd-red"
-                              >
-                                <option value="—">—</option>
-                                <option value="劣势">劣势</option>
-                              </select>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                    {showAttackDamage && (
-                      <>
-                        <div>
-                          <label className="block text-dnd-text-muted text-xs mb-1">攻击</label>
-                          <input type="text" value={instance攻击} onChange={(e) => setInstance攻击(e.target.value)} placeholder="如：1d8 挥砍" className={inputClass + ' h-10'} />
-                        </div>
-                        <div>
-                          <label className="block text-dnd-text-muted text-xs mb-1">伤害类型</label>
-                          <input type="text" value={instance伤害} onChange={(e) => setInstance伤害(e.target.value)} placeholder="如：挥砍、穿刺、贯穿" className={inputClass + ' h-10'} />
-                        </div>
-                        <div>
-                          <label className="block text-dnd-text-muted text-xs mb-1">攻击距离</label>
-                          <input type="text" value={instance攻击距离} onChange={(e) => setInstance攻击距离(e.target.value)} placeholder="如：20/40、30/60" className={inputClass + ' h-10'} />
-                        </div>
-                      </>
-                    )}
-                    <div className="sm:col-span-2">
-                      <label className="block text-dnd-text-muted text-xs mb-1">详细描述</label>
-                      <textarea value={instance详细介绍} onChange={(e) => setInstance详细介绍(e.target.value)} placeholder="附魔、说明等" rows={2} className={textareaClass} />
-                    </div>
-                    <div className="flex flex-wrap items-end gap-2 sm:col-span-2">
-                      <div className="w-20">
-                        <label className="block text-dnd-text-muted text-xs mb-1">数量</label>
-                        <input type="number" min={1} value={instanceQty} onChange={(e) => setInstanceQty(Math.max(1, parseInt(e.target.value, 10) || 1))} className={inputClass + ' h-10'} />
-                      </div>
-                      <div className="w-28">
-                        <label className="block text-dnd-text-muted text-xs mb-1">增强加值</label>
-                        <div className="flex items-center rounded-lg border border-gray-600 bg-gray-800 overflow-hidden h-10">
-                          <button type="button" onClick={() => setInstanceMagicBonus(Math.max(0, (instanceMagicBonus || 0) - 1))} className="px-2.5 h-full flex items-center justify-center text-dnd-text-muted hover:text-white hover:bg-gray-700 border-r border-gray-600 font-medium text-lg shrink-0">−</button>
-                          <input type="number" min={0} value={instanceMagicBonus || ''} onChange={(e) => setInstanceMagicBonus(parseInt(e.target.value, 10) || 0)} className="w-12 h-full bg-transparent border-0 text-center text-white text-sm tabular-nums px-1 focus:outline-none focus:ring-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]" />
-                          <button type="button" onClick={() => setInstanceMagicBonus((instanceMagicBonus || 0) + 1)} className="px-2.5 h-full flex items-center justify-center text-dnd-text-muted hover:text-white hover:bg-gray-700 border-l border-gray-600 font-medium text-lg shrink-0">+</button>
-                        </div>
-                      </div>
-                      <div className="w-20">
-                        <label className="block text-dnd-text-muted text-xs mb-1">充能</label>
-                        <input type="number" min={0} value={instanceCharge || ''} onChange={(e) => setInstanceCharge(parseInt(e.target.value, 10) || 0)} placeholder="0" className={inputClass + ' h-10'} />
-                      </div>
-                      <button type="button" onClick={handleAddFromPicker} className="h-10 px-4 rounded-lg bg-dnd-red hover:bg-dnd-red-hover text-white font-bold text-sm">放入背包</button>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-          <div className="rounded border border-gray-600 overflow-hidden">
+      {/* 下方：背包 + 个人持有（紧凑排版） */}
+      <div className="p-1.5 space-y-1.5">
+        {/* 背包 */}
+        <div className="rounded-xl border border-gray-600 bg-gray-800/30 overflow-hidden">
+          <div className="px-1.5 py-1 border-b border-gray-600 flex items-center justify-between flex-wrap gap-1">
+            <h3 className={subTitleClass + ' mb-0'}>背包</h3>
+            {canEdit && (
+              <>
+                <button type="button" onClick={() => setAddFormOpen(true)} className="h-7 px-2 rounded-lg bg-dnd-red hover:bg-dnd-red-hover text-white font-bold text-xs">
+                  添加物品
+                </button>
+                <ItemAddForm open={addFormOpen} onClose={() => setAddFormOpen(false)} onSave={(entry) => { onSave({ inventory: [...inv, entry] }); setAddFormOpen(false); }} submitLabel="放入背包" />
+                <ItemAddForm open={editingIndex !== null} onClose={() => setEditingIndex(null)} onSave={applyEditSave} submitLabel="保存" editEntry={editingIndex != null ? inv[editingIndex] : null} />
+              </>
+            )}
+          </div>
+          <div className="overflow-hidden">
             <table className="w-full text-xs">
               <thead>
                 <tr className="bg-gray-800/80 text-dnd-text-muted text-[10px] uppercase tracking-wider">
-                  {canEdit && <th className="py-1.5 px-1 w-8" title="拖拽排序" />}
-                  {canEdit && <th className="text-center py-1.5 px-1.5 w-10" title="同调">同调</th>}
-                  <th className="text-left py-1.5 px-2 font-semibold">名称</th>
-                  <th className="text-left py-1.5 px-2 font-semibold min-w-[14rem] max-w-[24rem]">简要介绍</th>
-                  <th className="text-right py-1.5 px-1.5 w-12">充能</th>
-                  <th className="text-right py-1.5 px-1.5 w-12">数量</th>
-                  <th className="text-right py-1.5 px-1.5 w-14">总重</th>
-                  {canEdit && <th className="w-12" />}
+                  {canEdit && <th className="py-0.5 px-0.5 w-7" title="拖拽排序" />}
+                  {canEdit && <th className="text-center py-0.5 px-1 w-9" title="同调">同调</th>}
+                  <th className="text-left py-0.5 px-1 font-semibold">名称</th>
+                  <th className="text-left py-0.5 px-1 font-semibold min-w-[14rem] max-w-[24rem]">简要介绍</th>
+                  <th className="text-right py-0.5 px-1 w-10">充能</th>
+                  <th className="text-right py-0.5 px-1 w-10">数量</th>
+                  <th className="text-right py-0.5 px-1 w-12">总重</th>
+                  {canEdit && <th className="w-10" />}
                 </tr>
               </thead>
               <tbody>
@@ -898,7 +677,6 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                   const unitLb = getEntryWeight(entry)
                   const totalLb = Math.round(unitLb * qty * 100) / 100
                   const canAttune = entry.isAttuned || attunedCount < maxAttunementSlots
-                  const isEditing = canEdit && editingIndex === i
                   return (
                     <Fragment key={entry.id ?? `inv-${i}`}>
                       <tr
@@ -910,12 +688,12 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                         onDrop={canEdit ? (e) => handleDrop(e, i) : undefined}
                       >
                         {canEdit && (
-                          <td className="py-1.5 px-1 text-gray-500" title="拖拽调整顺序">
-                            <GripVertical className="w-4 h-4" />
+                          <td className="py-0.5 px-0.5 text-gray-500" title="拖拽调整顺序">
+                            <GripVertical className="w-3.5 h-3.5" />
                           </td>
                         )}
                         {canEdit && (
-                          <td className="py-1.5 px-1.5 text-center">
+                          <td className="py-0.5 px-1 text-center">
                             <input
                               type="checkbox"
                               checked={!!entry.isAttuned}
@@ -925,7 +703,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                             />
                           </td>
                         )}
-                        <td className="py-1.5 px-2 text-white font-medium align-middle">
+                        <td className="py-0.5 px-1 text-white font-medium align-middle">
                           <span className="inline-flex items-center gap-0.5">
                             {invDisplayName(entry)}
                             {(Number(entry.magicBonus) || 0) > 0 ? (
@@ -933,39 +711,39 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                             ) : null}
                           </span>
                         </td>
-                        <td className="py-1.5 px-2 text-dnd-text-body max-w-[24rem] min-w-[14rem]">
+                        <td className="py-0.5 px-1 text-dnd-text-body max-w-[24rem] min-w-[14rem]">
                           <span className="line-clamp-2" title={getEntryBriefFull(entry)}>{getEntryBriefFull(entry) || '—'}</span>
                         </td>
-                        <td className="py-1.5 px-1.5 text-right">
+                        <td className="py-0.5 px-1 text-right">
                           {canEdit ? (
-                            <input
-                              type="number"
-                              min={0}
-                              value={Number(entry.charge) || ''}
-                              onChange={(e) => setCharge(i, e.target.value)}
-                              placeholder="0"
-                              className="w-12 h-7 rounded bg-gray-700 border border-gray-600 text-white text-right text-xs tabular-nums px-1 focus:border-dnd-red focus:ring-1 focus:ring-dnd-red placeholder:text-gray-500"
-                            />
+                            <div className="inline-flex items-center w-20">
+                              <NumberStepper
+                                value={Number(entry.charge) || 0}
+                                onChange={(v) => setCharge(i, String(v))}
+                                min={0}
+                                compact
+                              />
+                            </div>
                           ) : (Number(entry.charge) || 0) > 0 ? (
                             <span className="tabular-nums text-dnd-text-body">{entry.charge}</span>
                           ) : null}
                         </td>
-                        <td className="py-1.5 px-1.5 text-right">
+                        <td className="py-0.5 px-1 text-right">
                           {canEdit ? (
                             <input
                               type="number"
                               min={1}
                               value={qty}
                               onChange={(e) => setQty(i, e.target.value)}
-                              className="w-12 h-7 rounded bg-gray-700 border border-gray-600 text-white text-right text-xs tabular-nums px-1 focus:border-dnd-red focus:ring-1 focus:ring-dnd-red"
+                              className="w-12 h-6 rounded bg-gray-700 border border-gray-600 text-white text-right text-xs tabular-nums px-1 focus:border-dnd-red focus:ring-1 focus:ring-dnd-red"
                             />
                           ) : (
                             <span className="tabular-nums text-dnd-text-body">{qty}</span>
                           )}
                         </td>
-                        <td className="text-right py-1.5 px-1.5 tabular-nums text-dnd-text-body">{totalLb ? `${totalLb} lb` : ''}</td>
+                        <td className="text-right py-0.5 px-1 tabular-nums text-dnd-text-body">{totalLb ? `${totalLb} lb` : ''}</td>
                         {canEdit && (
-                          <td className="py-1.5 px-1.5">
+                          <td className="py-0.5 px-1">
                             <div className="flex items-center gap-0.5">
                               <button type="button" onClick={() => openStoreToVault(i)} title="存到团队仓库" className="p-1.5 rounded text-emerald-400 hover:bg-emerald-400/20">
                                 <Package size={16} />
@@ -980,127 +758,38 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                           </td>
                         )}
                       </tr>
-                      {isEditing && (
-                        <tr className="border-t-0 bg-gray-800/80">
-                          <td colSpan={canEdit ? 9 : 6} className="py-3 px-3">
-                            <div className="rounded-lg border border-gray-600 bg-gray-800/60 p-3 space-y-3">
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                <div className="sm:col-span-2">
-                                  <label className="block text-dnd-text-muted text-xs mb-1">名称</label>
-                                  <input type="text" value={editName} onChange={(e) => setEditName(e.target.value)} placeholder="名称" className={inputClass + ' h-10'} />
-                                </div>
-                                {(() => {
-                                  const editingProto = inv[editingIndex]?.itemId ? getItemById(inv[editingIndex].itemId) : null
-                                  const showEditAttackDamage = editingProto && (editingProto.类型 === '武器' || editingProto.类型 === '枪械')
-                                  return showEditAttackDamage ? (
-                                    <>
-                                      <div>
-                                        <label className="block text-dnd-text-muted text-xs mb-1">攻击（伤害骰与类型）</label>
-                                        <input type="text" value={edit攻击} onChange={(e) => setEdit攻击(e.target.value)} placeholder="如：1d8 挥砍" className={inputClass + ' h-10'} />
-                                      </div>
-                                      <div>
-                                        <label className="block text-dnd-text-muted text-xs mb-1">伤害类型</label>
-                                        <input type="text" value={edit伤害} onChange={(e) => setEdit伤害(e.target.value)} placeholder="如：挥砍、穿刺、贯穿" className={inputClass + ' h-10'} />
-                                      </div>
-                                      <div>
-                                        <label className="block text-dnd-text-muted text-xs mb-1">攻击距离</label>
-                                        <input type="text" value={edit攻击距离} onChange={(e) => setEdit攻击距离(e.target.value)} placeholder="如：20/40、30/60" className={inputClass + ' h-10'} />
-                                      </div>
-                                    </>
-                                  ) : null
-                                })()}
-                                {inv[editingIndex]?.itemId && getItemById(inv[editingIndex].itemId)?.类型 === '盔甲' && (
-                                  <div className="sm:col-span-2 space-y-2">
-                                    <p className="text-dnd-text-muted text-xs">附注（护甲 AC、力量、隐匿）</p>
-                                    {editArmorFields.isShield ? (
-                                      <div>
-                                        <label className="block text-dnd-text-muted text-[10px] mb-0.5">AC 加值</label>
-                                        <input type="number" min={0} value={editArmorFields.shieldBonus} onChange={(e) => setEditArmorFields((f) => ({ ...f, shieldBonus: e.target.value }))} className={inputClass + ' h-9 w-20'} />
-                                      </div>
-                                    ) : (
-                                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                                        <div>
-                                          <label className="block text-dnd-text-muted text-[10px] mb-0.5">基础 AC</label>
-                                          <input type="number" min={0} value={editArmorFields.baseAC} onChange={(e) => setEditArmorFields((f) => ({ ...f, baseAC: e.target.value }))} className={inputClass + ' h-9'} />
-                                        </div>
-                                        <div>
-                                          <label className="block text-dnd-text-muted text-[10px] mb-0.5">敏调</label>
-                                          <select value={editArmorFields.dexMode} onChange={(e) => setEditArmorFields((f) => ({ ...f, dexMode: e.target.value }))} className="h-9 w-full rounded-lg bg-gray-800 border border-gray-600 text-gray-200 text-xs px-2 focus:border-dnd-red focus:ring-1 focus:ring-dnd-red">
-                                            <option value="none">不加</option>
-                                            <option value="full">加敏捷</option>
-                                            <option value="cap2">加敏捷（最大）</option>
-                                          </select>
-                                        </div>
-                                        <div>
-                                          <label className="block text-dnd-text-muted text-[10px] mb-0.5">力量要求</label>
-                                          <input type="text" value={editArmorFields.strReq} onChange={(e) => setEditArmorFields((f) => ({ ...f, strReq: e.target.value }))} className={inputClass + ' h-9'} />
-                                        </div>
-                                        <div>
-                                          <label className="block text-dnd-text-muted text-[10px] mb-0.5">隐匿</label>
-                                          <select value={editArmorFields.stealth} onChange={(e) => setEditArmorFields((f) => ({ ...f, stealth: e.target.value }))} className="h-9 w-full rounded-lg bg-gray-800 border border-gray-600 text-gray-200 text-xs px-2 focus:border-dnd-red focus:ring-1 focus:ring-dnd-red">
-                                            <option value="—">—</option>
-                                            <option value="劣势">劣势</option>
-                                          </select>
-                                        </div>
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
-                                <div className="sm:col-span-2">
-                                  <label className="block text-dnd-text-muted text-xs mb-1">详细描述</label>
-                                  <textarea value={edit详细介绍} onChange={(e) => setEdit详细介绍(e.target.value)} placeholder="附魔、说明等" rows={2} className={textareaClass} />
-                                </div>
-                                <div className="flex flex-wrap items-end gap-2 sm:col-span-2">
-                                  <div className="w-20">
-                                    <label className="block text-dnd-text-muted text-xs mb-1">数量</label>
-                                    <input type="number" min={1} value={editQty} onChange={(e) => setEditQty(Math.max(1, parseInt(e.target.value, 10) || 1))} className={inputClass + ' h-10'} />
-                                  </div>
-                                  <div className="w-28">
-                                    <label className="block text-dnd-text-muted text-xs mb-1">增强加值</label>
-                                    <div className="flex items-center rounded-lg border border-gray-600 bg-gray-800 overflow-hidden h-10">
-                                      <button type="button" onClick={() => setEditMagicBonus(Math.max(0, (editMagicBonus || 0) - 1))} className="px-2.5 h-full flex items-center justify-center text-dnd-text-muted hover:text-white hover:bg-gray-700 border-r border-gray-600 font-medium text-lg shrink-0">−</button>
-                                      <input type="number" min={0} value={editMagicBonus || ''} onChange={(e) => setEditMagicBonus(parseInt(e.target.value, 10) || 0)} className="w-12 h-full bg-transparent border-0 text-center text-white text-sm tabular-nums px-1 focus:outline-none focus:ring-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]" />
-                                      <button type="button" onClick={() => setEditMagicBonus((editMagicBonus || 0) + 1)} className="px-2.5 h-full flex items-center justify-center text-dnd-text-muted hover:text-white hover:bg-gray-700 border-l border-gray-600 font-medium text-lg shrink-0">+</button>
-                                    </div>
-                                  </div>
-                                  <div className="w-16">
-                                    <label className="block text-dnd-text-muted text-xs mb-1">充能</label>
-                                    <input type="number" min={0} value={editCharge || ''} onChange={(e) => setEditCharge(parseInt(e.target.value, 10) || 0)} className={inputClass + ' h-10'} />
-                                  </div>
-                                  <button type="button" onClick={saveEdit} className="h-10 px-4 rounded-lg bg-dnd-red hover:bg-dnd-red-hover text-white font-bold text-sm">保存</button>
-                                  <button type="button" onClick={cancelEdit} className="h-10 px-4 rounded-lg bg-gray-600 hover:bg-gray-500 text-white font-bold text-sm">取消</button>
-                                </div>
-                              </div>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
                     </Fragment>
                   )
                 })}
               </tbody>
             </table>
           </div>
-          {canEdit && inv.length > 0 && <p className="text-dnd-text-muted text-[10px] mt-0.5">同调位：{attunedCount}/{maxAttunementSlots}</p>}
-          {inv.length === 0 && <p className="text-gray-500 text-sm py-3 text-center">暂无物品</p>}
+          {canEdit && inv.length > 0 && <p className="text-dnd-text-muted text-[10px] mt-0.5 px-2 pb-1">同调位：{attunedCount}/{maxAttunementSlots}</p>}
+          {inv.length === 0 && <p className="text-gray-500 text-sm py-2 text-center">暂无物品</p>}
         </div>
 
-        <div className="lg:border-l lg:border-white/10 lg:pl-4">
-          <CurrencyGrid balances={wallet} title="个人持有" titleClass={subTitleClass + ' px-0 pt-0'} />
-          {canEdit && (
-            <div className="flex gap-2 mt-2">
-              <button type="button" onClick={() => { setTransferDirection('toVault'); setTransferOpen(true); }} className="flex-1 h-10 inline-flex items-center justify-center gap-1.5 rounded-lg bg-amber-600/80 hover:bg-amber-600 text-white text-sm font-medium">
-                <ArrowDownToLine size={16} /> 存入金库
-              </button>
-              <button type="button" onClick={() => { setTransferDirection('fromVault'); setTransferOpen(true); }} className="flex-1 h-10 inline-flex items-center justify-center gap-1.5 rounded-lg bg-dnd-red hover:bg-dnd-red-hover text-white text-sm font-medium">
-                <ArrowUpFromLine size={16} /> 从金库取出
-              </button>
+        {/* 个人持有（紧凑：核心货币略大于零钱，整体省空间） */}
+        <div className="rounded-xl border border-gray-600 bg-gray-800/30 overflow-hidden">
+          <h3 className={subTitleClass + ' px-1.5 pt-0.5 pb-0.5 border-b border-gray-600/80'}>个人持有</h3>
+          <div className="px-1 py-0.5 flex flex-wrap items-stretch gap-1 min-h-0">
+            <div className="flex-1 min-w-[160px] min-h-0 flex flex-col">
+              <CurrencyGrid balances={wallet} title={null} fillHeight extraClass="!border-0 !bg-transparent !rounded-none !shadow-none" />
             </div>
-          )}
+            {canEdit && (
+              <div className="flex flex-col justify-center shrink-0 w-[7rem] gap-1">
+                <button type="button" onClick={() => { setTransferDirection('toVault'); setTransferOpen(true); }} className="h-7 w-full inline-flex items-center justify-center gap-1 rounded-md bg-amber-600/80 hover:bg-amber-600 text-white text-xs font-medium">
+                  <ArrowDownToLine size={14} /> 存入金库
+                </button>
+                <button type="button" onClick={() => { setTransferDirection('fromVault'); setTransferOpen(true); }} className="h-7 w-full inline-flex items-center justify-center gap-1 rounded-md bg-dnd-red hover:bg-dnd-red-hover text-white text-xs font-medium">
+                  <ArrowUpFromLine size={14} /> 从金库取出
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      <div className="px-3 pt-2 pb-3 border-t border-gray-600">
+      <div className="px-1.5 pt-0.5 pb-1 border-t border-gray-600">
         <h3 className={subTitleClass + ' text-dnd-text-muted font-medium'}>负重（含物品与货币）</h3>
         <EncumbranceBar character={character} />
       </div>

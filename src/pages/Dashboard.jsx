@@ -4,6 +4,7 @@ import { User, BookOpen, ChevronDown, ChevronRight, Plus, Pencil } from 'lucide-
 import { useAuth } from '../contexts/AuthContext'
 import { useModule } from '../contexts/ModuleContext'
 import { getAllCharacters } from '../lib/characterStore'
+import { getClassDisplayName } from '../data/classDatabase'
 import { getModules, addModule, updateModule } from '../lib/moduleStore'
 import { levelFromXP } from '../lib/xp5e'
 import { inputClass } from '../lib/inputStyles'
@@ -18,21 +19,21 @@ function displayLevel(c) {
   return Math.max(1, Math.min(20, main + multi + prestige))
 }
 
-/** 职业与等级简述，与「我的角色」一致 */
+/** 职业与等级简述，与「我的角色」一致（邪术师显示为魔契师） */
 function displayClassLevel(c) {
   const parts = []
   if (c.class) {
     const mainLevel = Math.max(0, Math.min(20, Number(c.classLevel) ?? 1))
-    parts.push(`${c.class} ${mainLevel}`)
+    parts.push(`${getClassDisplayName(c.class)} ${mainLevel}`)
   }
   if (Array.isArray(c.multiclass) && c.multiclass.length) {
     c.multiclass.forEach((m) => {
-      if (m?.['class']) parts.push(`${m['class']} ${Math.max(0, Number(m.level) || 0)}`)
+      if (m?.['class']) parts.push(`${getClassDisplayName(m['class'])} ${Math.max(0, Number(m.level) || 0)}`)
     })
   }
   if (Array.isArray(c.prestige) && c.prestige.length) {
     c.prestige.forEach((p) => {
-      if (p?.['class']) parts.push(`${p['class']} ${Math.max(0, Number(p.level) || 0)}`)
+      if (p?.['class']) parts.push(`${getClassDisplayName(p['class'])} ${Math.max(0, Number(p.level) || 0)}`)
     })
   }
   if (parts.length === 0) return '—'
@@ -41,7 +42,7 @@ function displayClassLevel(c) {
 
 export default function Dashboard() {
   const { user, isAdmin } = useAuth()
-  const { currentModuleId, setCurrentModuleId, modules, refreshModules } = useModule()
+  const { setCurrentModuleId, modules, refreshModules } = useModule()
   const [newModuleName, setNewModuleName] = useState('')
   const [showAddModule, setShowAddModule] = useState(false)
   const [editingModuleId, setEditingModuleId] = useState(null)
@@ -172,8 +173,19 @@ export default function Dashboard() {
               {isExpanded && (
                 <div className="border-t border-white/10 bg-gray-900/30">
                   {charList.length === 0 ? (
-                    <p className="px-4 py-4 text-dnd-text-muted text-sm">该模组暂无角色，可在「我的角色」中创建。</p>
+                    <div className="px-4 py-4 flex flex-col gap-3">
+                      <p className="text-dnd-text-muted text-sm">该模组暂无角色。</p>
+                      <Link
+                        to={`/characters/new?moduleId=${encodeURIComponent(m.id)}`}
+                        onClick={() => setCurrentModuleId(m.id)}
+                        className="inline-flex items-center justify-center gap-2 py-2 px-4 rounded-lg bg-dnd-red hover:bg-dnd-red-hover text-white font-medium text-sm transition-colors w-fit"
+                      >
+                        <Plus className="w-4 h-4" />
+                        新增角色
+                      </Link>
+                    </div>
                   ) : (
+                    <>
                     <ul className="p-3 pt-2 space-y-3">
                       {charList.map((c) => {
                         const hp = c.hp || {}
@@ -241,6 +253,17 @@ export default function Dashboard() {
                         )
                       })}
                     </ul>
+                    <div className="px-3 pb-3 pt-1">
+                      <Link
+                        to={`/characters/new?moduleId=${encodeURIComponent(m.id)}`}
+                        onClick={() => setCurrentModuleId(m.id)}
+                        className="inline-flex items-center justify-center gap-2 py-2 px-4 rounded-lg border border-dnd-red text-dnd-red hover:bg-dnd-red hover:text-white font-medium text-sm transition-colors"
+                      >
+                        <Plus className="w-4 h-4" />
+                        新增角色
+                      </Link>
+                    </div>
+                    </>
                   )}
                 </div>
               )}

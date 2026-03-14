@@ -3,6 +3,7 @@ import { Dices, Circle, Shield, ShieldHalf } from 'lucide-react'
 import { useRoll } from '../contexts/RollContext'
 import { abilityModifier, proficiencyBonus } from '../lib/characterStore'
 import { SAVE_NAMES, SKILLS, SKILL_PROF_OPTIONS, skillProfFactor } from '../data/dndSkills'
+import { NumberStepper } from './BuffForm'
 
 const ABILITY_NAMES_ZH = { str: '力量', dex: '敏捷', con: '体质', int: '智力', wis: '感知', cha: '魅力' }
 const ABILITY_KEYS = ['str', 'dex', 'con', 'int', 'wis', 'cha']
@@ -95,7 +96,7 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
   const { openForCheck } = useRoll()
   const effectiveAbilities = buffStats?.abilities ?? abilities
   const [rollingId, setRollingId] = useState(null) // 正在播放投掷动画的 skill/save id
-  const prof = proficiencyBonus(level ?? 1)
+  const prof = buffStats?.proficiencyOverride != null ? buffStats.proficiencyOverride : proficiencyBonus(level ?? 1)
   const saves = char?.savingThrows ?? { str: false, dex: false, con: false, int: false, wis: false, cha: false }
   const skillsState = char?.skills ?? {}
 
@@ -146,14 +147,14 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
   }, [openForCheck, buffStats?.advantage?.skill, exhaustionPenalty])
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-1.5">
       <div className="flex items-center">
         <span className="inline-flex items-center gap-2 px-3 py-1 rounded-lg bg-gray-800 border border-dnd-gold/50 text-dnd-gold-light font-mono font-bold text-base">
           熟练值 +{prof}
         </span>
       </div>
 
-      <div className="grid grid-cols-2 max-[400px]:grid-cols-1 gap-2">
+      <div className="grid grid-cols-3 max-[500px]:grid-cols-2 gap-1.5">
         {ABILITY_KEYS.map((key) => {
           const baseScore = abilities[key] ?? 10
           const effectiveScore = effectiveAbilities[key] ?? 10
@@ -169,7 +170,7 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
               className={`rounded-xl overflow-hidden bg-dnd-card border shadow-dnd-card flex flex-col min-w-0 transition-colors ${saveProfLevel === 'prof' ? 'border-[#B8860B]' : 'border-gray-500'}`}
             >
               {/* A. 顶部栏：属性名 + 熟练按钮在名称右侧 */}
-              <div className="flex items-center gap-1.5 px-2 py-1.5 border-b border-gray-700 min-h-[2rem]">
+              <div className="flex items-center gap-1.5 px-1.5 py-1 border-b border-gray-700 min-h-[1.75rem]">
                 <span className="text-base font-bold text-white font-sans">{ABILITY_NAMES_ZH[key]}</span>
                 <span className={`text-[10px] font-medium ${saveProfLevel === 'prof' ? 'text-[#D4AF37]' : 'text-gray-500'}`}>
                   熟练
@@ -188,36 +189,40 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
                 )}
               </div>
 
-              {/* B. 核心区：调整值 + 豁免值 */}
-              <div className="px-2 py-1.5">
-                <div className={`rounded-lg py-2 px-3 flex justify-around items-center gap-2 bg-gray-800/50 border ${saveProfLevel === 'prof' ? 'border-[#B8860B]' : 'border-gray-500'}`}>
-                  <div className="flex flex-col items-center">
-                    <span className="text-[10px] text-gray-400">调整值</span>
-                    <span className="text-2xl font-bold text-white font-mono tabular-nums leading-none">
+              {/* B. 核心区：3 列网格，紧凑排版 */}
+              <div className="px-1.5 py-0.5">
+                <div className={`rounded-lg py-0.5 px-1.5 grid grid-cols-[1fr_1fr_1fr] grid-rows-2 gap-x-1.5 gap-y-0.5 min-w-0 border ${saveProfLevel === 'prof' ? 'border-[#B8860B]' : 'border-gray-500'}`} style={{ background: 'linear-gradient(180deg, rgba(55,65,81,0.5) 0%, rgba(45,55,72,0.6) 100%)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)' }}>
+                  {/* 左列：调整值（仅数值加大） */}
+                  <div className="col-start-1 row-span-2 flex flex-col items-center justify-center gap-0 min-w-0 border-r border-gray-500 pr-1.5">
+                    <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide leading-tight">调整值</span>
+                    <span className="text-[1.4rem] font-bold text-white font-mono tabular-nums leading-none">
                       {mod >= 0 ? '+' : ''}{mod}
                     </span>
                   </div>
-                  {canEdit && (
-                    <div className="flex flex-col items-center">
-                      <span className="text-[10px] text-gray-500">基础值</span>
-                      <input
-                        type="number"
-                        min="1"
-                        max="30"
-                        value={baseScore}
-                        onChange={(e) => updateAbility(key, e.target.value)}
-                        className="w-12 h-8 rounded border border-gray-500 bg-gray-700 text-white text-center font-mono text-sm focus:border-dnd-gold-light focus:ring-1 focus:ring-dnd-gold-light/50 focus:outline-none mt-0.5"
+                  {/* 中列上：仅数值/步进器，无「基础」文案 */}
+                  <div className="col-start-2 row-start-1 flex flex-col items-center justify-center gap-0 min-w-0 border-b border-gray-500/70 pb-0.5">
+                    {canEdit ? (
+                      <NumberStepper
+                        value={typeof baseScore === 'number' ? baseScore : (parseInt(baseScore, 10) || 10)}
+                        onChange={(v) => updateAbility(key, String(Math.max(1, Math.min(30, v))))}
+                        min={1}
+                        max={30}
+                        compact
                       />
-                    </div>
-                  )}
-                  <div className="flex flex-col items-center">
-                    <span className="text-[10px] text-gray-500">属性总值</span>
-                    <span className="text-lg font-mono font-semibold text-white h-8 flex items-center mt-0.5">{effectiveScore}</span>
+                    ) : (
+                      <span className="text-sm font-medium font-mono text-white tabular-nums">{baseScore}</span>
+                    )}
                   </div>
-                  <div className="flex flex-col items-center gap-0.5">
-                    <span className="text-[10px] text-dnd-gold-light font-semibold">豁免</span>
-                    <div className="flex items-center gap-1.5">
-                      <span className={`text-2xl font-bold font-mono tabular-nums leading-none ${saveProfLevel === 'prof' ? 'text-[#D4AF37]' : 'text-white'}`}>
+                  {/* 中列下：总值 */}
+                  <div className="col-start-2 row-start-2 flex flex-col items-center justify-center gap-0 min-w-0 pt-0.5">
+                    <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide leading-tight">总值</span>
+                    <span className="text-sm font-medium font-mono text-white tabular-nums">{effectiveScore}</span>
+                  </div>
+                  {/* 右列：豁免（仅数值加大）+ 投掷按钮 */}
+                  <div className="col-start-3 row-span-2 flex flex-col items-center justify-center gap-0 min-w-0 pl-1.5 border-l border-gray-500">
+                    <span className="text-[10px] font-semibold text-dnd-gold-light uppercase tracking-wide leading-tight">豁免</span>
+                    <div className="flex items-center gap-1">
+                      <span className={`text-[1.4rem] font-bold font-mono tabular-nums leading-none ${saveProfLevel === 'prof' ? 'text-[#D4AF37]' : 'text-white'}`}>
                         {saveBonus >= 0 ? '+' : ''}{saveBonus}
                       </span>
                       <button
@@ -251,14 +256,14 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
                       return (
                         <li
                           key={skill.id}
-                          className={`flex items-center gap-1.5 px-2 py-1 bg-gray-800/50 hover:bg-gray-800/70 transition-colors ${getProficiencyBorderClass(current)}`}
+                          className={`flex items-center gap-2 px-2 py-1.5 bg-gray-800/50 hover:bg-gray-800/70 transition-colors ${getProficiencyBorderClass(current)}`}
                         >
-                          {/* 熟练度标记：竖线/图标 + 可选下拉 */}
+                          {/* 熟练度：下拉或图标，留足宽度避免与箭头重叠 */}
                           {canEdit ? (
                             <select
                               value={current}
                               onChange={(e) => setSkill(skill.id, e.target.value)}
-                              className="h-5 min-w-0 w-12 rounded border border-gray-600 bg-gray-800 text-gray-300 text-[10px] px-0.5 focus:border-dnd-gold-light focus:ring-1 focus:ring-dnd-gold-light"
+                              className="h-5 min-w-[4.5rem] w-14 rounded border border-gray-600 bg-gray-800 text-gray-300 text-[10px] pl-1.5 pr-5 focus:border-dnd-gold-light focus:ring-1 focus:ring-dnd-gold-light"
                             >
                               {SKILL_PROF_OPTIONS.map((o) => (
                                 <option key={o.value} value={o.value}>{o.label}</option>
@@ -270,7 +275,7 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
                             </span>
                           )}
                           <span className="text-gray-300 text-xs truncate flex-1 min-w-0">{skill.name}</span>
-                          <span className={`font-mono text-xs tabular-nums shrink-0 w-6 text-right font-bold ${getProficiencyColor(current)}`}>
+                          <span className={`font-mono text-xs tabular-nums shrink-0 w-8 text-right font-bold ${getProficiencyColor(current)}`}>
                             {total >= 0 ? '+' : ''}{total}
                           </span>
                           <button

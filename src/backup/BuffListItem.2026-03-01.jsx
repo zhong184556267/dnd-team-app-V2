@@ -1,5 +1,5 @@
 import { Trash2, Pencil } from 'lucide-react'
-import { getEffectInfo, getDamageTypeLabel, getConditionLabel, ABILITY_NAMES_ZH, formatDamagePiercingTraitsValue } from '../data/buffTypes'
+import { getEffectInfo, getDamageTypeLabel, getConditionLabel, ABILITY_NAMES_ZH } from '../data/buffTypes'
 import { SAVE_NAMES, SKILLS } from '../data/dndSkills'
 
 /** 单条效果的简化文案（用于外层一行展示），如 "心灵抗性"、"智力-2，感知+2"、"生命上限+26" */
@@ -70,18 +70,6 @@ function getEffectSummaryShort(buff) {
         })
       return parts.join('，')
     }
-  }
-  if (buff.effectType === 'damage_piercing_traits' && v && typeof v === 'object' && !Array.isArray(v)) {
-    const str = formatDamagePiercingTraitsValue(v)
-    return str || effectLabel
-  }
-  if (buff.effectType === 'extra_damage_dice') {
-    if (typeof v === 'string' && v.trim()) return v.trim()
-    if (v && typeof v === 'object' && !Array.isArray(v)) {
-      const s = [' - ', v.minus, ' + ', v.plus, ' ', v.type].join('').replace(/\s+/g, ' ').trim()
-      return s || effectLabel
-    }
-    return effectLabel
   }
   if (Array.isArray(v) && v.length) {
     if (['resist_type', 'immune_type', 'vulnerable_type'].includes(buff.effectType)) {
@@ -179,10 +167,6 @@ function getEffectDisplay(buff, baseAbilities = {}) {
         })
       return { label: effectLabel, value: parts.length ? parts.join('、') : null }
     }
-    if (buff.effectType === 'extra_damage_dice') {
-      const str = typeof v === 'string' ? v.trim() : [' - ', v.minus, ' + ', v.plus, ' ', v.type].join('').replace(/\s+/g, ' ').trim()
-      return { label: effectLabel, value: str || null }
-    }
     const parts = Object.entries(v).filter(([k, val]) => k !== 'advantage' && val != null && val !== 0).map(([k, val]) => `${ABILITY_NAMES_ZH[k] ?? k}+${val}`)
     return { label: effectLabel, value: parts.length ? parts.join(', ') : null }
   }
@@ -195,10 +179,6 @@ function getEffectDisplay(buff, baseAbilities = {}) {
         ? buff.value.map(getConditionLabel).join('、')
         : buff.value.join(', ')
     return { label: effectLabel, value: displayValue }
-  }
-  if (buff.effectType === 'damage_piercing_traits' && buff.value && typeof buff.value === 'object' && !Array.isArray(buff.value)) {
-    const str = formatDamagePiercingTraitsValue(buff.value)
-    return { label: effectLabel, value: str || null }
   }
   return { label: effectLabel, value: buff.value != null ? String(buff.value) : null }
 }
@@ -255,15 +235,14 @@ export default function BuffListItem({ buff, baseAbilities, onEdit, onDelete, ca
 
   return (
     <div
-      className={`grid ${canEdit && !buff.fromItem ? GRID_COLS.withActions : GRID_COLS.noActions} items-center gap-x-2 px-1.5 min-h-[32px] py-0.5 h-full bg-gray-800/30 ${standalone ? '' : 'border-b border-gray-800 last:border-b-0'} ${!buff.enabled ? 'opacity-50' : ''}`}
+      className={`grid ${canEdit ? GRID_COLS.withActions : GRID_COLS.noActions} items-center gap-x-2 px-1.5 min-h-[32px] py-0.5 h-full bg-gray-800/30 ${standalone ? '' : 'border-b border-gray-800 last:border-b-0'} ${!buff.enabled ? 'opacity-50' : ''}`}
       role="row"
     >
-      {/* 名字：约 7 字宽，过长截断；来自装备时显示标签 */}
-      <div className="min-w-0 shrink-0 w-[7em] overflow-hidden flex items-center gap-1">
+      {/* 名字：约 7 字宽，过长截断 */}
+      <div className="min-w-0 shrink-0 w-[7em] overflow-hidden">
         <span className="text-amber-400/95 text-sm truncate block" title={sourceName}>
           {sourceName}
         </span>
-        {buff.fromItem && <span className="text-gray-500 text-[10px] shrink-0" title="来自装备/背包附魔">装备</span>}
       </div>
       {/* 效果：垂直对齐；负值红色 */}
       <div className="min-w-0">
@@ -287,8 +266,8 @@ export default function BuffListItem({ buff, baseAbilities, onEdit, onDelete, ca
         </span>
       </div>
 
-      {/* 操作按钮（来自装备的附魔不可编辑/删除） */}
-      {canEdit && !buff.fromItem && (
+      {/* 操作按钮 */}
+      {canEdit && (
         <div className="flex items-center justify-end gap-0.5 shrink-0">
           <button
             type="button"

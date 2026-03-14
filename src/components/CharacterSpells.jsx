@@ -6,7 +6,7 @@ import { useMemo, useState, useRef, useEffect } from 'react'
 import { Trash2, Search, BookOpen, Plus, ChevronDown } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { getSpellById, getSpellsByClass, searchSpells } from '../data/spellDatabase'
-import { getPrimarySpellcastingAbility, getCharacterClasses } from '../data/classDatabase'
+import { getPrimarySpellcastingAbility, getCharacterClasses, getSpellcastingLevel, getMaxSpellSlotsByRing } from '../data/classDatabase'
 import { abilityModifier, proficiencyBonus } from '../lib/formulas'
 import { levelFromXP } from '../lib/xp5e'
 import { ABILITY_NAMES_ZH } from '../data/buffTypes'
@@ -86,6 +86,16 @@ export default function CharacterSpells({ char, canEdit, onSave }) {
   const removeSpell = (spellId) => {
     const next = spells.filter((item) => item.spellId !== spellId)
     onSave({ spells: next })
+  }
+
+  /** 施法等级与环位数量（职业规则） */
+  const spellLevel = getSpellcastingLevel(char)
+  const maxSlotsByRing = useMemo(() => getMaxSpellSlotsByRing(char), [char])
+  const spellSlotsCurrent = char?.spellSlots ?? {} // { 1: 2, 2: 1, ... } 当前剩余
+
+  const setSpellSlotCurrent = (ring, remaining) => {
+    const next = { ...spellSlotsCurrent, [ring]: Math.max(0, Math.min(maxSlotsByRing[ring] ?? 0, remaining)) }
+    onSave({ spellSlots: next })
   }
 
   /** 施法属性、法术攻击加值、法术DC（自动计算） */
@@ -276,10 +286,45 @@ export default function CharacterSpells({ char, canEdit, onSave }) {
                 const levelSpells = spellsByLevel[level] ?? []
                 if (levelSpells.length === 0) return null
                 const levelLabel = LEVEL_LABELS[level] ?? `${level}环`
+                const maxSlots = level >= 1 ? (maxSlotsByRing[level] ?? 0) : 0
+                const currentSlots = level >= 1 ? (spellSlotsCurrent[level] ?? maxSlots) : 0
+                const clampedCurrent = Math.min(maxSlots, Math.max(0, currentSlots))
+
                 return (
                   <div key={level} className="space-y-2">
-                    <div className="rounded-lg px-4 py-2 bg-dnd-gold/30 border-l-4 border-dnd-gold border border-dnd-gold/50 shadow-md text-center">
+                    <div className="rounded-lg px-4 py-2 bg-dnd-gold/30 border-l-4 border-dnd-gold border border-dnd-gold/50 shadow-md flex items-center justify-between gap-3">
                       <span className="text-dnd-gold-light text-base font-bold tracking-wide">{levelLabel}</span>
+                      {level >= 1 && maxSlots > 0 && (
+                        <div className="flex items-center gap-0.5 shrink-0" title={`环位数量：${clampedCurrent}/${maxSlots}`}>
+                          {Array.from({ length: maxSlots }, (_, i) => {
+                            const filled = i < clampedCurrent
+                            return canEdit ? (
+                              <button
+                                key={i}
+                                type="button"
+                                onClick={() => {
+                                  const next = i + 1
+                                  if (next === 1 && clampedCurrent === 1) setSpellSlotCurrent(level, 0)
+                                  else setSpellSlotCurrent(level, next)
+                                }}
+                                className={`w-4 h-4 rounded-full border-2 transition-colors ${
+                                  filled
+                                    ? 'bg-dnd-gold border-dnd-gold-light'
+                                    : 'bg-transparent border-dnd-gold/60 hover:border-dnd-gold'
+                                }`}
+                                aria-label={i === 0 && clampedCurrent === 1 ? '剩余 0 个' : `剩余 ${i + 1} 个`}
+                              />
+                            ) : (
+                              <span
+                                key={i}
+                                className={`inline-block w-4 h-4 rounded-full border-2 ${
+                                  filled ? 'bg-dnd-gold border-dnd-gold-light' : 'bg-transparent border-dnd-gold/60'
+                                }`}
+                              />
+                            )
+                          })}
+                        </div>
+                      )}
                     </div>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                       {levelSpells.map(({ spellId, prepared, spell }) => {

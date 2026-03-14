@@ -12,8 +12,12 @@ import {
 } from '../data/itemDatabase'
 import { inputClass, textareaClass } from '../lib/inputStyles'
 
+/** 表单类型选项与 ITEM_TYPES 一致 */
+const TYPE_OPTIONS_FOR_FORM = ITEM_TYPES
+
 const SUBTYPE_BY_TYPE = {
-  武器: ['近战', '远程'],
+  近战武器: ['近战'],
+  远程武器: ['远程'],
   盔甲: ['轻甲', '中甲', '重甲', '盾牌'],
   载具与坐骑: ['坐骑与其他动物', '鞍具挽具与陆运载具', '空中与水上载具'],
   工具: ['工匠工具', '工具包与套组', '赌具', '乐器'],
@@ -36,7 +40,7 @@ const ITEM_FIELDS = [
 
 function ItemForm({ initial, onSubmit, onCancel }) {
   const [form, setForm] = useState({
-    类型: '武器',
+    类型: '近战武器',
     子类型: '',
     类别: '',
     名称: '',
@@ -62,11 +66,11 @@ function ItemForm({ initial, onSubmit, onCancel }) {
       <div>
         <label className="block text-dnd-text-muted text-xs mb-1">类型（子目录）<span className="text-dnd-red ml-0.5">*</span></label>
         <select
-          value={form.类型 && ITEM_TYPES.includes(form.类型) ? form.类型 : '武器'}
+          value={form.类型 && TYPE_OPTIONS_FOR_FORM.includes(form.类型) ? form.类型 : '近战武器'}
           onChange={(e) => update('类型', e.target.value)}
           className={inputClass}
         >
-          {ITEM_TYPES.map((t) => (
+          {TYPE_OPTIONS_FOR_FORM.map((t) => (
             <option key={t} value={t}>{t}</option>
           ))}
         </select>
@@ -216,11 +220,11 @@ export default function DataMaintain() {
               {(() => {
                 const byType = {}
                 customItems.forEach((item) => {
-                  const t = ITEM_TYPES.includes(item.类型) ? item.类型 : '未分类'
+                  const t = TYPE_OPTIONS_FOR_FORM.includes(item.类型) ? item.类型 : '未分类'
                   if (!byType[t]) byType[t] = []
                   byType[t].push(item)
                 })
-                const typeOrder = [...ITEM_TYPES]
+                const typeOrder = [...TYPE_OPTIONS_FOR_FORM]
                 if (byType['未分类']) typeOrder.push('未分类')
                 return typeOrder.filter((t) => byType[t]?.length).map((typeName) => (
                   <div key={typeName}>

@@ -15,16 +15,30 @@ export const EQUIPMENT_SLOT_IDS = ['mainHand', 'offHand', 'backup1', 'backup2', 
 /** 武器槽（用于攻击计算） */
 export const WEAPON_SLOT_IDS = ['mainHand', 'offHand', 'backup1', 'backup2', 'backup3', 'backup4']
 
+/** 将 buff 列表展平为单一效果（兼容 buff.effects 数组） */
+function getFlatEffectEntries(buffs) {
+  const out = []
+  for (const b of buffs) {
+    if (b.enabled === false) continue
+    if (Array.isArray(b.effects) && b.effects.length) {
+      b.effects.forEach((e) => out.push({ effectType: e.effectType, value: e.value }))
+    } else {
+      out.push({ effectType: b.effectType, value: b.value })
+    }
+  }
+  return out
+}
+
 /**
  * 从全局增益表计算最大同调位
- * @param {Array<{ effectType?: string, value?: number, enabled?: boolean }>} buffs
+ * @param {Array<{ effectType?: string, value?: number, enabled?: boolean, effects?: Array }>} buffs
  * @returns {number}
  */
 export function getMaxAttunementSlots(buffs) {
   const list = Array.isArray(buffs) ? buffs : []
+  const entries = getFlatEffectEntries(list)
   let extra = 0
-  for (const b of list) {
-    if (b.enabled === false) continue
+  for (const b of entries) {
     if (b.effectType === 'extra_attunement_slots') {
       const v = Number(b.value)
       if (!Number.isNaN(v) && v > 0) extra += v

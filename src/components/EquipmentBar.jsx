@@ -59,7 +59,7 @@ export default function EquipmentBar({ character, canEdit, onSave }) {
   const mainHandOptions = inv.filter((e) => {
     const proto = e.itemId ? getItemById(e.itemId) : null
     const t = proto?.类型 ?? ''
-    return t === '武器' || t === '枪械' || t === '法器'
+    return t === '近战武器' || t === '远程武器' || t === '枪械' || t === '法器'
   })
 
   /** 副手：盾牌 + 武器 + 枪械 */
@@ -68,7 +68,7 @@ export default function EquipmentBar({ character, canEdit, onSave }) {
     const t = proto?.类型 ?? ''
     const sub = proto?.子类型 ?? ''
     if (t === '盔甲' && sub === '盾牌') return true
-    if (t === '武器' || t === '枪械') return true
+    if (t === '近战武器' || t === '远程武器' || t === '枪械') return true
     return false
   })
 
@@ -118,6 +118,14 @@ export default function EquipmentBar({ character, canEdit, onSave }) {
     onSave({ inventory: nextInv })
   }
 
+  const setEntryMagicBonus = (entryId, value) => {
+    const entryIdx = inv.findIndex((e) => e.id === entryId)
+    if (entryIdx < 0) return
+    const n = Math.max(0, parseInt(value, 10) || 0)
+    const nextInv = inv.map((e, i) => (i === entryIdx ? { ...e, magicBonus: n } : e))
+    onSave({ inventory: nextInv })
+  }
+
   const renderSlot = (slot, index, options, setEquip, removeSlot, isWorn, canRemove) => {
     const entry = slot.inventoryId ? inv.find((e) => e.id === slot.inventoryId) ?? null : null
     const proto = entry?.itemId ? getItemById(entry.itemId) : null
@@ -125,6 +133,7 @@ export default function EquipmentBar({ character, canEdit, onSave }) {
     const parsed = parseArmorNote(note)
     const magicBonus = Number(entry?.magicBonus) || 0
     const isArmorOrShield = proto?.类型 === '盔甲'
+    const isShieldInOffHand = !isWorn && index === 1 && proto?.类型 === '盔甲' && proto?.子类型 === '盾牌'
 
     return (
       <div
@@ -149,16 +158,16 @@ export default function EquipmentBar({ character, canEdit, onSave }) {
                   </option>
                 ))}
               </select>
-              {isWorn && isArmorOrShield && (
+              {(isWorn && isArmorOrShield) || (isShieldInOffHand && entry) ? (
                 <div className="flex items-center gap-1 shrink-0">
-                  <span className="text-gray-500 text-[10px]">增强加值</span>
+                  <span className="text-gray-500 text-[10px]">{isShieldInOffHand ? '盾牌增强' : '增强加值'}</span>
                   <div className="flex items-center rounded border border-gray-600 bg-gray-800 overflow-hidden h-7">
-                    <button type="button" onClick={() => setWornMagicBonus(index, String(Math.max(0, (Number(magicBonus) || 0) - 1)))} className="px-1.5 h-full flex items-center justify-center text-dnd-text-muted hover:text-white hover:bg-gray-700 border-r border-gray-600 font-medium text-sm shrink-0">−</button>
-                    <input type="number" min={0} value={magicBonus || ''} onChange={(e) => setWornMagicBonus(index, e.target.value)} className="w-10 h-full bg-transparent border-0 text-center text-white text-xs tabular-nums px-0.5 focus:outline-none focus:ring-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]" />
-                    <button type="button" onClick={() => setWornMagicBonus(index, String((Number(magicBonus) || 0) + 1))} className="px-1.5 h-full flex items-center justify-center text-dnd-text-muted hover:text-white hover:bg-gray-700 border-l border-gray-600 font-medium text-sm shrink-0">+</button>
+                    <button type="button" onClick={() => (isWorn ? setWornMagicBonus(index, String(Math.max(0, (Number(magicBonus) || 0) - 1))) : setEntryMagicBonus(entry.id, String(Math.max(0, (Number(magicBonus) || 0) - 1))))} className="px-1.5 h-full flex items-center justify-center text-dnd-text-muted hover:text-white hover:bg-gray-700 border-r border-gray-600 font-medium text-sm shrink-0">−</button>
+                    <input type="number" min={0} value={magicBonus || ''} onChange={(e) => (isWorn ? setWornMagicBonus(index, e.target.value) : setEntryMagicBonus(entry.id, e.target.value))} className="w-10 h-full bg-transparent border-0 text-center text-white text-xs tabular-nums px-0.5 focus:outline-none focus:ring-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]" />
+                    <button type="button" onClick={() => (isWorn ? setWornMagicBonus(index, String((Number(magicBonus) || 0) + 1)) : setEntryMagicBonus(entry.id, String((Number(magicBonus) || 0) + 1)))} className="px-1.5 h-full flex items-center justify-center text-dnd-text-muted hover:text-white hover:bg-gray-700 border-l border-gray-600 font-medium text-sm shrink-0">+</button>
                   </div>
                 </div>
-              )}
+              ) : null}
               {canRemove && (
                 <button
                   type="button"
@@ -173,18 +182,18 @@ export default function EquipmentBar({ character, canEdit, onSave }) {
           ) : (
             <>
               <span className="text-white text-sm flex-1">{getEntryDisplayName(entry)}</span>
-              {isWorn && entry && isArmorOrShield && (
-                <span className="text-amber-200/90 text-xs font-mono shrink-0">{magicBonus > 0 ? `+${magicBonus}` : ''}</span>
+              {((isWorn && entry && isArmorOrShield) || (isShieldInOffHand && entry)) && (
+                <span className="text-amber-200/90 text-xs font-mono shrink-0" title={isShieldInOffHand ? '盾牌增强加值' : ''}>{magicBonus > 0 ? `+${magicBonus}` : ''}</span>
               )}
             </>
           )}
         </div>
-        {isWorn && entry && parsed && (
+        {(isWorn && entry && parsed) || (isShieldInOffHand && entry && parsed?.isShield) ? (
           <p className="text-amber-200/90 text-[10px]">
-            {parsed.isShield ? `AC +${parsed.bonus}` : `AC ${parsed.baseAC ?? 10}${parsed.addDex ? (parsed.dexCap != null ? `+敏调(最大${parsed.dexCap})` : '+敏调') : ''}`}
-            {magicBonus > 0 && <span className="ml-1">+{magicBonus}</span>}
+            {parsed?.isShield ? `AC +${parsed.bonus ?? 2}` : `AC ${parsed.baseAC ?? 10}${parsed.addDex ? (parsed.dexCap != null ? `+敏调(最大${parsed.dexCap})` : '+敏调') : ''}`}
+            {magicBonus > 0 && <span className="ml-1">{parsed?.isShield ? `盾牌增强 +${magicBonus}` : `+${magicBonus}`}</span>}
           </p>
-        )}
+        ) : null}
       </div>
     )
   }

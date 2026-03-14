@@ -4,6 +4,7 @@ import { Plus, User, Star, Trash2, Copy } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useModule } from '../contexts/ModuleContext'
 import { getCharacters, getDefaultCharacterId, setDefaultCharacterId, deleteCharacter, duplicateCharacter, updateCharacter } from '../lib/characterStore'
+import { getClassDisplayName } from '../data/classDatabase'
 import { levelFromXP } from '../lib/xp5e'
 
 /** 角色等级显示：优先经验换算，否则职业等级之和 */
@@ -16,21 +17,21 @@ function displayLevel(c) {
   return Math.max(1, Math.min(20, main + multi + prestige))
 }
 
-/** 职业与等级简述，如 "战士 5" 或 "战士 5 / 法师 3" */
+/** 职业与等级简述，如 "战士 5" 或 "战士 5 / 法师 3"（邪术师显示为魔契师） */
 function displayClassLevel(c) {
   const parts = []
   if (c.class) {
     const mainLevel = Math.max(0, Math.min(20, Number(c.classLevel) ?? 1))
-    parts.push(`${c.class} ${mainLevel}`)
+    parts.push(`${getClassDisplayName(c.class)} ${mainLevel}`)
   }
   if (Array.isArray(c.multiclass) && c.multiclass.length) {
     c.multiclass.forEach((m) => {
-      if (m?.['class']) parts.push(`${m['class']} ${Math.max(0, Number(m.level) || 0)}`)
+      if (m?.['class']) parts.push(`${getClassDisplayName(m['class'])} ${Math.max(0, Number(m.level) || 0)}`)
     })
   }
   if (Array.isArray(c.prestige) && c.prestige.length) {
     c.prestige.forEach((p) => {
-      if (p?.['class']) parts.push(`${p['class']} ${Math.max(0, Number(p.level) || 0)}`)
+      if (p?.['class']) parts.push(`${getClassDisplayName(p['class'])} ${Math.max(0, Number(p.level) || 0)}`)
     })
   }
   if (parts.length === 0) return '—'
@@ -110,14 +111,14 @@ export default function Characters() {
           className="flex items-center gap-2 py-2 px-4 rounded-lg bg-dnd-red hover:bg-dnd-red-hover text-white font-medium uppercase text-xs tracking-label transition-colors"
         >
           <Plus className="w-5 h-5" />
-          新建
+          新角色
         </Link>
       </div>
 
       {list.length === 0 ? (
         <div className="rounded-xl bg-dnd-card border border-white/10 shadow-dnd-card p-6 text-center">
           <p className="text-dnd-text-muted text-base">
-            {isAdmin ? '暂无任何角色卡。' : '你还没有角色，点击「新建」创建第一张角色卡。'}
+            {isAdmin ? '暂无任何角色卡。' : '你还没有角色，点击「新角色」创建第一张角色卡。'}
           </p>
         </div>
       ) : (

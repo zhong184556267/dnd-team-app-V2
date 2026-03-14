@@ -3,17 +3,18 @@
  * 含：角色名、外观/基础、经验与等级、职业、Buff、背包、同调位。
  * 备份于恢复战斗状态之前。
  */
-import { useState, useEffect, useCallback, useRef, forwardRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo, forwardRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { ChevronUp, ChevronDown, Trash2, Star } from 'lucide-react'
+import { ChevronUp, ChevronDown, Trash2, Star, Upload, X } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { getCharacter, updateCharacter } from '../lib/characterStore'
-import { levelFromXP } from '../lib/xp5e'
+import { levelFromXP, xpForLevel } from '../lib/xp5e'
 import {
   getSpellcastingLevel,
   getPactLevel,
   getPrimarySpellcastingAbility,
   ALL_CLASS_NAMES,
+  getClassDisplayName,
   isFanxingClass,
   getAvailableFeatures,
   resolveSelectedFeatures,
@@ -22,6 +23,8 @@ import { FANXING_PRESTIGE_CLASSES } from '../data/fanxing'
 import { ABILITY_NAMES_ZH } from '../data/buffTypes'
 import { FEATS, FEATS_BY_CATEGORY } from '../data/feats'
 import { useCombatState } from '../hooks/useCombatState'
+import { useBuffCalculator } from '../hooks/useBuffCalculator'
+import { getBuffsFromEquipmentAndInventory } from '../lib/effects/effectMapping'
 import BuffManager from '../components/BuffManager'
 import CombatStatus from '../components/CombatStatus'
 import EquipmentAndInventory from '../components/EquipmentAndInventory'
@@ -44,7 +47,127 @@ const NameInput = forwardRef(function NameInput({ value, onChange, onFocus, onBl
   )
 })
 
-function AppearanceGrid({ char, canEdit, onSave }) {
+const AVATAR_MAX_SIZE = 800 * 1024 // 800KB，避免 localStorage 过大
+
+function AvatarFrame({ char, canEdit, onSave, large }) {
+  const inputRef = useRef(null)
+  const avatar = char?.avatar ?? null
+
+  const handleFile = (e) => {
+    const file = e.target.files?.[0]
+    if (!file || !file.type.startsWith('image/')) return
+    if (file.size > AVATAR_MAX_SIZE) {
+      alert('图片请小于 800KB，以免存储过大')
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => {
+      const dataUrl = reader.result
+      if (typeof dataUrl === 'string') onSave({ avatar: dataUrl })
+    }
+    reader.readAsDataURL(file)
+    e.target.value = ''
+  }
+
+  const removeAvatar = () => {
+    onSave({ avatar: null })
+  }
+
+  const placeholderId = 'avatar-file-input'
+
+  if (large) {
+    return (
+      <div className="avatar-upload-zone w-full h-full min-h-[220px] flex flex-col items-center justify-center relative">
+        {avatar ? (
+          <img src={avatar} alt="头像" className="w-full h-full object-cover absolute inset-0" />
+        ) : (
+          <span className="text-[var(--text-muted)] text-sm">上传头像</span>
+        )}
+        {canEdit && (
+          <>
+            <input
+              ref={inputRef}
+              id={placeholderId}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleFile}
+            />
+            <label
+              htmlFor={placeholderId}
+              className="avatar-upload-btn cursor-pointer"
+              title="上传"
+            >
+              <Upload className="w-4 h-4" />
+            </label>
+            {avatar && (
+              <button
+                type="button"
+                onClick={removeAvatar}
+                className="btn-ghost absolute bottom-3 left-3 text-xs"
+                title="移除"
+              >
+                <X className="w-3.5 h-3.5 inline mr-0.5" />
+                移除
+              </button>
+            )}
+          </>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col items-center gap-1.5 flex-shrink-0 w-full">
+      {avatar ? (
+        <div className="w-36 h-36 md:w-40 md:h-40 rounded-lg overflow-hidden flex items-center justify-center shrink-0 border border-[var(--border-color)]">
+          <img src={avatar} alt="头像" className="min-w-full min-h-full w-full h-full object-cover" />
+        </div>
+      ) : canEdit ? (
+        <label
+          htmlFor={placeholderId}
+          className="w-36 h-36 md:w-40 md:h-40 avatar-placeholder flex items-center justify-center shrink-0 cursor-pointer"
+        >
+          <span className="text-[var(--text-muted)] text-xs text-center px-2">上传头像</span>
+        </label>
+      ) : (
+        <div className="w-36 h-36 md:w-40 md:h-40 avatar-placeholder flex items-center justify-center shrink-0">
+          <span className="text-[var(--text-muted)] text-xs text-center px-2">上传头像</span>
+        </div>
+      )}
+      {canEdit && (
+        <>
+          <input
+            ref={inputRef}
+            id={placeholderId}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleFile}
+          />
+          <div className="flex flex-wrap gap-1.5 justify-center">
+            <button
+              type="button"
+              onClick={() => inputRef.current?.click()}
+              className="btn-ghost inline-flex items-center gap-1"
+            >
+              <Upload className="w-3.5 h-3.5" />
+              上传
+            </button>
+            {avatar && (
+              <button type="button" onClick={removeAvatar} className="btn-ghost inline-flex items-center gap-1">
+                <X className="w-3.5 h-3.5" />
+                移除
+              </button>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+function AppearanceGrid({ char, canEdit, onSave, noBorder, compact }) {
   const app = char?.appearance ?? {}
   const [age, setAge] = useState(app.age ?? '')
   const [alignment, setAlignment] = useState(app.alignment ?? '')
@@ -71,56 +194,54 @@ function AppearanceGrid({ char, canEdit, onSave }) {
   const appearanceData = () => ({ age, race, alignment, height, weight, hair, eyes, skin, background })
   const save = () => onSave({ appearance: appearanceData() })
 
-  const row1 = [
+  const cells = [
     { label: '年龄', value: age, set: setAge },
     { label: '阵营', value: alignment, set: setAlignment },
     { label: '瞳色', value: eyes, set: setEyes },
     { label: '身高', value: height, set: setHeight },
     { label: '肤色', value: skin, set: setSkin },
-  ]
-  const row2 = [
     { label: '背景', value: background, set: setBackground },
     { label: '种族', value: race, set: setRace },
     { label: '体重', value: weight, set: setWeight },
     { label: '发色', value: hair, set: setHair },
   ]
 
+  const inputCls = compact
+    ? 'input-thin h-7 max-w-[7.5rem]'
+    : 'profile-input h-7 max-w-[7.5rem]'
+  const labelCls = compact ? 'form-label block' : 'profile-label block'
   const Cell = ({ label, value, set }) => (
-    <div className="flex flex-col gap-0 min-w-0">
-      <label className="text-dnd-gold-light uppercase tracking-wider text-xs font-bold mb-1">{label}</label>
+    <div className="form-group-compact">
+      <label className={labelCls}>{label}</label>
       {canEdit ? (
         <input
           type="text"
           value={value}
           onChange={(e) => set(e.target.value)}
           onBlur={save}
-          className={inputClass}
+          className={inputCls}
           placeholder="—"
         />
       ) : (
-        <span className="text-white text-sm font-semibold truncate">{value || '—'}</span>
+        <span className="text-[var(--text-main)] text-sm truncate max-w-[7.5rem] block">{value || '—'}</span>
       )}
     </div>
   )
 
+  const frameClass = noBorder ? 'p-0 min-w-0 w-full' : 'profile-section p-3 min-w-0 w-full'
   return (
-    <div className="rounded-lg border border-gray-600 bg-gray-800/50 p-4">
-      <div className="grid grid-cols-5 gap-x-3 gap-y-3 mb-3">
-        {row1.map(({ label, value, set }) => (
+    <div className={frameClass}>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-2 gap-y-2">
+        {cells.map(({ label, value, set }) => (
           <Cell key={label} label={label} value={value} set={set} />
         ))}
       </div>
-      <div className="grid grid-cols-4 gap-x-3 gap-y-3">
-        {row2.map(({ label, value, set }) => (
-          <Cell key={label} label={label} value={value} set={set} />
-        ))}
-      </div>
-      {canEdit && <p className="text-gray-500 text-xs mt-2">点击他处即保存</p>}
+      {canEdit && <p className="save-hint mt-1 text-right">点击他处即保存</p>}
     </div>
   )
 }
 
-/** 经验与等级：现有经验/经验等级；剧情等级可手动输入；LV 自动计算（经验等级≥剧情等级时显示剧情等级） */
+/** 经验与等级：进度条 + 现有经验/经验等级；剧情等级可手动输入。仅两种字号：普通文案 / 重点文案；排版紧凑。 */
 function ExperienceLevelSection({ char, level, canEdit, onSave }) {
   const [xpInput, setXpInput] = useState('')
   const addXP = (raw) => {
@@ -131,14 +252,23 @@ function ExperienceLevelSection({ char, level, canEdit, onSave }) {
     setXpInput('')
   }
   const expLevel = Math.max(1, level)
+  const xp = char.xp ?? 0
+  const xpCur = xpForLevel(expLevel)
+  const xpNext = expLevel >= 20 ? xpCur : xpForLevel(expLevel + 1)
+  const xpProgress = expLevel >= 20 ? 1 : (xpNext > xpCur ? (xp - xpCur) / (xpNext - xpCur) : 0)
   const storyLevel = typeof char.storyLevel === 'number' && char.storyLevel >= 1 ? Math.min(20, Math.max(1, char.storyLevel)) : null
   const displayLevel = storyLevel != null && expLevel >= storyLevel ? storyLevel : expLevel
-  const cardBase = 'rounded-xl border border-gray-600 bg-gray-800 p-4 flex flex-col min-h-[5rem] justify-center'
   return (
-    <div className="rounded-lg border border-gray-600 bg-gray-800/50 p-4">
-      <div className="space-y-3">
-        {canEdit && (
-        <div className="flex gap-2 items-center">
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="panel-label">经验 · 等级 {expLevel}</span>
+        <span className="panel-value font-mono">{xp.toLocaleString()}</span>
+      </div>
+      <div className="xp-progress-track w-full">
+        <div className="xp-progress-fill" style={{ width: `${Math.min(100, xpProgress * 100)}%` }} />
+      </div>
+      {canEdit && (
+        <div className="flex gap-1.5 items-center flex-wrap">
           <input
             type="number"
             min="0"
@@ -146,35 +276,30 @@ function ExperienceLevelSection({ char, level, canEdit, onSave }) {
             value={xpInput}
             onChange={(e) => setXpInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') addXP(e.target.value) }}
-            className={inputClass + ' max-w-[12rem] font-mono'}
+            className="panel-input max-w-[9rem] font-mono shrink-0"
           />
-          <button
-            type="button"
-            onClick={() => addXP(xpInput)}
-            className="h-10 px-4 rounded-lg bg-dnd-red hover:bg-dnd-red/90 text-white font-semibold text-sm shrink-0"
-          >
+          <button type="button" onClick={() => addXP(xpInput)} className="btn-panel-add shrink-0">
             加入
           </button>
           <button
             type="button"
-            onClick={() => {
-              if (window.confirm('是否确定清空总经验？')) onSave({ xp: 0 })
-            }}
-            className="h-10 px-4 rounded-lg border border-gray-500 hover:bg-gray-700 text-white font-semibold text-sm shrink-0"
+            onClick={() => { if (window.confirm('是否确定清空总经验？')) onSave({ xp: 0 }) }}
+            className="btn-panel-clear shrink-0"
           >
             清空
           </button>
         </div>
       )}
-      <div className="grid grid-cols-2 gap-3">
-        <div className={cardBase}>
-          <p className="text-dnd-gold-light uppercase tracking-wider text-xs font-bold mb-2">现有经验 · 经验等级{expLevel}</p>
-          <p className="text-2xl font-mono font-bold text-white">{char.xp ?? 0}</p>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="panel-card-compact flex flex-col min-h-0 justify-center">
+          <p className="panel-label mb-0.5">现有经验</p>
+          <p className="panel-value font-mono">{xp.toLocaleString()}</p>
+          <p className="panel-label mt-0.5">经验等级 {expLevel}</p>
         </div>
-        <div className={cardBase + ' bg-gradient-to-br from-gray-700 to-gray-800'}>
+        <div className="panel-card-compact flex flex-col min-h-0 justify-center">
           {canEdit ? (
-            <p className="text-dnd-gold-light uppercase tracking-wider text-xs font-bold mb-1 flex items-center gap-2 flex-wrap">
-              <span>剧情等级</span>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <label className="panel-label shrink-0">剧情等级</label>
               <input
                 type="number"
                 min={1}
@@ -184,43 +309,39 @@ function ExperienceLevelSection({ char, level, canEdit, onSave }) {
                   const v = e.target.value === '' ? null : Math.max(1, Math.min(20, parseInt(e.target.value, 10) || 1))
                   onSave({ storyLevel: v })
                 }}
-                placeholder="不填则按经验等级"
-                className={inputClass + ' w-16 font-mono text-sm'}
+                placeholder="可选"
+                className="panel-input-compact w-12 font-mono text-center"
               />
-            </p>
-          ) : (
-            storyLevel != null && (
-              <p className="text-dnd-gold-light uppercase tracking-wider text-xs font-bold mb-1">剧情等级 {storyLevel}</p>
-            )
-          )}
-          <p className="text-dnd-gold-light uppercase tracking-wider text-xs font-bold mb-1">LEVEL</p>
-          <p className="text-3xl font-serif text-white font-bold">lv.{displayLevel}</p>
+            </div>
+          ) : storyLevel != null ? (
+            <p className="panel-label">剧情等级 {storyLevel}</p>
+          ) : null}
+          <p className="panel-value mt-0.5">lv.{displayLevel}</p>
         </div>
-      </div>
       </div>
     </div>
   )
 }
 
-/** 等级步进器：上下箭头改数值，并限制在 [min, max] */
+/** 等级步进器：上下箭头改数值，并限制在 [min, max]（面板内浅灰箭头风格） */
 function LevelStepper({ value, onChange, min = 0, max = 20, disabled }) {
   const v = Math.max(min, Math.min(max, Number(value) || 0))
   return (
-    <div className="flex items-center gap-1 rounded-lg border border-gray-600 bg-gray-800 overflow-hidden">
+    <div className="level-stepper-panel">
       <button
         type="button"
         disabled={disabled || v <= min}
         onClick={() => onChange(v - 1)}
-        className="h-10 w-9 flex items-center justify-center text-white hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
+        aria-label="减少"
       >
         <ChevronDown className="w-4 h-4" />
       </button>
-      <span className="min-w-[2rem] text-center font-mono font-bold text-white text-sm">{v}</span>
+      <span>{v}</span>
       <button
         type="button"
         disabled={disabled || v >= max}
         onClick={() => onChange(v + 1)}
-        className="h-10 w-9 flex items-center justify-center text-white hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
+        aria-label="增加"
       >
         <ChevronUp className="w-4 h-4" />
       </button>
@@ -245,7 +366,7 @@ function ClassSpellcastingSummary({ char }) {
       {pactLevel > 0 && (
         <span className="px-3 py-1.5 rounded-lg bg-gray-700/80 text-white">
           <span className="text-dnd-gold-light font-bold">契约等级</span> {pactLevel}
-          <span className="text-gray-400 text-xs ml-1">（邪术师）</span>
+          <span className="text-gray-400 text-xs ml-1">（魔契师）</span>
         </span>
       )}
       {ability && (
@@ -593,16 +714,13 @@ function ClassSection({ char, level, canEdit, onSave }) {
     persistClass({ prestige: next })
   }
 
-  const selectClass = 'h-10 rounded-lg bg-gray-800 border border-gray-600 focus:border-dnd-red focus:ring-1 focus:ring-dnd-red disabled:opacity-70 px-3 text-sm text-white min-w-[7rem]'
-  const cardBase = 'rounded-xl border border-gray-600 bg-gray-800 p-4 flex flex-col min-h-[4rem]'
-
+  const selectClass = 'panel-select min-h-[40px] min-w-[7rem]'
   return (
-    <div className="rounded-lg border border-gray-600 bg-gray-800/50 p-4">
-      <div className="space-y-4">
-        <ClassSpellcastingSummary char={char} />
+    <div className="space-y-4">
+      <ClassSpellcastingSummary char={char} />
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div className={cardBase}>
-          <label className="text-dnd-gold-light uppercase tracking-wider text-xs font-bold mb-2 block">起始职业</label>
+        <div className="panel-card flex flex-col min-h-[4rem]">
+          <label className="panel-label mb-2 block">起始职业</label>
           {canEdit ? (
             <div className="space-y-2">
               <div className="flex gap-2 items-center flex-wrap">
@@ -625,35 +743,35 @@ function ClassSection({ char, level, canEdit, onSave }) {
                 />
               </div>
               <div>
-                <label className="text-dnd-gold-light text-[10px] uppercase tracking-wider font-bold mb-1 block">子职（选填）</label>
+                <label className="panel-label mb-1 block">子职（选填）</label>
                 <input
                   type="text"
                   value={subclass}
                   onChange={(e) => { setSubclass(e.target.value); persistClass({ subclass: e.target.value.trim() }) }}
                   onBlur={(e) => persistClass({ subclass: e.target.value.trim() })}
                   placeholder="如：学识学院、狂战士"
-                  className={inputClass}
+                  className="panel-input w-full"
                 />
               </div>
             </div>
           ) : (
-            <p className="text-white font-semibold text-sm">
-              {char?.['class'] ? `${char['class']}${char.subclass ? `（${char.subclass}）` : ''} ${char.classLevel ?? 1}` : '—'}
+            <p className="text-[var(--text-main)] font-semibold text-sm">
+              {char?.['class'] ? `${getClassDisplayName(char['class'])}${char.subclass ? `（${char.subclass}）` : ''} ${char.classLevel ?? 1}` : '—'}
             </p>
           )}
         </div>
-        <div className={cardBase}>
-          <label className="text-dnd-gold-light uppercase tracking-wider text-xs font-bold mb-2 block">兼职</label>
+        <div className="panel-card flex flex-col min-h-[4rem]">
+          <label className="panel-label mb-2 block">兼职</label>
           {canEdit ? (
             <div className="space-y-2">
               {multiclass.map((m, i) => {
                 const otherLevels = classLevel + multiclass.reduce((s, x, j) => s + (j === i ? 0 : (x.level || 0)), 0) + prestigeLevelSum
                 const rowMax = Math.max(0, maxLevel - otherLevels)
                 return (
-                  <div key={i} className="space-y-2 border border-gray-600 rounded-lg p-2 bg-gray-800/50">
+                  <div key={i} className="space-y-2 border border-[var(--card-border)] rounded-lg p-2 bg-[rgba(30,38,50,0.4)]">
                     <div className="flex items-center justify-between">
-                      <span className="text-dnd-gold-light text-[10px] uppercase tracking-wider font-bold">兼职（选填）</span>
-                      <button type="button" onClick={() => removeMulticlassRow(i)} className="p-1 text-gray-500 hover:text-dnd-red" title="移除"><Trash2 className="w-3 h-3" /></button>
+                      <span className="panel-label">兼职（选填）</span>
+                      <button type="button" onClick={() => removeMulticlassRow(i)} className="p-1 text-[var(--text-muted)] hover:text-[var(--btn-primary)]" title="移除"><Trash2 className="w-3 h-3" /></button>
                     </div>
                     <div className="flex gap-2 items-center flex-wrap">
                       <select value={m['class']} onChange={(e) => setMulticlassRow(i, 'class', e.target.value)} className={selectClass}>
@@ -670,31 +788,31 @@ function ClassSection({ char, level, canEdit, onSave }) {
                       onChange={(e) => setMulticlassRow(i, 'subclass', e.target.value)}
                       onBlur={(e) => setMulticlassRow(i, 'subclass', e.target.value.trim())}
                       placeholder="子职（选填）"
-                      className={inputClass + ' text-xs'}
+                      className="panel-input w-full text-sm"
                     />
                   </div>
                 )
               })}
-              <button type="button" onClick={addMulticlassRow} disabled={totalClassLevels >= maxLevel} className="text-white text-xs font-bold uppercase tracking-wider hover:underline disabled:opacity-50">+ 添加兼职</button>
+              <button type="button" onClick={addMulticlassRow} disabled={totalClassLevels >= maxLevel} className="text-[var(--text-main)] text-xs font-bold uppercase tracking-wider hover:underline disabled:opacity-50">+ 添加兼职</button>
             </div>
           ) : (
-            <p className="text-white text-sm">
-              {Array.isArray(char?.multiclass) && char.multiclass.length ? char.multiclass.map((m) => `${m['class'] || '?'}${m.subclass ? `（${m.subclass}）` : ''} ${m.level ?? 0}`).join(' / ') : '—'}
+            <p className="text-[var(--text-main)] text-sm">
+              {Array.isArray(char?.multiclass) && char.multiclass.length ? char.multiclass.map((m) => `${getClassDisplayName(m['class']) || '?'}${m.subclass ? `（${m.subclass}）` : ''} ${m.level ?? 0}`).join(' / ') : '—'}
             </p>
           )}
         </div>
-        <div className={cardBase}>
-          <label className="text-dnd-gold-light uppercase tracking-wider text-xs font-bold mb-2 block">进阶</label>
+        <div className="panel-card flex flex-col min-h-[4rem]">
+          <label className="panel-label mb-2 block">进阶</label>
           {canEdit ? (
             <div className="space-y-2">
               {prestige.map((p, i) => {
                 const otherLevels = classLevel + multiclass.reduce((s, m) => s + (m.level || 0), 0) + prestige.reduce((s, x, j) => s + (j === i ? 0 : (x.level || 0)), 0)
                 const rowMax = Math.max(0, maxLevel - otherLevels)
                 return (
-                  <div key={i} className="space-y-2 border border-gray-600 rounded-lg p-2 bg-gray-800/50">
+                  <div key={i} className="space-y-2 border border-[var(--card-border)] rounded-lg p-2 bg-[rgba(30,38,50,0.4)]">
                     <div className="flex items-center justify-between">
-                      <span className="text-dnd-gold-light text-[10px] uppercase tracking-wider font-bold">进阶（选填）</span>
-                      <button type="button" onClick={() => removePrestigeRow(i)} className="p-1 text-gray-500 hover:text-dnd-red" title="移除"><Trash2 className="w-3 h-3" /></button>
+                      <span className="panel-label">进阶（选填）</span>
+                      <button type="button" onClick={() => removePrestigeRow(i)} className="p-1 text-[var(--text-muted)] hover:text-[var(--btn-primary)]" title="移除"><Trash2 className="w-3 h-3" /></button>
                     </div>
                     <div className="flex gap-2 items-center flex-wrap">
                       <select value={p['class']} onChange={(e) => setPrestigeRow(i, 'class', e.target.value)} className={selectClass}>
@@ -708,19 +826,18 @@ function ClassSection({ char, level, canEdit, onSave }) {
                   </div>
                 )
               })}
-              <button type="button" onClick={addPrestigeRow} disabled={totalClassLevels >= maxLevel} className="text-white text-xs font-bold uppercase tracking-wider hover:underline disabled:opacity-50">+ 添加进阶</button>
+              <button type="button" onClick={addPrestigeRow} disabled={totalClassLevels >= maxLevel} className="text-[var(--text-main)] text-xs font-bold uppercase tracking-wider hover:underline disabled:opacity-50">+ 添加进阶</button>
             </div>
           ) : (
-            <p className="text-white text-sm">
-              {Array.isArray(char?.prestige) && char.prestige.length ? char.prestige.map((p) => `${p['class'] || '?'} ${p.level || 0}`).join(' / ') : char?.prestigeClass ? `${char.prestigeClass} ${char.prestigeLevel ?? 0}` : '—'}
+            <p className="text-[var(--text-main)] text-sm">
+              {Array.isArray(char?.prestige) && char.prestige.length ? char.prestige.map((p) => `${getClassDisplayName(p['class']) || '?'} ${p.level || 0}`).join(' / ') : char?.prestigeClass ? `${getClassDisplayName(char.prestigeClass)} ${char.prestigeLevel ?? 0}` : '—'}
             </p>
           )}
         </div>
-      </div>
+        </div>
       {overCap && (
-          <p className="text-dnd-red text-xs font-bold">职业等级总和 ({totalClassLevels}) 已超过表定等级 ({maxLevel})，请调低各职业等级。</p>
-        )}
-      </div>
+        <p className="text-dnd-red text-xs font-bold">职业等级总和 ({totalClassLevels}) 已超过表定等级 ({maxLevel})，请调低各职业等级。</p>
+      )}
     </div>
   )
 }
@@ -736,6 +853,12 @@ export default function CharacterSheet() {
   const level = char ? levelFromXP(char.xp) : 0
   const spellLevel = char ? getSpellcastingLevel(char) : 0
   const combatState = useCombatState(char)
+  const mergedBuffs = useMemo(() => {
+    const manual = char?.buffs ?? []
+    const fromItems = getBuffsFromEquipmentAndInventory(char)
+    return [...manual, ...fromItems]
+  }, [char?.buffs, char?.inventory, char?.equippedHeld, char?.equippedWorn])
+  const buffStats = useBuffCalculator(char, mergedBuffs)
   const canEdit = isAdmin || char?.owner === user?.name
 
   useEffect(() => {
@@ -763,66 +886,76 @@ export default function CharacterSheet() {
   }
 
   return (
-    <div className="p-4 pb-24 min-h-screen">
+    <div className="p-4 pb-24 min-h-screen" style={{ backgroundColor: 'var(--page-bg)' }}>
       <Link to="/characters" className="text-dnd-red">← 返回角色列表</Link>
       <p className="text-white mt-4 text-sm text-gray-400">角色卡 id: {id}</p>
       {char ? (
         <>
-          <section className="mt-4 w-full flex flex-col items-stretch">
-            <label className={labelClass + ' text-center'}>代号（可选，用于区分同名角色）</label>
-            {canEdit ? (
-              <input
-                type="text"
-                value={char.codename ?? ''}
-                onChange={(e) => persist({ codename: e.target.value || undefined })}
-                placeholder="如：一号、测试用"
-                className={inputClass + ' text-center text-dnd-text-muted text-sm'}
-              />
-            ) : char.codename ? (
-              <p className="text-sm text-dnd-text-muted text-center">{char.codename}</p>
-            ) : (
-              <p className="text-sm text-dnd-text-muted text-center">—</p>
-            )}
-          </section>
-          <section className="mt-4 w-full flex flex-col items-stretch">
-            <label className={labelClass + ' text-center'}>角色名</label>
-            {canEdit ? (
-              <NameInput
-                ref={nameInputRef}
-                value={editingName !== null ? editingName : (char.name ?? '')}
-                onChange={(e) => setEditingName(e.target.value)}
-                onFocus={() => { if (editingName === null) setEditingName(char.name ?? '') }}
-                onBlur={() => {
-                  const value = (editingName ?? char.name ?? '').trim() || '未命名'
-                  persist({ name: value })
-                  setEditingName(null)
-                }}
-                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur() } }}
-                className={inputClass + ' font-bold text-2xl text-center w-full'}
-              />
-            ) : (
-              <p className="text-2xl font-bold text-white text-center w-full">{char.name || '未命名'}</p>
-            )}
+          {/* 统一卡片：左 核心+属性网格 | 右 大头像（与截图风格一致） */}
+          <section className="module-panel mt-4 w-full">
+            <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,3fr)_minmax(0,4fr)] gap-3 items-stretch min-h-[260px] lg:gap-[15px] lg:min-h-[280px]">
+              <div className="min-w-0 flex flex-col gap-3 lg:gap-[12px]">
+                <div className="form-group-compact">
+                  <label className="form-label">代号（可选）</label>
+                  {canEdit ? (
+                    <input
+                      type="text"
+                      value={char.codename ?? ''}
+                      onChange={(e) => persist({ codename: e.target.value || undefined })}
+                      placeholder="区分同名角色"
+                      className="input-thin w-full text-[var(--text-muted)] text-lg"
+                    />
+                  ) : (
+                    <p className="text-[var(--text-muted)] text-lg break-words">{char.codename || '—'}</p>
+                  )}
+                </div>
+                <div className="form-group-compact">
+                  <label className="form-label">角色名</label>
+                  {canEdit ? (
+                    <NameInput
+                      ref={nameInputRef}
+                      value={editingName !== null ? editingName : (char.name ?? '')}
+                      onChange={(e) => setEditingName(e.target.value)}
+                      onFocus={() => { if (editingName === null) setEditingName(char.name ?? '') }}
+                      onBlur={() => {
+                        const value = (editingName ?? char.name ?? '').trim() || '未命名'
+                        persist({ name: value })
+                        setEditingName(null)
+                      }}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur() } }}
+                      className="input-thin w-full font-bold text-2xl sm:text-3xl text-[var(--text-main)] py-1 break-words leading-tight"
+                    />
+                  ) : (
+                    <p className="text-2xl sm:text-3xl font-bold text-[var(--text-main)] break-words leading-tight" style={{ fontWeight: 700 }}>{char.name || '未命名'}</p>
+                  )}
+                </div>
+                <h3 className="profile-section-title mt-1 mb-1">外观 / 基础</h3>
+                <AppearanceGrid char={char} canEdit={canEdit} onSave={persist} noBorder compact />
+              </div>
+              <div className="min-w-0 flex flex-col flex-1 min-h-[200px] lg:min-h-0">
+                <AvatarFrame char={char} canEdit={canEdit} onSave={persist} large />
+              </div>
+            </div>
           </section>
           <section className="mt-4">
-            <h3 className="text-dnd-gold-light text-sm font-bold mb-2">外观 / 基础</h3>
-            <AppearanceGrid char={char} canEdit={canEdit} onSave={persist} />
-          </section>
-          <section className="mt-4">
-            <h3 className="text-dnd-gold-light text-sm font-bold mb-2">经验与等级</h3>
-            <ExperienceLevelSection char={char} level={level} canEdit={canEdit} onSave={persist} />
+            <h3 className="section-title">经验与等级</h3>
+            <div className="module-panel">
+              <ExperienceLevelSection char={char} level={level} canEdit={canEdit} onSave={persist} />
+            </div>
           </section>
           <section className="mt-6">
-            <h3 className="text-dnd-gold-light text-sm font-bold mb-2">职业</h3>
-            <ClassSection char={char} level={level} canEdit={canEdit} onSave={persist} />
+            <h3 className="section-title">职业</h3>
+            <div className="module-panel">
+              <ClassSection char={char} level={level} canEdit={canEdit} onSave={persist} />
+            </div>
           </section>
           <section className="mt-6">
-            <h3 className="text-dnd-gold-light text-sm font-bold mb-2">属性与技能</h3>
-            <div className="rounded-lg border border-gray-600 bg-gray-800/50 p-4">
+            <h3 className="section-title">属性与技能</h3>
+            <div className="module-panel">
               <AbilityModule
                 char={char}
                 abilities={char.abilities ?? { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 }}
-                buffStats={{}}
+                buffStats={buffStats}
                 level={level}
                 canEdit={canEdit}
                 onSave={persist}
@@ -830,11 +963,11 @@ export default function CharacterSheet() {
             </div>
           </section>
           <section className="mt-6">
-            <h3 className="text-dnd-gold-light text-sm font-bold mb-2">Buff / 状态</h3>
-            <BuffManager buffs={char.buffs} baseAbilities={char.abilities ?? {}} onSave={(buffsList) => persist({ buffs: buffsList })} canEdit={canEdit} />
+            <h3 className="section-title">Buff / 状态</h3>
+            <BuffManager buffs={mergedBuffs} baseAbilities={char.abilities ?? {}} onSave={(buffsList) => persist({ buffs: buffsList.filter((b) => !b.fromItem) })} canEdit={canEdit} />
           </section>
           <section className="mt-6">
-            <h3 className="text-dnd-gold-light text-sm font-bold mb-2">战斗状态</h3>
+            <h3 className="section-title">战斗状态</h3>
             <CombatStatus
               char={char}
               hp={char.hp ?? { current: 0, max: 0, temp: 0 }}
@@ -845,17 +978,17 @@ export default function CharacterSheet() {
             />
           </section>
           <section className="mt-6">
-            <h3 className="text-dnd-gold-light text-sm font-bold mb-2">装备与背包</h3>
+            <h3 className="section-title">装备与背包</h3>
             <EquipmentAndInventory character={char} canEdit={canEdit} onSave={persist} onWalletSuccess={noop} />
           </section>
           <section className="mt-6">
             <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
               <div className="md:col-span-3 min-w-0">
-                <h3 className="text-dnd-gold-light text-sm font-bold mb-2">职业特性</h3>
+                <h3 className="section-title">职业特性</h3>
                 <ClassFeaturesSection char={char} canEdit={canEdit} onSave={persist} />
               </div>
               <div className="md:col-span-2 min-w-0">
-                <h3 className="text-dnd-gold-light text-sm font-bold mb-2">专长</h3>
+                <h3 className="section-title">专长</h3>
                 <FeatsSection char={char} canEdit={canEdit} onSave={persist} />
               </div>
             </div>

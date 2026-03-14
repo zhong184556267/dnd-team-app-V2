@@ -6,10 +6,13 @@ import { addToWarehouse } from '../lib/warehouseStore'
 import { CurrencyGrid } from './CurrencyDisplay'
 import { getItemWeightLb, parseWeightString } from '../lib/encumbrance'
 import { getMaxAttunementSlots, getAttunedCountFromInventory } from '../lib/combatState'
-import ItemPicker from './ItemPicker'
+import ItemAddForm from './ItemAddForm'
 import EncumbranceBar from './EncumbranceBar'
 import TransferModal from './TransferModal'
+import { DamageDiceInlineRow } from './BuffForm'
+import { parseDamageString, formatDamageForAttack } from '../data/buffTypes'
 import { inputClass, textareaClass, labelClass } from '../lib/inputStyles'
+import { NumberStepper } from './BuffForm'
 
 /** 从护甲附注字符串解析为分格字段，便于编辑。格式如：AC 12+敏捷；力量—；隐匿— */
 function parseArmorNoteToFields(note) {
@@ -72,17 +75,6 @@ function buildArmorNoteFromFields(fields) {
  */
 export default function CharacterInventory({ character, canEdit, onSave, onWalletSuccess }) {
   const inv = character?.inventory ?? []
-  const [selectedItemId, setSelectedItemId] = useState('')
-  const [instanceName, setInstanceName] = useState('')
-  const [instance攻击, setInstance攻击] = useState('')
-  const [instance伤害, setInstance伤害] = useState('')
-  const [instance攻击距离, setInstance攻击距离] = useState('')
-  const [instance详细介绍, setInstance详细介绍] = useState('')
-  const [instance附注, setInstance附注] = useState('')
-  const [instanceArmorFields, setInstanceArmorFields] = useState(() => parseArmorNoteToFields(''))
-  const [instanceQty, setInstanceQty] = useState(1)
-  const [instanceMagicBonus, setInstanceMagicBonus] = useState(0)
-  const [instanceCharge, setInstanceCharge] = useState(0)
   const [wallet, setWallet] = useState({})
   const [transferOpen, setTransferOpen] = useState(false)
   const [transferDirection, setTransferDirection] = useState('toVault')
@@ -91,6 +83,7 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
   const [edit攻击, setEdit攻击] = useState('')
   const [edit伤害, setEdit伤害] = useState('')
   const [edit攻击距离, setEdit攻击距离] = useState('')
+  const [edit攻击范围, setEdit攻击范围] = useState('')
   const [edit详细介绍, setEdit详细介绍] = useState('')
   const [edit附注, setEdit附注] = useState('')
   const [editArmorFields, setEditArmorFields] = useState(() => parseArmorNoteToFields(''))
@@ -99,67 +92,14 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
   const [editCharge, setEditCharge] = useState(0)
   const [storeToVaultIndex, setStoreToVaultIndex] = useState(null)
   const [storeToVaultQty, setStoreToVaultQty] = useState(1)
+  const [addFormOpen, setAddFormOpen] = useState(false)
 
-  const selectedPrototype = selectedItemId ? getItemById(selectedItemId) : null
-  const showAttackDamage = selectedPrototype && (selectedPrototype.类型 === '武器' || selectedPrototype.类型 === '枪械')
-  const showArmorNote = selectedPrototype && selectedPrototype.类型 === '盔甲'
-  const isShield = selectedPrototype?.子类型 === '盾牌'
   const maxAttunementSlots = getMaxAttunementSlots(character?.buffs ?? [])
   const attunedCount = getAttunedCountFromInventory(inv)
 
   useEffect(() => {
     if (character?.id) setWallet(getCharacterWallet(character.id))
   }, [character?.id, character?.wallet])
-
-  useEffect(() => {
-    if (!selectedItemId) return
-    const proto = getItemById(selectedItemId)
-    setInstanceName('')
-    setInstance攻击(proto?.攻击 ?? '')
-    setInstance伤害(proto?.伤害 ?? '')
-    setInstance攻击距离(proto?.攻击距离 ?? '')
-    setInstance详细介绍(proto?.详细介绍 ?? '')
-    setInstance附注(proto?.附注 ?? '')
-    if (proto?.类型 === '盔甲') {
-      setInstanceArmorFields(parseArmorNoteToFields(proto?.附注 ?? ''))
-    }
-    setInstanceQty(1)
-    setInstanceMagicBonus(0)
-    setInstanceCharge(0)
-  }, [selectedItemId])
-
-  const handleAddFromPicker = () => {
-    if (!selectedItemId) return
-    const proto = getItemById(selectedItemId)
-    const 附注Value = showArmorNote ? buildArmorNoteFromFields(instanceArmorFields) : (instance附注?.trim() || '')
-    const entry = {
-      id: 'inv_' + Date.now(),
-      itemId: selectedItemId,
-      name: (instanceName && instanceName.trim()) || proto?.类别 || getItemDisplayName(proto) || '—',
-      攻击: (instance攻击 && instance攻击.trim()) || (proto?.攻击 ?? ''),
-      伤害: (instance伤害 && instance伤害.trim()) || (proto?.伤害 ?? ''),
-      攻击距离: (instance攻击距离 && instance攻击距离.trim()) || (proto?.攻击距离 ?? ''),
-      详细介绍: instance详细介绍?.trim() ?? '',
-      ...(附注Value ? { 附注: 附注Value } : {}),
-      重量: proto?.重量,
-      qty: Math.max(1, instanceQty),
-      isAttuned: false,
-      magicBonus: Number(instanceMagicBonus) || 0,
-      charge: Number(instanceCharge) || 0,
-    }
-    onSave({ inventory: [...inv, entry] })
-    setSelectedItemId('')
-    setInstanceName('')
-    setInstance攻击('')
-    setInstance伤害('')
-    setInstance攻击距离('')
-    setInstance详细介绍('')
-    setInstance附注('')
-    setInstanceArmorFields(parseArmorNoteToFields(''))
-    setInstanceQty(1)
-    setInstanceMagicBonus(0)
-    setInstanceCharge(0)
-  }
 
   const removeItem = (index) => {
     onSave({ inventory: inv.filter((_, i) => i !== index) })
@@ -211,6 +151,7 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
         攻击距离: e.攻击距离,
         详细介绍: e.详细介绍,
         ...(e.附注 ? { 附注: e.附注 } : {}),
+        ...(e.攻击范围 ? { 攻击范围: e.攻击范围 } : {}),
         qty: toStore,
       })
     } else {
@@ -256,17 +197,18 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
     const proto = e.itemId ? getItemById(e.itemId) : null
     setEditingIndex(index)
     setEditName((e.name && e.name.trim()) || (proto ? getItemDisplayName(proto) : '') || '')
-    setEdit攻击((e.攻击 != null && e.攻击 !== '') ? String(e.攻击) : '')
-    setEdit伤害((e.伤害 != null && e.伤害 !== '') ? String(e.伤害) : '')
+    setEdit攻击((e.攻击 != null && e.攻击 !== '') ? String(e.攻击) : (proto?.攻击 ?? ''))
+    setEdit伤害((e.伤害 != null && e.伤害 !== '') ? String(e.伤害) : (proto?.伤害 ?? ''))
     setEdit攻击距离((e.攻击距离 != null && e.攻击距离 !== '') ? String(e.攻击距离) : '')
+    setEdit攻击范围((e.攻击范围 != null && e.攻击范围 !== '') ? String(e.攻击范围) : '')
     setEdit详细介绍((e.详细介绍 != null && e.详细介绍 !== '') ? String(e.详细介绍) : '')
     setEdit附注((e.附注 != null && e.附注 !== '') ? String(e.附注) : '')
     if (proto?.类型 === '盔甲') {
       setEditArmorFields(parseArmorNoteToFields(e.附注 ?? ''))
     }
     setEditQty(Math.max(1, Number(e.qty) ?? 1))
-    setEditMagicBonus(Number(e.magicBonus) || 0)
-    setEditCharge(Number(e.charge) || 0)
+    setEditMagicBonus(e.magicBonus != null && e.magicBonus !== '' ? Number(e.magicBonus) : 0)
+    setEditCharge(e.charge != null && e.charge !== '' ? Number(e.charge) : 0)
   }
 
   const saveEdit = () => {
@@ -281,6 +223,7 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
       攻击: (edit攻击 && edit攻击.trim()) || e.攻击,
       伤害: (edit伤害 && edit伤害.trim()) || e.伤害,
       攻击距离: (edit攻击距离 && edit攻击距离.trim()) ?? e.攻击距离 ?? '',
+      攻击范围: (edit攻击范围 && edit攻击范围.trim()) || e.攻击范围 || undefined,
       详细介绍: edit详细介绍?.trim() ?? e.详细介绍 ?? '',
       附注: 附注Value,
       qty: Math.max(1, editQty),
@@ -336,192 +279,11 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
         <div className="min-w-0">
           <h3 className={labelClass}>物品栏</h3>
           {canEdit && (
-            <div className="space-y-3 mb-3">
-              <p className="text-dnd-text-muted text-xs">从下拉菜单中，选择物品再进行定制修改</p>
-              <div className="flex-1 min-w-[18rem]">
-                <ItemPicker
-                  value={selectedItemId}
-                  onChange={setSelectedItemId}
-                  placeholder="通过下拉菜单选择类似物品再修改属性加入"
-                />
-              </div>
-              {selectedItemId && selectedPrototype && (
-                <div className="rounded-lg border border-gray-600 bg-gray-800/60 p-3 space-y-3">
-                  <p className="text-dnd-text-muted text-xs">基于「{getItemDisplayName(selectedPrototype)}」修改后放入背包</p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div className="sm:col-span-2">
-                      <label className="block text-dnd-text-muted text-xs mb-1">名称</label>
-                      <input
-                        type="text"
-                        value={instanceName}
-                        onChange={(e) => setInstanceName(e.target.value)}
-                        placeholder={`不填则用「${getItemDisplayName(selectedPrototype)}」`}
-                        className={inputClass + ' h-10'}
-                      />
-                    </div>
-                    {showArmorNote && (
-                      <div className="sm:col-span-2 space-y-2">
-                        <p className="text-dnd-text-muted text-xs">附注（护甲等级 AC、力量、隐匿）</p>
-                        {instanceArmorFields.isShield ? (
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            <div>
-                              <label className="block text-dnd-text-muted text-[10px] mb-0.5">AC 加值</label>
-                              <input
-                                type="number"
-                                min={0}
-                                value={instanceArmorFields.shieldBonus}
-                                onChange={(e) => setInstanceArmorFields((f) => ({ ...f, shieldBonus: e.target.value }))}
-                                placeholder="2"
-                                className={inputClass + ' h-9'}
-                              />
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                            <div>
-                              <label className="block text-dnd-text-muted text-[10px] mb-0.5">基础 AC</label>
-                              <input
-                                type="number"
-                                min={0}
-                                value={instanceArmorFields.baseAC}
-                                onChange={(e) => setInstanceArmorFields((f) => ({ ...f, baseAC: e.target.value }))}
-                                placeholder="12"
-                                className={inputClass + ' h-9'}
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-dnd-text-muted text-[10px] mb-0.5">敏调</label>
-                              <div className="flex gap-1 items-center">
-                                <select
-                                  value={instanceArmorFields.dexMode}
-                                  onChange={(e) => setInstanceArmorFields((f) => ({ ...f, dexMode: e.target.value }))}
-                                  className="h-9 flex-1 min-w-0 rounded-lg bg-gray-800 border border-gray-600 text-gray-200 text-xs px-2 focus:border-dnd-red focus:ring-1 focus:ring-dnd-red"
-                                >
-                                  <option value="none">不加</option>
-                                  <option value="full">加敏捷</option>
-                                  <option value="cap2">加敏捷（最大）</option>
-                                </select>
-                                {instanceArmorFields.dexMode === 'cap2' && (
-                                  <input
-                                    type="number"
-                                    min={1}
-                                    value={instanceArmorFields.dexCap}
-                                    onChange={(e) => setInstanceArmorFields((f) => ({ ...f, dexCap: parseInt(e.target.value, 10) || 2 }))}
-                                    className={inputClass + ' h-9 w-12 shrink-0'}
-                                  />
-                                )}
-                              </div>
-                            </div>
-                            <div>
-                              <label className="block text-dnd-text-muted text-[10px] mb-0.5">力量要求</label>
-                              <input
-                                type="text"
-                                value={instanceArmorFields.strReq}
-                                onChange={(e) => setInstanceArmorFields((f) => ({ ...f, strReq: e.target.value }))}
-                                placeholder="— 或 13"
-                                className={inputClass + ' h-9'}
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-dnd-text-muted text-[10px] mb-0.5">隐匿</label>
-                              <select
-                                value={instanceArmorFields.stealth}
-                                onChange={(e) => setInstanceArmorFields((f) => ({ ...f, stealth: e.target.value }))}
-                                className="h-9 w-full rounded-lg bg-gray-800 border border-gray-600 text-gray-200 text-xs px-2 focus:border-dnd-red focus:ring-1 focus:ring-dnd-red"
-                              >
-                                <option value="—">—</option>
-                                <option value="劣势">劣势</option>
-                              </select>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                    {showAttackDamage && (
-                      <>
-                        <div>
-                          <label className="block text-dnd-text-muted text-xs mb-1">攻击（伤害骰与类型）</label>
-                          <input
-                            type="text"
-                            value={instance攻击}
-                            onChange={(e) => setInstance攻击(e.target.value)}
-                            placeholder="如：1d8 挥砍"
-                            className={inputClass + ' h-10'}
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-dnd-text-muted text-xs mb-1">伤害类型</label>
-                          <input
-                            type="text"
-                            value={instance伤害}
-                            onChange={(e) => setInstance伤害(e.target.value)}
-                            placeholder="如：挥砍、穿刺、贯穿"
-                            className={inputClass + ' h-10'}
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-dnd-text-muted text-xs mb-1">攻击距离</label>
-                          <input
-                            type="text"
-                            value={instance攻击距离}
-                            onChange={(e) => setInstance攻击距离(e.target.value)}
-                            placeholder="如：20/40、30/60"
-                            className={inputClass + ' h-10'}
-                          />
-                        </div>
-                      </>
-                    )}
-                    <div className="sm:col-span-2">
-                      <label className="block text-dnd-text-muted text-xs mb-1">详细描述</label>
-                      <textarea
-                        value={instance详细介绍}
-                        onChange={(e) => setInstance详细介绍(e.target.value)}
-                        placeholder="附魔、说明等"
-                        rows={2}
-                        className={textareaClass}
-                      />
-                    </div>
-                    <div className="flex flex-wrap items-end gap-2 sm:col-span-2">
-                      <div className="w-20">
-                        <label className="block text-dnd-text-muted text-xs mb-1">数量</label>
-                        <input
-                          type="number"
-                          min={1}
-                          value={instanceQty}
-                          onChange={(e) => setInstanceQty(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                          className={inputClass + ' h-10'}
-                        />
-                      </div>
-                      <div className="w-28">
-                        <label className="block text-dnd-text-muted text-xs mb-1">增强加值</label>
-                        <div className="flex items-center rounded-lg border border-gray-600 bg-gray-800 overflow-hidden h-10">
-                          <button type="button" onClick={() => setInstanceMagicBonus(Math.max(0, (instanceMagicBonus || 0) - 1))} className="px-2.5 h-full flex items-center justify-center text-dnd-text-muted hover:text-white hover:bg-gray-700 border-r border-gray-600 font-medium text-lg shrink-0">−</button>
-                          <input type="number" min={0} value={instanceMagicBonus || ''} onChange={(e) => setInstanceMagicBonus(parseInt(e.target.value, 10) || 0)} className="w-12 h-full bg-transparent border-0 text-center text-white text-sm tabular-nums px-1 focus:outline-none focus:ring-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]" />
-                          <button type="button" onClick={() => setInstanceMagicBonus((instanceMagicBonus || 0) + 1)} className="px-2.5 h-full flex items-center justify-center text-dnd-text-muted hover:text-white hover:bg-gray-700 border-l border-gray-600 font-medium text-lg shrink-0">+</button>
-                        </div>
-                      </div>
-                      <div className="w-16">
-                        <label className="block text-dnd-text-muted text-xs mb-1">充能</label>
-                        <input
-                          type="number"
-                          min={0}
-                          value={instanceCharge || ''}
-                          onChange={(e) => setInstanceCharge(parseInt(e.target.value, 10) || 0)}
-                          placeholder="0"
-                          className={inputClass + ' h-10'}
-                        />
-                      </div>
-                      <button
-                        type="button"
-                        onClick={handleAddFromPicker}
-                        className="h-10 px-4 rounded-lg bg-dnd-red hover:bg-dnd-red-hover text-white font-bold text-sm"
-                      >
-                        放入背包
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
+            <div className="mb-3">
+              <button type="button" onClick={() => setAddFormOpen(true)} className="h-10 px-4 rounded-lg bg-dnd-red hover:bg-dnd-red-hover text-white font-bold text-sm">
+                添加物品
+              </button>
+              <ItemAddForm open={addFormOpen} onClose={() => setAddFormOpen(false)} onSave={(entry) => { onSave({ inventory: [...inv, entry] }); setAddFormOpen(false); }} submitLabel="确认加入" />
             </div>
           )}
           <div className="rounded-lg border border-gray-600 overflow-hidden">
@@ -638,24 +400,47 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
                                 </div>
                                 {(() => {
                                   const editingProto = inv[editingIndex]?.itemId ? getItemById(inv[editingIndex].itemId) : null
-                                  const showEditAttackDamage = editingProto && (editingProto.类型 === '武器' || editingProto.类型 === '枪械')
+                                  const showEditAttackDamage = editingProto && (editingProto.类型 === '近战武器' || editingProto.类型 === '远程武器' || editingProto.类型 === '枪械' || editingProto.类型 === '爆炸物')
+                                  const showEditExplosiveExtra = editingProto && editingProto.类型 === '爆炸物'
                                   const showEditArmorNote = editingProto && editingProto.类型 === '盔甲'
                                   return (
                                     <>
                                       {showEditAttackDamage && (
                                         <>
-                                          <div>
-                                            <label className="block text-dnd-text-muted text-xs mb-1">攻击（伤害骰与类型）</label>
-                                            <input type="text" value={edit攻击} onChange={(e) => setEdit攻击(e.target.value)} placeholder="如：1d8 挥砍" className={inputClass + ' h-10'} />
-                                          </div>
-                                          <div>
-                                            <label className="block text-dnd-text-muted text-xs mb-1">伤害类型</label>
-                                            <input type="text" value={edit伤害} onChange={(e) => setEdit伤害(e.target.value)} placeholder="如：挥砍、穿刺、贯穿" className={inputClass + ' h-10'} />
+                                          <div className="sm:col-span-2">
+                                            <DamageDiceInlineRow
+                                              value={parseDamageString(edit攻击)}
+                                              onChange={(next) => {
+                                                if (next.value != null) {
+                                                  setEdit攻击(formatDamageForAttack(next.value))
+                                                  setEdit伤害(next.value.type ?? '')
+                                                }
+                                              }}
+                                              module={{ id: 'inventory-dmg', value: parseDamageString(edit攻击) }}
+                                              compact
+                                              leftLabel="伤害"
+                                            />
                                           </div>
                                           <div>
                                             <label className="block text-dnd-text-muted text-xs mb-1">攻击距离</label>
                                             <input type="text" value={edit攻击距离} onChange={(e) => setEdit攻击距离(e.target.value)} placeholder="如：20/40、30/60" className={inputClass + ' h-10'} />
                                           </div>
+                                          {showEditExplosiveExtra && (
+                                            <>
+                                              <div>
+                                                <label className="block text-dnd-text-muted text-xs mb-1">攻击范围</label>
+                                                <select value={edit攻击范围} onChange={(e) => setEdit攻击范围(e.target.value)} className={inputClass + ' h-10'}>
+                                                  <option value="">—</option>
+                                                  <option value="近战">近战</option>
+                                                  <option value="远程">远程</option>
+                                                </select>
+                                              </div>
+                                              <div className="sm:col-span-2">
+                                                <label className="block text-dnd-text-muted text-xs mb-1">词条（附注）</label>
+                                                <input type="text" value={edit附注} onChange={(e) => setEdit附注(e.target.value)} placeholder="如：1磅" className={inputClass + ' h-10 w-full'} />
+                                              </div>
+                                            </>
+                                          )}
                                         </>
                                       )}
                                       {showEditArmorNote && (
@@ -744,21 +529,29 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
                                   <textarea value={edit详细介绍} onChange={(e) => setEdit详细介绍(e.target.value)} placeholder="附魔、说明等" rows={2} className={textareaClass} />
                                 </div>
                                 <div className="flex flex-wrap items-end gap-2 sm:col-span-2">
-                                  <div className="w-20">
+                                  <div className="w-24">
                                     <label className="block text-dnd-text-muted text-xs mb-1">数量</label>
-                                    <input type="number" min={1} value={editQty} onChange={(e) => setEditQty(Math.max(1, parseInt(e.target.value, 10) || 1))} className={inputClass + ' h-10'} />
+                                    <NumberStepper
+                                      value={editQty}
+                                      onChange={(v) => setEditQty(Math.max(1, v))}
+                                      min={1}
+                                    />
                                   </div>
                                   <div className="w-28">
                                     <label className="block text-dnd-text-muted text-xs mb-1">增强加值</label>
                                     <div className="flex items-center rounded-lg border border-gray-600 bg-gray-800 overflow-hidden h-10">
-                                      <button type="button" onClick={() => setEditMagicBonus(Math.max(0, (editMagicBonus || 0) - 1))} className="px-2.5 h-full flex items-center justify-center text-dnd-text-muted hover:text-white hover:bg-gray-700 border-r border-gray-600 font-medium text-lg shrink-0">−</button>
-                                      <input type="number" min={0} value={editMagicBonus || ''} onChange={(e) => setEditMagicBonus(parseInt(e.target.value, 10) || 0)} className="w-12 h-full bg-transparent border-0 text-center text-white text-sm tabular-nums px-1 focus:outline-none focus:ring-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]" />
-                                      <button type="button" onClick={() => setEditMagicBonus((editMagicBonus || 0) + 1)} className="px-2.5 h-full flex items-center justify-center text-dnd-text-muted hover:text-white hover:bg-gray-700 border-l border-gray-600 font-medium text-lg shrink-0">+</button>
+                                      <button type="button" onClick={() => setEditMagicBonus(Math.max(0, (editMagicBonus ?? 0) - 1))} className="px-2.5 h-full flex items-center justify-center text-dnd-text-muted hover:text-white hover:bg-gray-700 border-r border-gray-600 font-medium text-lg shrink-0">−</button>
+                                      <input type="number" min={0} value={editMagicBonus ?? ''} onChange={(e) => setEditMagicBonus(e.target.value === '' ? 0 : Math.max(0, parseInt(e.target.value, 10) || 0))} className="w-12 h-full bg-transparent border-0 text-center text-white text-sm tabular-nums px-1 focus:outline-none focus:ring-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]" />
+                                      <button type="button" onClick={() => setEditMagicBonus((editMagicBonus ?? 0) + 1)} className="px-2.5 h-full flex items-center justify-center text-dnd-text-muted hover:text-white hover:bg-gray-700 border-l border-gray-600 font-medium text-lg shrink-0">+</button>
                                     </div>
                                   </div>
-                                  <div className="w-16">
+                                  <div className="w-24">
                                     <label className="block text-dnd-text-muted text-xs mb-1">充能</label>
-                                    <input type="number" min={0} value={editCharge || ''} onChange={(e) => setEditCharge(parseInt(e.target.value, 10) || 0)} placeholder="0" className={inputClass + ' h-10'} />
+                                    <NumberStepper
+                                      value={editCharge || 0}
+                                      onChange={(v) => setEditCharge(Math.max(0, v))}
+                                      min={0}
+                                    />
                                   </div>
                                   <button type="button" onClick={saveEdit} className="h-10 px-4 rounded-lg bg-dnd-red hover:bg-dnd-red-hover text-white font-bold text-sm">保存</button>
                                   <button type="button" onClick={cancelEdit} className="h-10 px-4 rounded-lg bg-gray-600 hover:bg-gray-500 text-white font-bold text-sm">取消</button>

@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import { useState } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
-import { CLASS_LIST, getClassData, isFanxingClass } from '../data/classDatabase'
+import { CLASS_LIST, getClassData, isFanxingClass, ELDRITCH_INVOCATIONS } from '../data/classDatabase'
 import { FEATS_BY_CATEGORY } from '../data/feats'
 import { MARTIAL_TECHNIQUES } from '../data/martialTechniques'
 import { ABILITY_NAMES_ZH } from '../data/buffTypes'
@@ -33,6 +33,7 @@ export default function HouseRules() {
     () => new Set(Object.keys(FEATS_BY_CATEGORY))
   )
   const [expandedSubclasses, setExpandedSubclasses] = useState(() => new Set())
+  const [expandedInvocations, setExpandedInvocations] = useState(false)
 
   const toggleSubclass = (className, subName) => {
     const key = `${className}|${subName}`
@@ -183,6 +184,47 @@ export default function HouseRules() {
                             </li>
                           ))}
                         </ul>
+                      </div>
+                    )}
+                    {className === '魔契师' && ELDRITCH_INVOCATIONS?.length > 0 && (
+                      <div className="mt-4 pt-3 border-t border-white/10">
+                        <button
+                          type="button"
+                          onClick={() => setExpandedInvocations((v) => !v)}
+                          className="w-full flex items-center gap-2 py-2.5 px-0 text-left text-dnd-gold-light hover:text-dnd-gold-light/90 transition-colors"
+                        >
+                          {expandedInvocations ? (
+                            <ChevronDown className="w-4 h-4 shrink-0" />
+                          ) : (
+                            <ChevronRight className="w-4 h-4 shrink-0" />
+                          )}
+                          <span className="text-xs font-bold uppercase tracking-wider">魔能祈唤选项</span>
+                          <span className="text-dnd-text-muted text-xs font-normal normal-case">{ELDRITCH_INVOCATIONS.length} 项</span>
+                        </button>
+                        {expandedInvocations && (
+                          <>
+                            <p className="text-dnd-text-muted text-xs mb-3 mt-1">以下为魔能祈唤特性的可选祈唤，依要求等级与首字母排序；先决满足方可选取；复选者可多次选择不同目标。</p>
+                            <ul className="space-y-3">
+                              {ELDRITCH_INVOCATIONS.map((inv) => (
+                                <li key={inv.id} className="text-sm rounded-lg border border-white/10 p-2.5 bg-white/[0.03]">
+                                  <div className="flex flex-wrap items-center gap-2 mb-1">
+                                    <span className="font-medium text-white">{inv.name}</span>
+                                    {inv.repeatable && (
+                                      <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/20 text-amber-300 border border-amber-500/40">复选</span>
+                                    )}
+                                  </div>
+                                  {inv.prerequisite && (
+                                    <p className="text-dnd-text-muted text-xs mb-1">
+                                      <span className="text-dnd-gold-light font-medium">先决：</span>
+                                      {inv.prerequisite}
+                                    </p>
+                                  )}
+                                  <p className="text-dnd-text-muted text-xs mt-0.5">{inv.description}</p>
+                                </li>
+                              ))}
+                            </ul>
+                          </>
+                        )}
                       </div>
                     )}
                     {data.subclasses && Object.keys(data.subclasses).length > 0 && (

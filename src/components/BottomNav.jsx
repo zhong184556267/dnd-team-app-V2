@@ -1,6 +1,7 @@
 import { NavLink } from 'react-router-dom'
 import { Home, User, BookOpen, Package, MoreHorizontal } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import { useModule } from '../contexts/ModuleContext'
 import { getDefaultCharacterId, getLastEditedCharacterId } from '../lib/characterStore'
 
 const tabs = [
@@ -13,8 +14,9 @@ const tabs = [
 
 export default function BottomNav() {
   const { user, isAdmin } = useAuth()
-  const defaultId = getDefaultCharacterId(user?.name)
-  const lastEditedId = getLastEditedCharacterId(user?.name, isAdmin)
+  const { currentModuleId } = useModule()
+  const defaultId = getDefaultCharacterId(user?.name, currentModuleId)
+  const lastEditedId = getLastEditedCharacterId(user?.name, isAdmin, currentModuleId)
   const preferredId = defaultId || lastEditedId
 
   const getLinkTo = (tab) => {

@@ -1,0 +1,50 @@
+---
+description: 伤害骰（攻击/伤害）UI 与功能统一规范，全项目一致
+alwaysApply: true
+---
+
+# 伤害骰设计与功能规范
+
+全项目内所有「伤害骰 / 攻击（伤害骰与类型）」的编辑与展示必须与以下设计、数据、交互完全一致。
+
+## 统一组件与数据
+
+- **组件**：使用 `DamageDiceInlineRow`（`src/components/BuffForm.jsx`），不要自建一套伤害骰输入 UI。
+- **数据**：伤害骰选项来自 `src/data/buffTypes.js` 的 `DAMAGE_DICE_OPTIONS`（D4, D6, D8, D10, D12）、`DAMAGE_TYPES`；解析/序列化使用 `parseDamageString`、`formatDamageForAttack`（同文件）。
+
+## UI 规范（与参考设计一致）
+
+1. **一行布局**
+   - 从左到右：**伤害** 文案（可选 leftLabel）→ **步进器**（三段：− 按钮 | 数字输入 | + 按钮）→ **骰子下拉**（骰/D4/D6/D8/D10/D12）→ **伤害类型下拉**（类型/钝击/穿刺等）。
+   - 步进器外**不要**再放单独的「−」「+」文案；步进器内部保留 −/+ 按钮。
+
+2. **步进器**
+   - 一个圆角深色容器，三段：左 − 按钮、中间数字输入、右 + 按钮；边框 `border-gray-500/60`，背景 `bg-gray-800/90`，中间输入 focus 时 `focus:ring-amber-500/40`。
+   - 高度与整行一致：compact 时 `h-7`，否则 `h-8`；字号与下拉一致（compact 为 `text-xs`，否则 `text-sm`）。
+
+3. **三块均分**
+   - 无 trailing 时：步进器块、骰子下拉块、类型下拉块 使用 `flex-1 basis-0` 均分宽度，同高。
+
+4. **武器表单扩展（可选）**
+   - 若有「精通」：用 `trailing` 渲染精通模块；整体为两大模块，**伤害模块**左对齐、**精通模块**右对齐，中间 `gap-6`；精通左侧加文案「精通」。
+
+5. **标签**
+   - 伤害模块左侧可加 `leftLabel="伤害"`，与步进器同排、在 − 左侧。
+
+## 使用方式
+
+- **仅伤害骰（无精通）**：`<DamageDiceInlineRow value={obj} onChange={...} module={...} compact minusStepper leftLabel="伤害" />`，value 为 `parseDamageString(攻击字符串)` 或 `{ minus, plus, type }`。
+- **与 攻击/伤害 字段同步**（如仓库、背包编辑）：value 用 `parseDamageString(edit攻击)`，onChange 里用 `formatDamageForAttack(next.value)` 写回 `edit攻击`，并用 `next.value.type` 写回 `edit伤害`。
+- **武器添加/编辑**：见 `ItemAddForm.jsx`，使用 `leftLabel="伤害"`、`trailing={精通下拉+文案}`、`compact`、`minusStepper`。
+
+## 数字输入（用户用语）
+
+- 用户对话中「**数字输入**」四字特指：与伤害行步进器同款的**数值步进器**（− 按钮 | 数字 | + 按钮），即 `BuffForm.jsx` 中的 **`NumberStepper`** 组件。
+- 设计：一个圆角深色容器、三段（左 −、中间数字输入、右 +），边框 `border-gray-500/60`，背景 `bg-gray-800/90`，focus 高亮 `focus:ring-amber-500/40`；支持 compact（h-7/text-xs）或非 compact（h-8/text-sm）。
+- 凡需「数值定义」或纯数字输入的地方，应使用 `NumberStepper` 而非裸 `<input type="number">`，以保持交互与视觉一致。
+
+## 禁止
+
+- 不要用纯文本框让用户手输「1d8 挥砍」来编辑伤害骰；一律用 `DamageDiceInlineRow`。
+- 不要新增与 `DAMAGE_DICE_OPTIONS` / `DAMAGE_TYPES` 不一致的骰子或类型选项（如需扩展请改 buffTypes.js 并保持全局一致）。
+- 效果编辑中的数字类（dataType === 'number'）不用裸 number 输入，用「数字输入」`NumberStepper`。

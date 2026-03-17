@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { Trash2, Plus, ChevronDown } from 'lucide-react'
-import { BUFF_TYPES, getCategories, normalizeEffectCategory, DAMAGE_TYPES, CONDITION_OPTIONS, ABILITY_KEYS, ADVANTAGE_OPTIONS, PIERCING_DAMAGE_OPTIONS, DAMAGE_DICE_ARROW_OPTIONS, DAMAGE_DICE_OPTIONS, parseDamageString } from '../data/buffTypes'
+import { BUFF_TYPES, getCategories, normalizeEffectCategory, DAMAGE_TYPES, CONDITION_OPTIONS, ABILITY_KEYS, ADVANTAGE_OPTIONS, PIERCING_DAMAGE_OPTIONS, DAMAGE_DICE_ARROW_OPTIONS, DICE_SIDES_OPTIONS, parseDamageString } from '../data/buffTypes'
 import { SAVE_NAMES, SKILLS } from '../data/dndSkills'
+import { SPELLS, getWandScrollSpellPower } from '../data/spellDatabase'
 import { inputClass, textareaClass } from '../lib/inputStyles'
 
 const ABILITY_LABELS = { str: '力量', dex: '敏捷', con: '体质', int: '智力', wis: '感知', cha: '魅力' }
@@ -73,6 +74,10 @@ function normalizeValueForSave(module, currentEffect) {
     return { selected, pierce: [] }
   }
   if (needsSubSelect === 'numberAndAdvantage' || needsSubSelect === 'flightSpeed' || needsSubSelect === 'abilityScoresAndAdvantage' || needsSubSelect === 'skillsAndAdvantage' || needsSubSelect === 'attackAreaSize') return value
+  if (needsSubSelect === 'containedSpell') {
+    if (value && typeof value === 'object' && !Array.isArray(value)) return value
+    return { spellId: '', spellName: '', level: 0, hitResolution: 'dex_save', range: '', area: '', damageDice: '', damageDiceCount: 1, damageDiceSides: 6, damageType: '', charges: 0 }
+  }
   if (currentEffect.key === 'extra_damage_dice') {
     if (typeof value === 'string') return value.trim()
     if (value && typeof value === 'object' && !Array.isArray(value)) {
@@ -92,7 +97,8 @@ function isComplexValueType(currentEffect) {
   return (
     isDamageTypeArray ||
     needsSubSelect === 'condition' ||
-    needsSubSelect === 'damagePiercingTraits'
+    needsSubSelect === 'damagePiercingTraits' ||
+    needsSubSelect === 'containedSpell'
   )
 }
 
@@ -108,77 +114,106 @@ function parseDiceFromPlus(plus) {
   return { count, sides: sidesNorm }
 }
 
-/** 伤害模块一行：可选 leftLabel（如「伤害」）；[骰子▼] [伤害类型▼]；可选 trailing 为精通模块（已去掉 modifier/步进器 − 0 +） */
-function DamageDiceInlineRow({ value, onChange, module, compact, minusStepper, trailing, leftLabel }) {
+/** 伤害模块一行：narrowBlocks 更窄块宽；evenSpacing 统一间隔；unifiedColor 同色基线对齐；evenSpread 时占满宽度且模块内均分平铺 */
+function DamageDiceInlineRow({ value, onChange, module, compact, minusStepper, trailing, leftLabel, narrowBlocks, evenSpacing, unifiedColor, evenSpread }) {
   const isLegacy = typeof value === 'string'
   const parsed = isLegacy && value ? parseDamageString(value) : {}
   const raw = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
   const plus = raw.plus ?? parsed.plus ?? ''
   const type = raw.type ?? parsed.type ?? ''
+  const { count: diceCount, sides: diceSides } = parseDiceFromPlus(plus)
   const update = (part, v) => {
     const base = isLegacy ? parseDamageString(value || '') : { ...raw }
     const next = { ...base, [part]: v, minus: '' }
     onChange({ ...module, value: next })
   }
+  const setDice = (count, sides) => {
+    const newPlus = count >= 1 && sides >= 4 ? `${count}d${sides}` : ''
+    update('plus', newPlus)
+  }
   const rowH = compact ? 'h-7' : 'h-8'
   const selCls = compact ? (inputClass + ' h-7 text-xs px-1 pr-4') : (inputClass + ' h-8 text-sm px-1 pr-4')
-  const labelCls = 'text-dnd-text-muted shrink-0 ' + (compact ? 'text-[11px]' : 'text-xs')
-  const diceDropdownValue = DAMAGE_DICE_OPTIONS.some((o) => o.value === plus) ? plus : (plus || '')
+  const labelCls = unifiedColor ? 'text-gray-200 shrink-0 text-xs' : ('text-dnd-text-muted shrink-0 ' + (compact ? 'text-[11px]' : 'text-xs'))
+  const selColorCls = unifiedColor ? ' text-gray-200' : ''
+  const sidesValue = DICE_SIDES_OPTIONS.some((o) => o.value === diceSides) ? diceSides : (diceSides || 6)
+  const blockW = narrowBlocks ? { width: '5rem', minWidth: '5rem' } : { width: '7.5rem', minWidth: '7.5rem' }
+  const blockGap = evenSpacing ? 'gap-1' : (narrowBlocks ? 'gap-2' : 'gap-5')
+  const stepperBlockStyle = narrowBlocks ? { width: 'fit-content', minWidth: 'fit-content' } : blockW
+  const selectBlockStyle = narrowBlocks ? { width: '5.25rem', minWidth: '5.25rem' } : blockW
+  const selCenter = ' text-center'
+  const selectPad = evenSpacing ? 'pl-2 pr-7' : 'pl-6 pr-7'
+  const selectWrapperCls = evenSpacing ? 'shrink-0 w-[5.5rem] min-w-[5rem]' : 'shrink-0'
+  const damageBlockFlex = evenSpread ? 'min-w-0 flex-1 justify-evenly' : (evenSpacing ? 'min-w-0' : 'min-w-0 flex-1')
   const damageBlock = (
-    <>
-      {/* 骰子下拉（1d4～2d8） */}
-      <div className={`flex items-center min-w-0 flex-1 basis-0 ${rowH}`}>
+    <div className={`flex items-stretch ${blockGap} flex-nowrap ${damageBlockFlex}`}>
+      {/* 骰子数：narrowBlocks 时仅够数字+箭头 */}
+      <div className={`flex items-center shrink-0 ${rowH}`} style={stepperBlockStyle}>
+        <NumberStepper
+          value={diceCount}
+          onChange={(c) => setDice(c, diceSides)}
+          min={1}
+          max={99}
+          step={1}
+          compact={compact}
+          narrow={narrowBlocks}
+          unifiedColor={unifiedColor}
+        />
+      </div>
+      {/* 骰子面数 d4～d12 */}
+      <div className={`flex items-center ${selectWrapperCls} ${rowH}`} style={!evenSpacing ? selectBlockStyle : undefined}>
         <select
-          value={diceDropdownValue}
-          onChange={(e) => update('plus', e.target.value)}
-          className={selCls + ' w-full min-w-0 h-full'}
-          title="骰子"
+          value={String(sidesValue)}
+          onChange={(e) => setDice(diceCount, parseInt(e.target.value, 10) || 6)}
+          className={selCls + selCenter + selColorCls + ' w-full min-w-0 h-full ' + selectPad}
+          title="骰子大小"
         >
-          <option value="">骰</option>
-          {DAMAGE_DICE_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
+          {DICE_SIDES_OPTIONS.map((o) => (
+            <option key={o.value} value={String(o.value)}>{o.label}</option>
           ))}
         </select>
       </div>
-      {/* 伤害类型下拉 */}
-      <div className={`flex items-center min-w-0 flex-1 basis-0 ${rowH}`}>
-        <select value={type} onChange={(e) => update('type', e.target.value)} className={selCls + ' w-full min-w-0 h-full'} title="伤害类型">
+      {/* 伤害类型：evenSpacing 时缩小左右内边距以完整显示二字类型 */}
+      <div className={`flex items-center ${selectWrapperCls} ${rowH}`} style={!evenSpacing ? selectBlockStyle : undefined}>
+        <select value={type} onChange={(e) => update('type', e.target.value)} className={selCls + selCenter + selColorCls + ' w-full min-w-0 h-full ' + selectPad} title="伤害类型">
           <option value="">类型</option>
           {DAMAGE_TYPES.map((d) => (
             <option key={d.value} value={d.label}>{d.label}</option>
           ))}
         </select>
       </div>
-    </>
+    </div>
   )
+  const labelGap = evenSpacing ? 'gap-1' : 'gap-3'
+  const alignCls = unifiedColor ? 'items-baseline' : 'items-stretch'
   if (trailing != null) {
     return (
-      <div className={`flex items-stretch gap-6 flex-nowrap w-full min-w-0 ${rowH}`}>
-        {/* 伤害模块：左对齐 */}
-        <div className={`flex items-center gap-1.5 flex-1 min-w-0 justify-start ${rowH}`}>
+      <div className={`flex ${alignCls} ${evenSpacing ? 'gap-3' : 'gap-6'} flex-nowrap w-full min-w-0 ${rowH}`}>
+        <div className={`flex ${alignCls} ${labelGap} flex-1 min-w-0 justify-start ${rowH}`}>
           {leftLabel != null && leftLabel !== '' && <span className={labelCls}>{leftLabel}</span>}
           {damageBlock}
         </div>
-        {/* 精通模块：右对齐 */}
         <div className={`flex items-center gap-1.5 shrink-0 justify-end ${rowH}`}>
           {trailing}
         </div>
       </div>
     )
   }
+  const rootCls = evenSpread ? 'w-full min-w-0 flex-1' : (evenSpacing ? 'shrink-0 max-w-full' : 'w-full min-w-0')
+  const rootJustify = evenSpread ? 'justify-evenly' : ''
   return (
-    <div className={`flex items-stretch gap-1.5 flex-nowrap text-left w-full min-w-0 ${rowH}`}>
+    <div className={`flex ${alignCls} ${labelGap} ${rootJustify} flex-nowrap text-left ${rootCls} ${rowH}`}>
       {leftLabel != null && leftLabel !== '' && <span className={labelCls}>{leftLabel}</span>}
       {damageBlock}
     </div>
   )
 }
 
-/** 数字输入：统一使用「中间数字 + 上下箭头」设计；用户对话中「数字输入」即指此组件 */
-function NumberStepper({ value, onChange, min = -999, max = 999, step = 1, compact }) {
-  // 高度统一为 h-7，与前方下拉/输入条一致，仅文本大小随 compact 变化
-  const rowH = 'h-7'
-  const textSize = compact ? 'text-xs' : 'text-sm'
+/** 数字输入：统一使用「中间数字 + 上下箭头」设计。narrow 时容器仅够数字与箭头；unifiedColor 时与行内标签同色；pill 为胶囊样式（左减右加） */
+function NumberStepper({ value, onChange, min = -999, max = 999, step = 1, compact, narrow, unifiedColor, pill }) {
+  const rowH = pill ? 'h-7' : 'h-7'
+  const textSize = compact || pill ? 'text-xs' : 'text-sm'
+  const colorCls = unifiedColor ? 'text-gray-200 hover:text-gray-100' : 'text-gray-400 hover:text-white'
+  const inputColorCls = unifiedColor ? 'text-gray-200' : 'text-white'
   const num = typeof value === 'number' ? value : (parseInt(value, 10) || 0)
   const clamp = (v) => Math.min(max, Math.max(min, v))
   const handleInputChange = (e) => {
@@ -186,30 +221,35 @@ function NumberStepper({ value, onChange, min = -999, max = 999, step = 1, compa
     if (s === '' || s === '-') onChange(clamp(0))
     else { const v = parseInt(s, 10); if (!Number.isNaN(v)) onChange(clamp(v)) }
   }
+  const padX = pill ? 'pl-1.5 pr-1.5' : (narrow ? 'px-5' : 'px-7')
+  const inputWidth = pill ? 'min-w-[1.5rem] w-8 flex-1' : (narrow ? 'min-w-[2rem] w-11' : 'min-w-[3.5rem] w-20')
+  const wrapperCls = pill
+    ? `relative flex items-center border border-gray-600 rounded-full bg-gray-700 shadow-sm ${padX} ${rowH} max-w-full`
+    : `relative flex items-center border border-gray-500/60 rounded-md bg-gray-800/90 shadow-sm ${padX} ${rowH}`
   return (
-    <div className={`relative flex items-center border border-gray-500/60 rounded-md bg-gray-800/90 shadow-sm px-7 ${rowH}`}>
+    <div className={wrapperCls}>
       <button
         type="button"
         onClick={() => onChange(clamp(num - step))}
-        className={`absolute left-1.5 flex items-center justify-center text-gray-300 hover:text-white ${textSize}`}
+        className={`shrink-0 flex items-center justify-center ${colorCls} ${textSize} ${pill ? 'w-6 h-6 rounded-full hover:bg-gray-600/50' : 'absolute left-1'}`}
         aria-label="减少"
       >
-        <ChevronDown className={`w-3 h-3 ${compact ? '' : 'w-3.5 h-3.5'}`} />
+        <ChevronDown className={`w-3.5 h-3.5 ${compact && !pill ? '' : 'w-3.5 h-3.5'}`} />
       </button>
       <input
         type="text"
         inputMode="numeric"
         value={num}
         onChange={handleInputChange}
-        className={`flex-1 min-w-[3.5rem] w-20 text-center text-white bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-amber-500/40 focus:bg-gray-700/60 ${rowH} ${textSize}`}
+        className={`flex-1 min-w-0 ${inputWidth} text-center ${inputColorCls} bg-transparent border-0 focus:outline-none focus:ring-0 ${rowH} ${textSize} tabular-nums ${pill ? 'px-0' : ''}`}
       />
       <button
         type="button"
         onClick={() => onChange(clamp(num + step))}
-        className={`absolute right-1.5 flex items-center justify-center text-gray-300 hover:text-white ${textSize}`}
+        className={`shrink-0 flex items-center justify-center ${colorCls} ${textSize} ${pill ? 'w-6 h-6 rounded-full hover:bg-gray-600/50' : 'absolute right-1'}`}
         aria-label="增加"
       >
-        <ChevronDown className={`w-3 h-3 rotate-180 ${compact ? '' : 'w-3.5 h-3.5'}`} />
+        <ChevronDown className={`w-3.5 h-3.5 rotate-180 ${compact && !pill ? '' : 'w-3.5 h-3.5'}`} />
       </button>
     </div>
   )
@@ -271,8 +311,8 @@ function MultiSelectDropdown({ options, selected, onChange, placeholder, id }) {
   )
 }
 
-/** 单条效果的数值/选项编辑区；inline 时仅渲染紧凑控件（同一行用），无 label */
-function EffectValueEditor({ module, onChange, catData, inline }) {
+/** 单条效果的数值/选项编辑区；inline 时仅渲染紧凑控件（同一行用），无 label。可选 spellDC/spellAttackBonus 用于内含法术命中判断旁显示实际数值；useWandScrollTable 为真时改用魔杖/卷轴法强表按环阶显示 */
+function EffectValueEditor({ module, onChange, catData, inline, spellDC, spellAttackBonus, useWandScrollTable }) {
   const [selectedSkillId, setSelectedSkillId] = useState(SKILLS[0]?.id ?? 'acrobatics')
   const [selectedAbilityId, setSelectedAbilityId] = useState(ABILITY_KEYS[0] ?? 'str')
   const effects = catData?.effects ?? []
@@ -418,7 +458,6 @@ function EffectValueEditor({ module, onChange, catData, inline }) {
               compact
             />
           </div>
-          <div />
         </>
       )
     }
@@ -619,7 +658,7 @@ function EffectValueEditor({ module, onChange, catData, inline }) {
   return (
     <div className="space-y-0.5">
       <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider mb-0.5 leading-none">
-        {isCustom ? '效果描述' : isText ? '填写内容' : isBoolean ? '开关' : isNumber ? '数字输入' : '技能下拉选项'}
+        {isCustom ? '效果描述' : isText ? '填写内容' : isBoolean ? '开关' : isNumber ? '数字输入' : '选项'}
       </label>
       {isBoolean ? (
         <label className="flex items-center gap-2 cursor-pointer">
@@ -882,12 +921,178 @@ function EffectValueEditor({ module, onChange, catData, inline }) {
             ))}
           </select>
         </div>
+      ) : needsSubSelect === 'containedSpell' ? (
+        (() => {
+          const obj = value && typeof value === 'object' && !Array.isArray(value) ? value : { spellId: '', spellName: '', level: 0, hitResolution: 'dex_save', range: '', area: '', damageDice: '', damageDiceCount: 1, damageDiceSides: 6, damageType: '', charges: 0 }
+          const spellId = obj.spellId ?? ''
+          const spellName = obj.spellName ?? ''
+          const level = typeof obj.level === 'number' ? obj.level : (parseInt(obj.level, 10) || 0)
+          const charges = typeof obj.charges === 'number' ? Math.max(0, obj.charges) : (parseInt(obj.charges, 10) || 0)
+          const hitResolutionList = ['dex_save', 'str_save', 'con_save', 'wis_save', 'int_save', 'cha_save', 'spell_attack']
+          const hitResolution = hitResolutionList.includes(obj.hitResolution) ? obj.hitResolution : 'dex_save'
+          const spell = spellId ? SPELLS.find((s) => s.id === spellId) : null
+          const rangeValue = obj.range ?? spell?.range ?? ''
+          const sidesOpts = [4, 6, 8, 10, 12]
+          let damageDiceCount = typeof obj.damageDiceCount === 'number' ? Math.max(0, obj.damageDiceCount) : (parseInt(obj.damageDiceCount, 10) || 0)
+          let damageDiceSides = sidesOpts.includes(Number(obj.damageDiceSides)) ? Number(obj.damageDiceSides) : 6
+          if ((damageDiceCount === 0 || damageDiceSides === 6) && obj.damageDice && typeof obj.damageDice === 'string') {
+            const parsed = parseDamageString(obj.damageDice.trim())
+            const m = (parsed.plus || '').match(/^(\d*)d(\d+)$/i)
+            if (m) {
+              const c = parseInt(m[1], 10) || 1
+              const s = parseInt(m[2], 10)
+              if (sidesOpts.includes(s)) { damageDiceSides = s; if (damageDiceCount === 0) damageDiceCount = Math.max(1, c) }
+            }
+          }
+          const damageType = obj.damageType ?? ''
+          const HIT_RESOLUTION_OPTIONS = [
+            { value: 'dex_save', label: '敏捷豁免' },
+            { value: 'str_save', label: '力量豁免' },
+            { value: 'con_save', label: '体质豁免' },
+            { value: 'wis_save', label: '感知豁免' },
+            { value: 'int_save', label: '智力豁免' },
+            { value: 'cha_save', label: '魅力豁免' },
+            { value: 'spell_attack', label: '法术攻击加值' },
+          ]
+          const wandScrollPower = useWandScrollTable ? getWandScrollSpellPower(level) : null
+          const hitValueDisplay = useWandScrollTable && wandScrollPower
+            ? (hitResolution === 'spell_attack' ? (wandScrollPower.attackBonus >= 0 ? '+' : '') + wandScrollPower.attackBonus : String(wandScrollPower.dc))
+            : (hitResolution === 'spell_attack' && spellAttackBonus != null ? (spellAttackBonus >= 0 ? '+' : '') + spellAttackBonus : (spellDC != null ? String(spellDC) : null))
+          const sep = <span className="text-dnd-text-muted shrink-0">|</span>
+          return (
+            <div className="flex flex-col gap-y-1 text-xs w-full">
+              {/* 第一行：宽度 5 份 — 内含法术 3 份 | 释放环位 1 份 | 充能数 1 份 */}
+              <div className="flex items-center gap-x-2 flex-nowrap min-w-0 whitespace-nowrap w-full overflow-hidden">
+                <div className="flex-[3] min-w-0 flex items-center gap-x-2">
+                  <span className="text-dnd-text-muted shrink-0">内含法术</span>
+                  <input
+                    type="text"
+                    value={spellName}
+                    onChange={(e) => {
+                      const name = e.target.value
+                      const match = name.trim() ? SPELLS.find((s) => s.name === name.trim()) : null
+                      const nextLevel = (match && (typeof obj.level !== 'number' || obj.level === 0)) ? match.level : obj.level
+                      onChange({
+                        ...module,
+                        value: {
+                          ...obj,
+                          spellName: name,
+                          spellId: match ? match.id : '',
+                          range: match ? (match.range ?? '') : obj.range,
+                          area: match ? (match.range ?? '') : obj.area,
+                          level: nextLevel,
+                        },
+                      })
+                    }}
+                    placeholder="输入法术名称搜索"
+                    className={inputClass + ' h-7 text-xs flex-1 min-w-0 rounded-md border-2 border-gray-500 bg-gray-700/80 placeholder:text-gray-400 focus:border-amber-500/80'}
+                    list={'contained-spell-datalist-' + (module.id ?? '')}
+                    title="法术名称"
+                  />
+                  <datalist id={'contained-spell-datalist-' + (module.id ?? '')}>
+                    {SPELLS.map((s) => (
+                      <option key={s.id} value={s.name} />
+                    ))}
+                  </datalist>
+                </div>
+                {sep}
+                <div className="flex-[1] min-w-0 flex items-center gap-x-2">
+                  <span className="text-dnd-text-muted shrink-0">释放环位</span>
+                  <NumberStepper
+                    value={Math.max(0, Math.min(9, level))}
+                    onChange={(v) => onChange({ ...module, value: { ...obj, level: Math.max(0, Math.min(9, v)) } })}
+                    min={0}
+                    max={9}
+                    compact
+                  />
+                </div>
+                {sep}
+                <div className="flex-[1] min-w-0 flex items-center gap-x-2">
+                  <span className="text-dnd-text-muted shrink-0">充能数</span>
+                  <NumberStepper
+                    value={charges}
+                    onChange={(v) => onChange({ ...module, value: { ...obj, charges: Math.max(0, v) } })}
+                    min={0}
+                    max={99}
+                    compact
+                  />
+                </div>
+              </div>
+              {/* 第二行：宽度 5 份 — 命中判断 1 份 | 施法距离（可修改）1 份 | 伤害 3 份 */}
+              <div className="flex items-center gap-x-2 flex-nowrap min-w-0 whitespace-nowrap w-full overflow-hidden">
+                <div className="flex-[1] min-w-0 flex items-center gap-x-2">
+                  <span className="text-dnd-text-muted shrink-0">命中判断</span>
+                  <select
+                    value={hitResolution}
+                    onChange={(e) => onChange({ ...module, value: { ...obj, hitResolution: e.target.value } })}
+                    className={inputClass + ' h-7 text-xs flex-1 min-w-0'}
+                  >
+                    {HIT_RESOLUTION_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
+                  {hitValueDisplay != null && (
+                    <span className="text-white font-mono tabular-nums shrink-0">{hitValueDisplay}</span>
+                  )}
+                </div>
+                {sep}
+                <div className="flex-[1] min-w-0 flex items-center gap-x-2">
+                  <span className="text-dnd-text-muted shrink-0">施法距离</span>
+                  <input
+                    type="text"
+                    value={rangeValue}
+                    onChange={(e) => onChange({ ...module, value: { ...obj, range: e.target.value } })}
+                    placeholder="如 自身、60尺"
+                    className={inputClass + ' h-7 text-xs flex-1 min-w-0'}
+                  />
+                </div>
+                {sep}
+                <div className="flex-[3] min-w-0 flex items-center gap-x-2">
+                  <span className="text-dnd-text-muted shrink-0">伤害</span>
+                  <NumberStepper
+                    value={damageDiceCount}
+                    onChange={(v) => onChange({ ...module, value: { ...obj, damageDiceCount: Math.max(0, Math.min(99, v)) } })}
+                    min={0}
+                    max={99}
+                    compact
+                  />
+                  <select
+                    value={damageDiceSides}
+                    onChange={(e) => onChange({ ...module, value: { ...obj, damageDiceSides: Number(e.target.value) } })}
+                    className={inputClass + ' h-7 text-xs min-w-0 text-white bg-[var(--input-bg)]'}
+                  >
+                    {DICE_SIDES_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value} className="bg-gray-800 text-white">{o.label}</option>
+                    ))}
+                  </select>
+                  <div className="flex-1 min-w-[5rem] relative flex items-center rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] h-7 px-2">
+                    <span className="text-white text-xs flex-1 min-w-0 truncate pointer-events-none">
+                      {damageType ? (DAMAGE_TYPES.find((d) => d.value === damageType)?.label ?? damageType) : '— 类型 —'}
+                    </span>
+                    <select
+                      value={damageType}
+                      onChange={(e) => onChange({ ...module, value: { ...obj, damageType: e.target.value } })}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      title="伤害类型"
+                    >
+                      <option value="">— 类型 —</option>
+                      {DAMAGE_TYPES.map((d) => (
+                        <option key={d.value} value={d.value}>{d.label}</option>
+                      ))}
+                    </select>
+                    <ChevronDown className="w-4 h-4 text-gray-400 shrink-0 pointer-events-none" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )
+        })()
       ) : null}
     </div>
   )
 }
 
-export default function BuffForm({ initial, onSave, onCancel }) {
+export default function BuffForm({ initial, onSave, onCancel, spellDC, spellAttackBonus, useWandScrollTable }) {
   const [source, setSource] = useState(initial?.source ?? '')
   const [duration, setDuration] = useState(initial?.duration ?? '')
   const [effectModules, setEffectModules] = useState(() => normalizeInitialEffects(initial))
@@ -977,7 +1182,7 @@ export default function BuffForm({ initial, onSave, onCancel }) {
             const complexValue = isComplexValueType(currentEffect)
             return (
               <div key={mod.id} className="rounded border border-gray-600 bg-gray-700/30 p-1.5 space-y-1">
-                <div className="grid grid-cols-[1fr_1fr_1fr_1fr_1fr_auto] items-center gap-2 w-full min-w-0">
+                <div className="grid grid-cols-[1fr_1fr_1fr_1fr_auto] items-center gap-2 w-full min-w-0">
                   <div className="min-w-0">
                     <select
                       value={mod.category || ''}
@@ -1008,16 +1213,19 @@ export default function BuffForm({ initial, onSave, onCancel }) {
                     </select>
                   </div>
                   {!complexValue && (
-                    <div className="col-span-3 min-w-0 flex items-center gap-1.5 flex-wrap">
+                    <div className="col-span-2 min-w-0 grid grid-cols-2 gap-2 items-center flex-nowrap overflow-x-auto">
                       <EffectValueEditor
                         module={{ ...mod, effectType: effectiveEffectType }}
                         onChange={(next) => updateModule(mod.id, next)}
                         catData={catData}
                         inline
+                        spellDC={spellDC}
+                        spellAttackBonus={spellAttackBonus}
+                        useWandScrollTable={useWandScrollTable}
                       />
                     </div>
                   )}
-                  {complexValue && <div className="col-span-3" />}
+                  {complexValue && <div className="col-span-2" />}
                   <button
                     type="button"
                     onClick={() => removeModule(mod.id)}
@@ -1033,6 +1241,9 @@ export default function BuffForm({ initial, onSave, onCancel }) {
                       module={{ ...mod, effectType: effectiveEffectType }}
                       onChange={(next) => updateModule(mod.id, next)}
                       catData={catData}
+                      spellDC={spellDC}
+                      spellAttackBonus={spellAttackBonus}
+                      useWandScrollTable={useWandScrollTable}
                     />
                   </div>
                 )}

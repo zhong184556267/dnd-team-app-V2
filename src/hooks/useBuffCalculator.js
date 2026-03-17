@@ -145,6 +145,7 @@ export function useBuffCalculator(character, activeBuffs) {
     const baseAC = getAC(charWithBuffedAbilities)
 
     let acBonus = 0
+    const acCapStoneLayerValues = []
     let speedBonus = 0
     let reachBonus = 0
     let initBonus = 0
@@ -166,6 +167,10 @@ export function useBuffCalculator(character, activeBuffs) {
       const raw = b.value
       const v = Number(typeof raw === 'object' && raw && 'val' in raw ? raw.val : raw)
       if (b.effectType === 'ac_bonus') acBonus += Number(raw) || 0
+      else if (b.effectType === 'ac_cap_stone_layer') {
+        const y = Number(raw)
+        if (!Number.isNaN(y)) acCapStoneLayerValues.push(y)
+      }
       else if (b.effectType === 'speed_bonus') speedBonus += Number(raw) || 0
       else if (b.effectType === 'reach_bonus') reachBonus += v
       else if (b.effectType === 'init_bonus') initBonus += v
@@ -283,6 +288,12 @@ export function useBuffCalculator(character, activeBuffs) {
       }
     }
 
+    const baseACTotal = baseAC?.total ?? 10
+    let ac = baseACTotal + acBonus
+    if (acCapStoneLayerValues.length > 0) {
+      const cap = baseACTotal + Math.min(...acCapStoneLayerValues)
+      ac = Math.min(ac, cap)
+    }
     return {
       abilities: finalAbilities,
       meleeAttackBonus,
@@ -290,7 +301,7 @@ export function useBuffCalculator(character, activeBuffs) {
       meleeDamageBonus,
       rangedDamageBonus,
       advantage,
-      ac: (baseAC?.total ?? 10) + acBonus,
+      ac,
       acBonus,
       speedBonus,
       reachBonus,

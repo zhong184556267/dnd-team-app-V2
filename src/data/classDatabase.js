@@ -780,6 +780,14 @@ export function getClassData(className) {
   return CLASS_DATA[key] ?? null
 }
 
+/** 某职业的子职选项列表（用于下拉），无则返回空数组 */
+export function getSubclassOptions(className) {
+  const data = getClassData(className)
+  const sub = data?.subclasses
+  if (!sub || typeof sub !== 'object') return []
+  return Object.keys(sub)
+}
+
 /** 职业显示名（邪术师→魔契师，其余原样） */
 export function getClassDisplayName(className) {
   if (!className) return className

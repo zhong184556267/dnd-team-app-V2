@@ -4,6 +4,12 @@ import { Plus, User, Star, Trash2, Copy } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useModule } from '../contexts/ModuleContext'
 import { getCharacters, getDefaultCharacterId, setDefaultCharacterId, deleteCharacter, duplicateCharacter, updateCharacter } from '../lib/characterStore'
+
+function formatDateTime(iso) {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  return d.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' }) + ' ' + d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+}
 import { getClassDisplayName } from '../data/classDatabase'
 import { levelFromXP } from '../lib/xp5e'
 
@@ -44,7 +50,7 @@ export default function Characters() {
   const navigate = useNavigate()
   const [list, setList] = useState([])
   const [editingCodename, setEditingCodename] = useState({})
-  const defaultId = user?.name ? getDefaultCharacterId(user.name) : null
+  const defaultId = user?.name ? getDefaultCharacterId(user.name, currentModuleId) : null
 
   const refresh = () => setList(getCharacters(user?.name, isAdmin, currentModuleId))
 
@@ -57,7 +63,7 @@ export default function Characters() {
     e.stopPropagation()
     if (!user?.name) return
     const isCurrent = defaultId === c.id
-    setDefaultCharacterId(user.name, isCurrent ? null : c.id)
+    setDefaultCharacterId(user.name, isCurrent ? null : c.id, currentModuleId)
     refresh()
   }
 
@@ -67,7 +73,7 @@ export default function Characters() {
     if (!window.confirm(`确定要删除角色「${c.name || '未命名'}」吗？此操作不可恢复。`)) return
     deleteCharacter(c.id)
     refresh()
-    if (defaultId === c.id) setDefaultCharacterId(user?.name, null)
+    if (defaultId === c.id) setDefaultCharacterId(user?.name, null, currentModuleId)
   }
 
   const handleDuplicate = (e, c) => {
@@ -168,6 +174,9 @@ export default function Characters() {
                       </p>
                       <p className="text-dnd-text-muted text-sm">
                         {classLevelText} · 等级 {level}
+                      </p>
+                      <p className="text-xs text-dnd-text-muted mt-0.5">
+                        创建 {c.owner ?? '—'} · 修改 {formatDateTime(c.updatedAt ?? c.createdAt)}
                       </p>
                       <div className="mt-1.5 h-1.5 rounded-full bg-black/30 overflow-hidden">
                         <div

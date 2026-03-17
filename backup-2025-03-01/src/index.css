@@ -63,56 +63,6 @@ input:focus, textarea:focus, select:focus {
   box-shadow: 0 0 0 2px rgba(90, 109, 138, 0.25);
 }
 
-/* 背包表格：固定行高 48px，文案超出部分隐藏，绝不随内容增高 */
-.inventory-table {
-  table-layout: fixed;
-}
-.inventory-table thead tr,
-.inventory-table thead th,
-.inventory-table tbody tr,
-.inventory-table tbody td {
-  height: 48px !important;
-  max-height: 48px !important;
-  min-height: 48px !important;
-  overflow: hidden !important;
-  box-sizing: border-box;
-}
-.inventory-table tbody tr {
-  display: table-row;
-}
-.inventory-table tbody td {
-  vertical-align: middle;
-  display: table-cell;
-}
-/* 简要介绍列：内层固定像素高度，只显示约两行，其余隐藏 */
-.inventory-table .inventory-table-cell-brief {
-  padding-top: 0.25rem;
-  padding-bottom: 0.25rem;
-}
-.inventory-table .inventory-table-cell-brief > div {
-  max-height: 40px !important;
-  min-height: 0 !important;
-  overflow: hidden !important;
-  display: block !important;
-}
-.inventory-table .inventory-table-cell-brief .line-clamp-2 {
-  display: -webkit-box !important;
-  -webkit-box-orient: vertical !important;
-  -webkit-line-clamp: 2 !important;
-  overflow: hidden !important;
-  max-height: 40px !important;
-}
-
-/* 背包表格内数字输入框：隐藏上下箭头，避免挤压导致数量不显示 */
-.inventory-table input[type="number"]::-webkit-inner-spin-button,
-.inventory-table input[type="number"]::-webkit-outer-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
-}
-.inventory-table input[type="number"] {
-  -moz-appearance: textfield;
-}
-
 /* 下拉框选中项必须显式设色，否则部分浏览器不显示文字 */
 select {
   color: #ffffff;
@@ -176,14 +126,6 @@ select option {
   padding: 12px 16px;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
 }
-/* 经验/等级等紧凑卡片：减少内边距 */
-.panel-card-compact {
-  background: linear-gradient(180deg, rgba(38, 46, 60, 0.6) 0%, rgba(30, 38, 50, 0.55) 100%);
-  border: 1px solid var(--card-border);
-  border-radius: var(--panel-radius);
-  padding: 8px 12px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
-}
 
 /* 面板内分隔线 */
 .panel-divider {
@@ -192,16 +134,16 @@ select option {
   margin: 12px 0;
 }
 
-/* 面板内输入框/下拉框（普通文案字号，保证填入内容可读） */
+/* 面板内输入框/下拉框 */
 .panel-input,
 .panel-select {
   background: var(--input-bg);
   border: 1px solid var(--input-border);
   border-radius: 8px;
   color: var(--text-main);
-  padding: 8px 12px;
+  padding: 8px 16px;
   font-size: 0.875rem;
-  min-height: 36px;
+  min-height: 40px;
   transition: border-color 0.2s, box-shadow 0.2s;
 }
 .panel-input::placeholder {
@@ -209,24 +151,6 @@ select option {
 }
 .panel-input:focus,
 .panel-select:focus {
-  outline: none;
-  border-color: var(--input-focus);
-  box-shadow: 0 0 0 2px rgba(90, 109, 138, 0.25);
-}
-/* 剧情等级等紧凑数字框：外框高度贴近数字，减少留白 */
-.panel-input-compact {
-  background: var(--input-bg);
-  border: 1px solid var(--input-border);
-  border-radius: 6px;
-  color: var(--text-main);
-  padding: 2px 8px;
-  font-size: 0.875rem;
-  min-height: 1.5rem;
-  height: 1.75rem;
-  line-height: 1.25;
-  transition: border-color 0.2s, box-shadow 0.2s;
-}
-.panel-input-compact:focus {
   outline: none;
   border-color: var(--input-focus);
   box-shadow: 0 0 0 2px rgba(90, 109, 138, 0.25);
@@ -469,9 +393,9 @@ select option {
   opacity: 0.8;
 }
 
-/* 经验条：微渐变，略薄以配合紧凑排版 */
+/* 经验条：微渐变 */
 .xp-progress-track {
-  height: 6px;
+  height: 8px;
   background: var(--input-bg);
   border-radius: 9999px;
   overflow: hidden;
@@ -484,17 +408,23 @@ select option {
   transition: width 0.25s ease;
 }
 
-/* 面板内：仅两种字号 — 普通文案 / 重点文案 */
-.panel-label {
-  font-size: 0.8125rem;
-  font-weight: 500;
-  color: var(--text-muted);
-}
-.panel-value,
-.panel-value-lg {
+/* 面板内数值大号显示 */
+.panel-value {
   font-size: 1.25rem;
   font-weight: 700;
   color: var(--text-main);
+}
+.panel-value-lg {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text-main);
+}
+.panel-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
 /* 职业 Tab */

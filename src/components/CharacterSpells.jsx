@@ -88,13 +88,37 @@ export default function CharacterSpells({ char, canEdit, onSave }) {
     onSave({ spells: next })
   }
 
-  /** 施法等级与环位数量（职业规则） */
+  /** 施法等级与环位数量（与 CombatStatus 一致：含 spellSlotsMaxOverride + 额外环位） */
   const spellLevel = getSpellcastingLevel(char)
   const maxSlotsByRing = useMemo(() => getMaxSpellSlotsByRing(char), [char])
+  const spellSlotsMaxOverride = char?.spellSlotsMax && typeof char.spellSlotsMax === 'object' ? char.spellSlotsMax : {}
   const spellSlotsCurrent = char?.spellSlots ?? {} // { 1: 2, 2: 1, ... } 当前剩余
+  const extraSlotsList = useMemo(() => {
+    const raw = char?.extraSpellSlots
+    if (Array.isArray(raw)) return raw.map((e) => ({ id: e.id, ring: Number(e.ring) || 1, max: Math.max(0, Number(e.max) || 0) }))
+    if (raw && typeof raw === 'object') return Object.entries(raw).filter(([, n]) => (n || 0) > 0).map(([ring, max]) => ({ id: 'ex_' + ring, ring: Number(ring) || 1, max: Number(max) || 0 }))
+    return []
+  }, [char?.extraSpellSlots])
+  const extraSlotsMode = char?.extraSpellSlotsMode === 'points' ? 'points' : 'slots'
+  const effectiveMaxByRing = useMemo(() => {
+    const out = {}
+    const fromExtra = extraSlotsMode === 'slots' ? extraSlotsList : []
+    for (let ring = 1; ring <= 9; ring++) {
+      const base = spellSlotsMaxOverride[ring] != null ? Math.max(0, Number(spellSlotsMaxOverride[ring]) || 0) : (maxSlotsByRing[ring] ?? 0)
+      out[ring] = base + fromExtra.filter((e) => e.ring === ring).reduce((s, e) => s + (e.max || 0), 0)
+    }
+    return out
+  }, [maxSlotsByRing, spellSlotsMaxOverride, extraSlotsList, extraSlotsMode])
+  const extraPoints = useMemo(() => {
+    const p = char?.extraSpellSlotsPoints
+    const max = Math.max(0, Number(p?.max) ?? 0)
+    const current = Math.max(0, Math.min(max || 999, Number(p?.current) ?? max))
+    return { max, current }
+  }, [char?.extraSpellSlotsPoints])
 
   const setSpellSlotCurrent = (ring, remaining) => {
-    const next = { ...spellSlotsCurrent, [ring]: Math.max(0, Math.min(maxSlotsByRing[ring] ?? 0, remaining)) }
+    const max = effectiveMaxByRing[ring] ?? maxSlotsByRing[ring] ?? 0
+    const next = { ...spellSlotsCurrent, [ring]: Math.max(0, Math.min(max, remaining)) }
     onSave({ spellSlots: next })
   }
 
@@ -118,6 +142,9 @@ export default function CharacterSpells({ char, canEdit, onSave }) {
 
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const [castModal, setCastModal] = useState({ open: false, spell: null, spellId: '', spellLevel: 0 })
+  const [castRing, setCastRing] = useState(1)
+  const [castSource, setCastSource] = useState('normal') // 'normal' | 'extraPoints'
   const dropdownRef = useRef(null)
   const searchRef = useRef(null)
 
@@ -337,9 +364,10 @@ export default function CharacterSpells({ char, canEdit, onSave }) {
                         return (
                           <div
                             key={spellId}
-                            className="rounded-lg border border-gray-600 bg-gray-800/50 p-3 min-w-0 overflow-visible"
+                            className="rounded-lg border border-gray-600 bg-gray-800/50 p-3 min-w-0 overflow-visible flex flex-col h-full"
                           >
-                            <div className="space-y-1.5">
+                            <div className="flex flex-col flex-1 min-h-0">
+                              <div className="flex-1 min-h-0 overflow-y-auto space-y-1.5">
                               <div className="flex items-center justify-between gap-2 min-h-[2rem]">
                                 <span className="block text-base font-semibold text-white leading-tight truncate min-w-0 flex-1">
                                   {spell.name}
@@ -396,6 +424,22 @@ export default function CharacterSpells({ char, canEdit, onSave }) {
                                   <p className="text-gray-300 text-sm whitespace-pre-line leading-snug text-justify">{spell.description}</p>
                                 </div>
                               )}
+                              </div>
+                              {spell.level >= 1 && (
+                                <div className="pt-2 border-t border-gray-600/60 mt-auto shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setCastModal({ open: true, spell, spellId, spellLevel: spell.level })
+                                      setCastRing(spell.level)
+                                      setCastSource('normal')
+                                    }}
+                                    className="w-full py-2 rounded-lg bg-dnd-red/80 hover:bg-dnd-red border border-dnd-red text-white text-sm font-medium transition-colors"
+                                  >
+                                    释放魔法
+                                  </button>
+                                </div>
+                              )}
                             </div>
                           </div>
                         )
@@ -410,6 +454,114 @@ export default function CharacterSpells({ char, canEdit, onSave }) {
           )}
         </div>
       </div>
+
+      {castModal.open && castModal.spell && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60" onClick={() => setCastModal((m) => ({ ...m, open: false }))}>
+          <div className="rounded-xl border border-gray-600 bg-gray-800 shadow-xl max-w-sm w-full p-4 space-y-4" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-dnd-gold-light font-semibold text-sm uppercase tracking-wider">释放魔法 · {castModal.spell.name}</h3>
+            <div>
+              <label className="block text-dnd-text-muted text-xs font-medium mb-1.5">用几环施法（升环施法）</label>
+              <div className="flex flex-wrap gap-1.5">
+                {Array.from({ length: 10 - castModal.spellLevel }, (_, i) => castModal.spellLevel + i).map((r) => {
+                  const maxR = effectiveMaxByRing[r] ?? 0
+                  const rawRem = spellSlotsCurrent[r] ?? maxR
+                  const rem = castSource === 'normal' ? Math.min(maxR, Math.max(0, rawRem)) : null
+                  const okPoints = castSource === 'extraPoints' && extraPoints.current >= r
+                  const ok = castSource === 'normal' ? (rem > 0) : okPoints
+                  return (
+                    <button
+                      key={r}
+                      type="button"
+                      onClick={() => setCastRing(r)}
+                      className={`min-w-[3rem] py-1.5 px-2 rounded border text-center transition-colors flex flex-col items-center justify-center ${
+                        castRing === r
+                          ? 'bg-dnd-gold/40 border-dnd-gold text-white'
+                          : ok
+                            ? 'border-gray-500 bg-gray-700/80 text-gray-200 hover:border-dnd-gold/60'
+                            : 'border-gray-600 bg-gray-800/50 text-gray-500 cursor-not-allowed'
+                      }`}
+                      disabled={!ok}
+                      title={castSource === 'normal' ? `${r}环 剩余 ${rem}/${maxR}（与法术环位条一致）` : `消耗 ${r} 点（当前 ${extraPoints.current}）`}
+                    >
+                      <span className="text-sm font-medium">{r}环</span>
+                      {castSource === 'normal' ? (
+                        <span className={`text-[10px] mt-0.5 ${rem > 0 ? 'text-gray-300' : 'text-gray-500'}`}>
+                          剩余{rem}
+                        </span>
+                      ) : (
+                        <span className={`text-[10px] mt-0.5 ${okPoints ? 'text-gray-300' : 'text-gray-500'}`}>
+                          耗{r}点
+                        </span>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+            <div>
+              <label className="block text-dnd-text-muted text-xs font-medium mb-1.5">扣除哪里的环位</label>
+              <div className="flex flex-wrap gap-2">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="castSource"
+                    checked={castSource === 'normal'}
+                    onChange={() => setCastSource('normal')}
+                    className="rounded border-gray-500 text-dnd-red focus:ring-dnd-red"
+                  />
+                  <span className="text-sm text-gray-300">常规环位</span>
+                </label>
+                {extraPoints.max > 0 && (
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="castSource"
+                      checked={castSource === 'extraPoints'}
+                      onChange={() => setCastSource('extraPoints')}
+                      className="rounded border-gray-500 text-dnd-red focus:ring-dnd-red"
+                    />
+                    <span className="text-sm text-gray-300">额外环位（点数 {extraPoints.current}/{extraPoints.max}）</span>
+                  </label>
+                )}
+              </div>
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setCastModal((m) => ({ ...m, open: false }))}
+                className="flex-1 py-2 rounded-lg border border-gray-500 text-gray-400 hover:bg-gray-700 text-sm"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (castSource === 'normal') {
+                    const maxR = effectiveMaxByRing[castRing] ?? 0
+                    const cur = Math.max(0, (spellSlotsCurrent[castRing] ?? maxR) - 1)
+                    setSpellSlotCurrent(castRing, cur)
+                  } else if (extraPoints.max > 0 && extraPoints.current >= castRing) {
+                    onSave({ extraSpellSlotsPoints: { max: extraPoints.max, current: extraPoints.current - castRing } })
+                  }
+                  setCastModal((m) => ({ ...m, open: false }))
+                }}
+                disabled={
+                  castSource === 'normal'
+                    ? (() => {
+                        const maxR = effectiveMaxByRing[castRing] ?? 0
+                        const raw = spellSlotsCurrent[castRing] ?? maxR
+                        return Math.min(maxR, Math.max(0, raw)) <= 0
+                      })()
+                    : extraPoints.current < castRing
+                }
+                className="flex-1 py-2 rounded-lg bg-dnd-red hover:bg-dnd-red-hover text-white text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                确认释放
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

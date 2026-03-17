@@ -15,6 +15,9 @@ import ItemAddForm from './ItemAddForm'
 import EncumbranceBar from './EncumbranceBar'
 import TransferModal from './TransferModal'
 import { parseArmorNote } from '../lib/formulas'
+import { abilityModifier, proficiencyBonus } from '../lib/formulas'
+import { useBuffCalculator } from '../hooks/useBuffCalculator'
+import { getPrimarySpellcastingAbility } from '../data/classDatabase'
 import { inputClass } from '../lib/inputStyles'
 import { NumberStepper } from './BuffForm'
 
@@ -38,14 +41,14 @@ function getEntryDisplayName(entry) {
   return getItemDisplayName(proto) || '—'
 }
 
-/** 手持：主手 武器+法器+枪械, 副手 盾牌+武器+枪械, 备用 法器+武器 */
+/** 手持：主手 武器+法器+枪械, 副手 盾牌+武器+枪械+法器（权杖/法杖等）, 备用 法器+武器 */
 function getHeldOptions(inv, slotIndex) {
   return inv.filter((e) => {
     const proto = e.itemId ? getItemById(e.itemId) : null
     const t = proto?.类型 ?? ''
     const sub = proto?.子类型 ?? ''
     if (slotIndex === 0) return t === '近战武器' || t === '远程武器' || t === '枪械' || t === '法器'
-    if (slotIndex === 1) return (t === '盔甲' && sub === '盾牌') || t === '近战武器' || t === '远程武器' || t === '枪械'
+    if (slotIndex === 1) return (t === '盔甲' && sub === '盾牌') || t === '近战武器' || t === '远程武器' || t === '枪械' || t === '法器'
     return t === '法器' || t === '近战武器' || t === '远程武器'
   })
 }
@@ -113,6 +116,13 @@ function buildEquipmentForAC(heldSlots, wornSlots, inv) {
 export default function EquipmentAndInventory({ character, canEdit, onSave, onWalletSuccess }) {
   const inv = character?.inventory ?? []
   const migrated = migrateSlots(character)
+  const buffStats = useBuffCalculator(character, character?.buffs)
+  const level = Math.max(1, Math.min(20, parseInt(character?.level, 10) || 1))
+  const abilities = character?.abilities ?? {}
+  const spellAbility = getPrimarySpellcastingAbility(character)
+  const prof = buffStats?.proficiencyOverride != null ? buffStats.proficiencyOverride : proficiencyBonus(level)
+  const spellAttackBonus = spellAbility != null ? prof + abilityModifier(abilities?.[spellAbility] ?? 10) + (buffStats?.spellAttackBonus ?? 0) : null
+  const spellDC = spellAbility != null ? 8 + prof + abilityModifier(abilities?.[spellAbility] ?? 10) + (buffStats?.saveDcBonus ?? 0) : null
   const heldSlots = character?.equippedHeld ?? migrated?.held ?? [
     { id: 'main', inventoryId: null },
     { id: 'off', inventoryId: null },
@@ -197,6 +207,23 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
     onSave({ inventory: nextInv })
   }
 
+  /** 更新身穿身体槽条目上的瓦石层附魔数值（仅当 effects 中已有 ac_cap_stone_layer 时显示并编辑） */
+  const setWornStoneLayer = (inventoryId, value) => {
+    const entryIdx = inv.findIndex((e) => e.id === inventoryId)
+    if (entryIdx < 0) return
+    const n = Math.max(0, parseInt(value, 10) || 0)
+    const entry = inv[entryIdx]
+    const effects = Array.isArray(entry.effects) ? [...entry.effects] : []
+    const idx = effects.findIndex((e) => e.effectType === 'ac_cap_stone_layer')
+    if (idx >= 0) {
+      effects[idx] = { ...effects[idx], value: n }
+    } else {
+      effects.push({ category: 'defense', effectType: 'ac_cap_stone_layer', value: n })
+    }
+    const nextInv = inv.map((e, i) => (i === entryIdx ? { ...e, effects } : e))
+    onSave({ inventory: nextInv })
+  }
+
   const addWornSlot = () => {
     const used = new Set(wornAddable.map((a) => a.slotId).filter(Boolean))
     const slotId = WORN_SLOT_OPTIONS.find((o) => o.id !== 'body' && !used.has(o.id))?.id ?? 'head'
@@ -231,6 +258,19 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
     next.splice(toIndex, 0, item)
     onSave({ inventory: next })
   }
+
+  /** 同名物品（显示名称一致）可合并数量；invDisplayName 在下方定义，此处用内联比较 */
+  const getInvMergeKey = (entry) => {
+    if (entry?.itemId) {
+      const item = getItemById(entry.itemId)
+      const customName = entry.name && entry.name.trim()
+      if (customName) return customName
+      return getItemDisplayName(item) || '—'
+    }
+    return entry?.name ?? '—'
+  }
+  const isSameItemForMerge = (a, b) => a && b && getInvMergeKey(a) === getInvMergeKey(b)
+
   const handleDragStart = (e, index) => {
     e.dataTransfer.setData('text/plain', String(index))
     e.dataTransfer.effectAllowed = 'move'
@@ -242,7 +282,22 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
     e.preventDefault()
     const fromIndex = parseInt(e.dataTransfer.getData('text/plain'), 10)
     if (Number.isNaN(fromIndex) || fromIndex === toIndex) return
-    reorderInventory(fromIndex, toIndex)
+    const source = inv[fromIndex]
+    const target = inv[toIndex]
+    if (isSameItemForMerge(source, target)) {
+      setEditingIndex(null)
+      const qtyT = Math.max(1, Number(target?.qty) ?? 1)
+      const qtyS = Math.max(1, Number(source?.qty) ?? 1)
+      const chargeT = Number(target?.charge) || 0
+      const chargeS = Number(source?.charge) || 0
+      const merged = { ...target, qty: qtyT + qtyS, charge: chargeT + chargeS }
+      const next = inv.filter((_, i) => i !== fromIndex)
+      const newToIndex = fromIndex < toIndex ? toIndex - 1 : toIndex
+      next[newToIndex] = merged
+      onSave({ inventory: next })
+    } else {
+      reorderInventory(fromIndex, toIndex)
+    }
   }
   const setQty = (index, value) => {
     const n = Math.max(1, parseInt(value, 10) || 1)
@@ -342,10 +397,19 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
 
   return (
     <div className="rounded-xl border border-gray-600 bg-gray-800/30 overflow-hidden pb-3">
-      {/* 上方：手持与身穿 */}
-      <div className="p-1.5 border-b border-gray-600">
+      {/* 上方：同调位独占一行，手持与身穿两列在其下方 */}
+      <div className="p-1.5 border-b border-gray-600 space-y-1.5">
+        {/* 第一行：同调数独占一行 */}
+        <div className="space-y-1">
+          <h4 className={subTitleClass}>装备</h4>
+          <div className={slotBaseClass}>
+            <p className="text-dnd-text-muted text-xs">
+              同调位：<span className="text-white font-medium tabular-nums">{attunedCount}/{maxAttunementSlots}</span>
+            </p>
+          </div>
+        </div>
+        {/* 第二行：手持 | 身穿 两列 */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
-          {/* 左：手持 */}
           <div className="space-y-1">
             <h4 className={subTitleClass}>手持</h4>
             {/* 主手、副手 */}
@@ -466,7 +530,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                   <button
                     type="button"
                     onClick={addHeldSlot}
-                    className="flex items-center gap-1 text-xs text-amber-400 hover:text-amber-300 border border-gray-600 hover:border-amber-500/50 rounded px-2 py-1"
+                    className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-300 border border-gray-600 hover:border-gray-500 rounded px-2 py-1"
                   >
                     <Plus className="w-3.5 h-3.5" /> 添加备用
                   </button>
@@ -475,7 +539,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
             </div>
           </div>
 
-          {/* 右：身穿 */}
+          {/* 身穿（同调位下方第二列） */}
           <div className="space-y-1">
             <h4 className={subTitleClass}>身穿</h4>
             {/* 身体（固定） */}
@@ -496,16 +560,16 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                     </select>
                     {bodySlot.inventoryId && (() => {
                       const entry = inv.find((e) => e.id === bodySlot.inventoryId)
-                      const proto = entry?.itemId ? getItemById(entry.itemId) : null
-                      const isArmor = proto?.类型 === '盔甲'
-                      const mb = Number(entry?.magicBonus) || 0
-                      return isArmor && entry ? (
+                      const stoneEffect = Array.isArray(entry?.effects) ? entry.effects.find((e) => e.effectType === 'ac_cap_stone_layer') : null
+                      const hasStoneLayer = !!stoneEffect
+                      const stoneValue = hasStoneLayer ? (Number(stoneEffect.value) || 0) : 0
+                      return hasStoneLayer && entry ? (
                         <div className="flex items-center gap-1 shrink-0">
-                          <span className="text-gray-500 text-[10px]">增强</span>
+                          <span className="text-gray-500 text-[10px]">瓦石层</span>
                           <div className="flex items-center rounded border border-gray-600 bg-gray-800 overflow-hidden h-7">
-                            <button type="button" onClick={() => setWornMagicBonus(entry.id, String(Math.max(0, mb - 1)))} className="px-1.5 h-full flex items-center justify-center text-dnd-text-muted hover:text-white hover:bg-gray-700 border-r border-gray-600 font-medium text-sm shrink-0">−</button>
-                            <input type="number" min={0} value={mb || ''} onChange={(e) => setWornMagicBonus(entry.id, e.target.value)} className="w-10 h-full bg-transparent border-0 text-center text-white text-xs tabular-nums px-0.5 focus:outline-none focus:ring-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]" />
-                            <button type="button" onClick={() => setWornMagicBonus(entry.id, String(mb + 1))} className="px-1.5 h-full flex items-center justify-center text-dnd-text-muted hover:text-white hover:bg-gray-700 border-l border-gray-600 font-medium text-sm shrink-0">+</button>
+                            <button type="button" onClick={() => setWornStoneLayer(entry.id, String(Math.max(0, stoneValue - 1)))} className="px-1.5 h-full flex items-center justify-center text-dnd-text-muted hover:text-white hover:bg-gray-700 border-r border-gray-600 font-medium text-sm shrink-0">−</button>
+                            <input type="number" min={0} value={stoneValue || ''} onChange={(e) => setWornStoneLayer(entry.id, e.target.value)} className="w-10 h-full bg-transparent border-0 text-center text-white text-xs tabular-nums px-0.5 focus:outline-none focus:ring-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]" />
+                            <button type="button" onClick={() => setWornStoneLayer(entry.id, String(stoneValue + 1))} className="px-1.5 h-full flex items-center justify-center text-dnd-text-muted hover:text-white hover:bg-gray-700 border-l border-gray-600 font-medium text-sm shrink-0">+</button>
                           </div>
                         </div>
                       ) : null
@@ -526,26 +590,15 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                     <span className="text-white text-sm flex-1">{getEntryDisplayName(inv.find((e) => e.id === bodySlot.inventoryId))}</span>
                     {bodySlot.inventoryId && (() => {
                       const entry = inv.find((e) => e.id === bodySlot.inventoryId)
-                      const proto = entry?.itemId ? getItemById(entry.itemId) : null
-                      return proto?.类型 === '盔甲' && entry?.magicBonus > 0 ? (
-                        <span className="text-amber-200/90 text-xs font-mono shrink-0">+{entry.magicBonus}</span>
+                      const stoneEffect = Array.isArray(entry?.effects) ? entry.effects.find((e) => e.effectType === 'ac_cap_stone_layer') : null
+                      const stoneValue = stoneEffect != null ? (Number(stoneEffect.value) || 0) : 0
+                      return stoneEffect && stoneValue > 0 ? (
+                        <span className="text-amber-200/90 text-xs font-mono shrink-0" title="瓦石层">{stoneValue}层</span>
                       ) : null
                     })()}
                   </>
                 )}
               </div>
-              {bodySlot.inventoryId && (() => {
-                const entry = inv.find((e) => e.id === bodySlot.inventoryId)
-                const proto = entry?.itemId ? getItemById(entry.itemId) : null
-                const parsed = entry ? parseArmorNote(entry.附注 ?? proto?.附注 ?? '') : null
-                const magicBonus = Number(entry?.magicBonus) || 0
-                return parsed && !parsed.isShield ? (
-                  <p className="text-amber-200/90 text-[10px]">
-                    AC {parsed.baseAC ?? 10}{parsed.addDex ? (parsed.dexCap != null ? `+敏调(最大${parsed.dexCap})` : '+敏调') : ''}
-                    {magicBonus > 0 && <span className="ml-1">+{magicBonus}</span>}
-                  </p>
-                ) : null
-              })()}
             </div>
             {/* 可添加部位 */}
             <div className="flex flex-col gap-1">
@@ -615,24 +668,17 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                           </>
                         )}
                       </div>
-                      {entry && parsed && !parsed.isShield && (
-                        <p className="text-amber-200/90 text-[10px]">
-                          AC {parsed.baseAC ?? 10}{parsed.addDex ? (parsed.dexCap != null ? `+敏调(最大${parsed.dexCap})` : '+敏调') : ''}
-                          {magicBonus > 0 && <span className="ml-1">+{magicBonus}</span>}
-                        </p>
-                      )}
                     </div>
                   )
                 })}
               {canEdit && (
-                <div className="flex items-center justify-between mt-1">
-                  <span className="text-gray-500 text-xs">可添加部位</span>
+                <div className="flex items-center justify-end mt-1">
                   <button
                     type="button"
                     onClick={addWornSlot}
-                    className="flex items-center gap-1 text-xs text-amber-400 hover:text-amber-300 border border-gray-600 hover:border-amber-500/50 rounded px-2 py-1"
+                    className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-300 border border-gray-600 hover:border-gray-500 rounded px-2 py-1"
                   >
-                    <Plus className="w-3.5 h-3.5" /> 添加
+                    <Plus className="w-3.5 h-3.5" /> 添加身穿
                   </button>
                 </div>
               )}
@@ -652,23 +698,31 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                 <button type="button" onClick={() => setAddFormOpen(true)} className="h-7 px-2 rounded-lg bg-dnd-red hover:bg-dnd-red-hover text-white font-bold text-xs">
                   添加物品
                 </button>
-                <ItemAddForm open={addFormOpen} onClose={() => setAddFormOpen(false)} onSave={(entry) => { onSave({ inventory: [...inv, entry] }); setAddFormOpen(false); }} submitLabel="放入背包" />
-                <ItemAddForm open={editingIndex !== null} onClose={() => setEditingIndex(null)} onSave={applyEditSave} submitLabel="保存" editEntry={editingIndex != null ? inv[editingIndex] : null} />
+                <ItemAddForm open={addFormOpen} onClose={() => setAddFormOpen(false)} onSave={(entry) => { onSave({ inventory: [...inv, entry] }); setAddFormOpen(false); }} submitLabel="放入背包" inventory={inv} spellDC={spellDC} spellAttackBonus={spellAttackBonus} />
+                <ItemAddForm open={editingIndex !== null} onClose={() => setEditingIndex(null)} onSave={applyEditSave} submitLabel="保存" editEntry={editingIndex != null ? inv[editingIndex] : null} inventory={inv} spellDC={spellDC} spellAttackBonus={spellAttackBonus} />
               </>
             )}
           </div>
-          <div className="overflow-hidden">
-            <table className="w-full text-xs">
+          <div className="overflow-x-auto">
+            <table className="inventory-table w-full text-xs" style={{ tableLayout: 'fixed', minWidth: '520px' }}>
+              <colgroup>
+                {canEdit && <col style={{ width: '1.9%' }} />}
+                <col style={{ width: canEdit ? '12.38%' : '14.29%' }} />
+                <col style={{ width: '9.52%' }} />
+                <col style={{ width: '54.76%' }} />
+                <col style={{ width: '9.52%' }} />
+                <col style={{ width: '4.76%' }} />
+                {canEdit && <col style={{ width: '7.14%' }} />}
+              </colgroup>
               <thead>
-                <tr className="bg-gray-800/80 text-dnd-text-muted text-[10px] uppercase tracking-wider">
-                  {canEdit && <th className="py-0.5 px-0.5 w-7" title="拖拽排序" />}
-                  {canEdit && <th className="text-center py-0.5 px-1 w-9" title="同调">同调</th>}
-                  <th className="text-left py-0.5 px-1 font-semibold">名称</th>
-                  <th className="text-left py-0.5 px-1 font-semibold min-w-[14rem] max-w-[24rem]">简要介绍</th>
-                  <th className="text-right py-0.5 px-1 w-10">充能</th>
-                  <th className="text-right py-0.5 px-1 w-10">数量</th>
-                  <th className="text-right py-0.5 px-1 w-12">总重</th>
-                  {canEdit && <th className="w-10" />}
+                <tr className="bg-gray-800/80 text-dnd-text-muted text-[10px] uppercase tracking-wider" style={{ height: 48, minHeight: 48, maxHeight: 48 }}>
+                  {canEdit && <th className="py-0 px-4 align-middle text-center" style={{ height: 48, maxHeight: 48 }} title="拖拽排序" />}
+                  <th className="py-0 px-4 font-semibold min-w-0 align-middle text-left" style={{ height: 48, maxHeight: 48 }}>名称</th>
+                  <th className="py-0 px-4 border-l border-gray-600 align-middle text-center" style={{ height: 48, maxHeight: 48 }}>充能</th>
+                  <th className="py-0 px-4 font-semibold min-w-0 border-l border-gray-600 align-middle text-left" style={{ height: 48, maxHeight: 48 }}>简要介绍</th>
+                  <th className="py-0 px-4 border-l border-gray-600 align-middle text-center" style={{ height: 48, maxHeight: 48 }}>数量</th>
+                  <th className="py-0 px-4 border-l border-gray-600 align-middle text-center" style={{ height: 48, maxHeight: 48 }}>总重</th>
+                  {canEdit && <th className="py-0 px-4 border-l border-gray-600 align-middle text-center" style={{ height: 48, maxHeight: 48 }} />}
                 </tr>
               </thead>
               <tbody>
@@ -676,11 +730,11 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                   const qty = Math.max(1, Number(entry?.qty) ?? 1)
                   const unitLb = getEntryWeight(entry)
                   const totalLb = Math.round(unitLb * qty * 100) / 100
-                  const canAttune = entry.isAttuned || attunedCount < maxAttunementSlots
                   return (
                     <Fragment key={entry.id ?? `inv-${i}`}>
                       <tr
                         className={`border-t border-gray-700/80 hover:bg-gray-800/40 ${canEdit ? 'cursor-grab active:cursor-grabbing' : ''}`}
+                        style={{ height: 48, minHeight: 48, maxHeight: 48 }}
                         draggable={canEdit}
                         onDragStart={canEdit ? (e) => handleDragStart(e, i) : undefined}
                         onDragEnd={canEdit ? handleDragEnd : undefined}
@@ -688,71 +742,71 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                         onDrop={canEdit ? (e) => handleDrop(e, i) : undefined}
                       >
                         {canEdit && (
-                          <td className="py-0.5 px-0.5 text-gray-500" title="拖拽调整顺序">
-                            <GripVertical className="w-3.5 h-3.5" />
+                          <td className="py-1 px-4 align-middle text-center overflow-hidden" title="拖拽调整顺序" style={{ height: 48, maxHeight: 48 }}>
+                            <span className="inline-flex justify-center"><GripVertical className="w-3.5 h-3.5" /></span>
                           </td>
                         )}
-                        {canEdit && (
-                          <td className="py-0.5 px-1 text-center">
-                            <input
-                              type="checkbox"
-                              checked={!!entry.isAttuned}
-                              disabled={!canAttune && !entry.isAttuned}
-                              onChange={(e) => setAttuned(i, e.target.checked)}
-                              className="rounded border-gray-500"
-                            />
-                          </td>
-                        )}
-                        <td className="py-0.5 px-1 text-white font-medium align-middle">
-                          <span className="inline-flex items-center gap-0.5">
+                        <td className="py-1 px-4 text-white font-medium align-middle text-left overflow-hidden" style={{ height: 48, maxHeight: 48 }}>
+                          <span className="inline-flex items-center gap-0.5 truncate max-w-full">
                             {invDisplayName(entry)}
                             {(Number(entry.magicBonus) || 0) > 0 ? (
-                              <span className="text-amber-200/90 text-xs font-mono tabular-nums">+{entry.magicBonus}</span>
+                              <span className="text-amber-200/90 text-xs font-mono tabular-nums shrink-0">+{entry.magicBonus}</span>
                             ) : null}
+                            {(() => {
+                              const stoneEffect = Array.isArray(entry?.effects) ? entry.effects.find((e) => e.effectType === 'ac_cap_stone_layer') : null
+                              const stoneVal = stoneEffect != null && stoneEffect.value != null ? Number(stoneEffect.value) : null
+                              if (stoneVal == null || Number.isNaN(stoneVal)) return null
+                              return <span className="text-amber-200/90 text-xs font-mono tabular-nums shrink-0" title="瓦石层">{stoneVal}层</span>
+                            })()}
                           </span>
                         </td>
-                        <td className="py-0.5 px-1 text-dnd-text-body max-w-[24rem] min-w-[14rem]">
-                          <span className="line-clamp-2" title={getEntryBriefFull(entry)}>{getEntryBriefFull(entry) || '—'}</span>
-                        </td>
-                        <td className="py-0.5 px-1 text-right">
+                        <td className="py-1 px-2 border-l border-gray-600 align-middle text-center overflow-hidden" style={{ height: 48, maxHeight: 48 }}>
                           {canEdit ? (
-                            <div className="inline-flex items-center w-20">
+                            <div className="flex justify-center">
                               <NumberStepper
                                 value={Number(entry.charge) || 0}
-                                onChange={(v) => setCharge(i, String(v))}
+                                onChange={(v) => setCharge(i, v)}
                                 min={0}
                                 compact
+                                pill
                               />
                             </div>
                           ) : (Number(entry.charge) || 0) > 0 ? (
-                            <span className="tabular-nums text-dnd-text-body">{entry.charge}</span>
+                            <span className="tabular-nums text-dnd-text-body text-xs">{entry.charge}</span>
                           ) : null}
                         </td>
-                        <td className="py-0.5 px-1 text-right">
+                        <td className="inventory-table-cell-brief py-1 px-4 text-dnd-text-body text-xs min-w-0 overflow-hidden border-l border-gray-600 align-middle text-left" style={{ height: 48, maxHeight: 48, overflow: 'hidden' }} title={getEntryBriefFull(entry) || undefined}>
+                          <div className="min-h-0 overflow-hidden" style={{ maxHeight: 40 }}>
+                            <span className="line-clamp-2 text-left inline-block w-full break-words">{getEntryBriefFull(entry) || '—'}</span>
+                          </div>
+                        </td>
+                        <td className="py-1 px-2 border-l border-gray-600 align-middle text-center overflow-hidden" style={{ height: 48, maxHeight: 48 }}>
                           {canEdit ? (
-                            <input
-                              type="number"
-                              min={1}
-                              value={qty}
-                              onChange={(e) => setQty(i, e.target.value)}
-                              className="w-12 h-6 rounded bg-gray-700 border border-gray-600 text-white text-right text-xs tabular-nums px-1 focus:border-dnd-red focus:ring-1 focus:ring-dnd-red"
-                            />
+                            <div className="flex justify-center">
+                              <NumberStepper
+                                value={qty}
+                                onChange={(v) => setQty(i, v)}
+                                min={1}
+                                compact
+                                pill
+                              />
+                            </div>
                           ) : (
-                            <span className="tabular-nums text-dnd-text-body">{qty}</span>
+                            <span className="tabular-nums text-dnd-text-body text-xs">{qty}</span>
                           )}
                         </td>
-                        <td className="text-right py-0.5 px-1 tabular-nums text-dnd-text-body">{totalLb ? `${totalLb} lb` : ''}</td>
+                        <td className="py-1 px-2 tabular-nums text-dnd-text-body border-l border-gray-600 align-middle text-center overflow-hidden whitespace-nowrap" style={{ height: 48, maxHeight: 48 }}>{totalLb ? `${totalLb} lb` : ''}</td>
                         {canEdit && (
-                          <td className="py-0.5 px-1">
-                            <div className="flex items-center gap-0.5">
-                              <button type="button" onClick={() => openStoreToVault(i)} title="存到团队仓库" className="p-1.5 rounded text-emerald-400 hover:bg-emerald-400/20">
-                                <Package size={16} />
+                          <td className="py-1 px-1 border-l border-gray-600 align-middle text-center overflow-hidden" style={{ height: 48, maxHeight: 48 }}>
+                            <div className="flex items-center justify-center gap-0.5 min-w-0 max-w-full">
+                              <button type="button" onClick={() => openStoreToVault(i)} title="存到团队仓库" className="p-1 rounded text-emerald-400 hover:bg-emerald-400/20 shrink-0">
+                                <Package size={14} />
                               </button>
-                              <button type="button" onClick={() => startEdit(i)} title="编辑" className="p-1.5 rounded text-amber-400 hover:bg-amber-400/20">
-                                <Pencil size={16} />
+                              <button type="button" onClick={() => startEdit(i)} title="编辑" className="p-1 rounded text-amber-400 hover:bg-amber-400/20 shrink-0">
+                                <Pencil size={14} />
                               </button>
-                              <button type="button" onClick={() => removeItem(i)} title="移除" className="p-1.5 rounded text-dnd-red hover:text-dnd-red/20">
-                                <Trash2 size={16} />
+                              <button type="button" onClick={() => removeItem(i)} title="移除" className="p-1 rounded text-dnd-red hover:text-dnd-red/20 shrink-0">
+                                <Trash2 size={14} />
                               </button>
                             </div>
                           </td>
@@ -764,7 +818,6 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
               </tbody>
             </table>
           </div>
-          {canEdit && inv.length > 0 && <p className="text-dnd-text-muted text-[10px] mt-0.5 px-2 pb-1">同调位：{attunedCount}/{maxAttunementSlots}</p>}
           {inv.length === 0 && <p className="text-gray-500 text-sm py-2 text-center">暂无物品</p>}
         </div>
 

@@ -99,3 +99,13 @@ export function deleteModule(id) {
   }
   return true
 }
+
+/** 拖拽重排模组顺序；传入新顺序的模组数组（与 getModules() 元素一致，仅顺序不同） */
+export function reorderModules(orderedList) {
+  if (!Array.isArray(orderedList) || orderedList.length === 0) return
+  const current = getModulesRaw()
+  const ids = new Set(current.map((m) => m.id))
+  const valid = orderedList.filter((m) => m && ids.has(m.id))
+  if (valid.length !== current.length) return
+  saveModules(valid)
+}

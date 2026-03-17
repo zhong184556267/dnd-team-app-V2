@@ -19,12 +19,13 @@ export const DAMAGE_TYPES = [
   { value: 'slashing', label: '挥砍', desc: '爪子，切割用具' },
   { value: 'thunder', label: '雷鸣', desc: '足以形成冲击波的响声' },
   { value: 'penetrate', label: '贯通', desc: '子弹造成的伤害可穿透魔法能力' },
+  { value: 'healing', label: '治疗', desc: '恢复生命值' },
 ]
 
 /** 状态免疫选项 */
 export const CONDITION_OPTIONS = [
   { value: 'charmed', label: '魅惑' },
-  { value: 'frightened', label: '恐惧' },
+  { value: 'frightened', label: '恐慌' },
   { value: 'poisoned', label: '中毒' },
   { value: 'blinded', label: '目盲' },
   { value: 'deafened', label: '耳聋' },
@@ -32,29 +33,90 @@ export const CONDITION_OPTIONS = [
   { value: 'stunned', label: '震慑' },
   { value: 'unconscious', label: '昏迷' },
   { value: 'psychic_collapse', label: '灵崩' },
+  { value: 'grappled', label: '受擒' },
+  { value: 'incapacitated', label: '失能' },
+  { value: 'invisible', label: '隐形' },
+  { value: 'petrified', label: '石化' },
+  { value: 'prone', label: '倒地' },
+  { value: 'restrained', label: '束缚' },
   { value: 'exhaustion', label: '力竭' },
 ]
 
 /** 状态效果文案（规则摘要，选择状态后显示） */
 export const CONDITION_DESCRIPTIONS = {
-  charmed: '无法对施法者进行攻击或施以有害效果，施法者对你进行社交检定具有优势。',
-  frightened: '进行检定与攻击检定时具有劣势，且无法主动靠近恐惧源。',
-  poisoned: '攻击检定与属性检定具有劣势。',
-  blinded: '无法视物，视线内攻击具有劣势、被攻击具有优势。',
-  deafened: '无法听见。',
-  paralyzed: '无法行动或说话，近战攻击命中则暴击，对你攻击具有优势。',
-  stunned: '无法行动、移动、说话，对你攻击具有优势。',
-  unconscious: '倒地、无法行动与反应，对你攻击具有优势且命中即暴击。',
+  blinded: `目盲状态期间，你将遭受以下这些效应。
+看不见。你无法视物，且会自动失败于任何需要视觉的属性检定。
+攻击影响。以你为目标的攻击检定具有优势，而你进行的攻击检定具有劣势。`,
+  charmed: `魅惑状态期间，你将遭受以下这些效应。
+无法伤害魅惑源。你无法攻击魅惑源，也无法将其作为伤害性能力或魔法效应的对象。
+社交优势。魅惑源对你进行的任何有关社交的属性检定均具有优势。`,
+  deafened: `耳聋状态期间，你将遭受以下这个效应。
+听不见。你无法听声，且会自动失败于任何依赖听觉的属性检定。`,
+  exhaustion: `力竭状态期间，你将遭受以下这些效应。
+力竭等级。此状态可叠加。每次你获得此状态，力竭等级都增加1级。当你力竭等级累加到6级你将死亡。
+D20检定影响。当你进行一次D20检定时，此次检定将减去你力竭等级2倍的值。
+速度降低。你的速度减少等于你力竭等级5倍尺。
+移除力竭等级。你可以依靠完成长休来降低1级力竭等级。当你力竭等级降至0时，此状态结束。`,
+  frightened: `恐慌状态期间，你将遭受以下这些效应。
+属性检定与攻击影响。只要恐惧源在你的视线范围内，你进行的属性检定与攻击检定就具有劣势。
+无法靠近。你无法自愿地向靠近恐惧源的方向移动。`,
+  grappled: `受擒状态期间，你将遭受以下这些效应。
+速度归零。你的速度变为0，且无法被增加。
+攻击影响。除擒抱者外，你对其他任何目标进行的攻击检定都具有劣势。
+带动。擒抱者移动时，其可以拖拽或承载你，但其每移动1尺都需要为此额外消耗1尺移动力。若你的体型为微型或你的体型小于擒抱者两级及以上，擒抱者拖拽/承载你将不需要额外消耗移动力。`,
+  incapacitated: `失能状态期间，你将遭受以下这些效应。
+无法行动。你无法执行任何动作、附赠动作以及反应。
+无法专注。你的专注将被打断。
+无法说话。你无法说话。
+措手不及。如果你在陷入失能状态期间投掷先攻，你的先攻检定将具有劣势。`,
+  invisible: `隐形状态期间，你将获得以下这些效应。
+出其不意。如果你在投掷先攻时处于隐形状态，你的先攻检定将具有优势。
+隐蔽。任何需要能够看见目标的效应都不会影响到你，除非效应的源头能通过某种方式看到你。你所着装或携带的一切装备也同样会被隐蔽起来。
+攻击影响。以你为目标的攻击检定具有劣势，而你进行的攻击检定具有优势。如果一个生物能以某种方式看见你，那么你在面对该生物时不会获得这一增益。`,
+  paralyzed: `麻痹状态期间，你将遭受以下这些效应。
+失能。你陷入失能状态。
+速度归零。你的速度变为0，且无法被增加。
+豁免影响。你自动失败于力量豁免检定与敏捷豁免检定。
+攻击影响。以你为目标的攻击检定具有优势。
+自动重击。若攻击者位于你5尺内，其任何命中你的攻击检定都会变为重击。`,
+  petrified: `石化状态期间，你将遭受以下这些效应。
+化为非活动材质。你与你穿着或携带的所有非魔法物品将被变化为坚固的、非活动的材质（通常是石头）。你的重量变为原本的十倍，且你将停止老化。
+失能。你陷入失能状态。
+速度归零。你的速度变为0，且无法被增加。
+攻击影响。以你为目标的攻击检定具有优势。
+豁免影响。你自动失败于力量豁免检定与敏捷豁免检定。
+伤害全抗。你具有所有伤害的抗性。
+中毒免疫。你具有中毒状态的免疫。`,
+  poisoned: `中毒状态期间，你将遭受以下这个效应。
+属性检定与攻击影响。你进行的攻击检定与属性检定具有劣势。`,
+  prone: `倒地状态期间，你将遭受以下这些效应。
+阻碍移动。你唯二的移动选项是匍匐移动或是消耗你速度一半数值（向下取整）的移动力起立，并由此终止这一状态。如果你的速度为0，你无法起立。
+攻击影响。你进行的攻击检定具有劣势。若攻击者位于你5尺内，其以你为目标的攻击检定具有优势；若攻击者不位于你5尺内，其以你为目标的攻击检定具有劣势。`,
+  restrained: `束缚状态期间，你将遭受以下这些效应。
+速度归零。你的速度变为0，且无法被增加。
+攻击影响。以你为目标的攻击检定具有优势，而你进行的攻击检定具有劣势。
+豁免影响。你进行的敏捷豁免检定具有劣势。`,
+  stunned: `震慑状态期间，你将遭受以下这些效应。
+失能。你陷入失能状态。
+豁免影响。你自动失败于力量豁免检定与敏捷豁免检定。
+攻击影响。以你为目标的攻击检定具有优势。`,
+  unconscious: `昏迷状态期间，你将遭受以下这些效应。
+迟钝。你陷入失能状态与倒地状态，你手上持握的东西也会全数掉落。此状态结束时，倒地状态并不会因此结束。
+速度归零。你的速度变为0，且无法被增加。
+攻击影响。以你为目标的攻击检定具有优势。
+豁免影响。你自动失败于力量豁免检定与敏捷豁免检定。
+自动重击。若攻击者位于你5尺内，其任何命中你的攻击检定都会变为重击。
+无知觉。你无法感知到你周遭的事物。`,
   psychic_collapse: '灵崩：精神崩溃，无法正常行动。',
 }
 
-/** 力竭等级文案 */
+/** 力竭等级文案（2024 规则摘要） */
 export const EXHAUSTION_DESCRIPTIONS = {
-  1: '劣势于属性检定',
-  2: '速度减半',
-  3: '攻击检定与豁免检定劣势',
-  4: '生命值上限减半',
-  5: '速度降为 0',
+  1: 'D20 检定 -2',
+  2: 'D20 检定 -4，速度减 10 尺',
+  3: 'D20 检定 -6，速度减 15 尺',
+  4: 'D20 检定 -8，速度减 20 尺',
+  5: 'D20 检定 -10，速度减 25 尺',
   6: '死亡',
 }
 
@@ -75,7 +137,7 @@ export const PIERCING_DAMAGE_OPTIONS = [
   { value: 'necrotic', label: '暗蚀' },
 ]
 
-/** 伤害骰一行编辑中「骰子」下拉选项：D4～D12，以及 2d6/2d8 */
+/** 伤害骰一行编辑中「骰子」下拉选项：D4～D12，以及 2d6/2d8（兼容旧 UI） */
 export const DAMAGE_DICE_OPTIONS = [
   { value: '1d4', label: '1d4' },
   { value: '1d6', label: '1d6' },
@@ -84,6 +146,15 @@ export const DAMAGE_DICE_OPTIONS = [
   { value: '1d12', label: '1d12' },
   { value: '2d6', label: '2d6' },
   { value: '2d8', label: '2d8' },
+]
+
+/** 伤害骰一行编辑中「骰子面数」下拉：仅面数 d4～d12，骰子个数用数字输入 */
+export const DICE_SIDES_OPTIONS = [
+  { value: 4, label: 'd4' },
+  { value: 6, label: 'd6' },
+  { value: 8, label: 'd8' },
+  { value: 10, label: 'd10' },
+  { value: 12, label: 'd12' },
 ]
 
 /** 伤害骰一行编辑中「箭」下拉选项 */
@@ -185,6 +256,8 @@ export const BUFF_TYPES = {
       // 互动调整方式：范围选项：默认 20，可选 19-20、18-20。
       // 这里用文本，直接填「20 / 19-20 / 18-20」之类的描述。
       { key: 'crit_range_expand', label: '暴击范围扩大', dataType: 'text' },
+      // 暴击X：暴击时额外投 X 个伤害骰（数字输入）
+      { key: 'crit_extra_dice', label: '暴击X', dataType: 'number' },
       // 表格：伤害骰（自定义一行：箭 - 数字 + 骰子 箭 类型 箭，箭为下拉）
       { key: 'extra_damage_dice', label: '伤害骰', dataType: 'object', subSelect: 'damageDiceInline' },
       // 表格：弹药无限
@@ -197,6 +270,7 @@ export const BUFF_TYPES = {
     color: 'orange',
     effects: [
       { key: 'ac_bonus', label: 'AC', dataType: 'number' },
+      { key: 'ac_cap_stone_layer', label: '瓦石层', dataType: 'number' },
       { key: 'resist_type', label: '伤害抗性', dataType: 'array', subSelect: 'damageType' },
       { key: 'immune_type', label: '伤害免疫', dataType: 'array', subSelect: 'damageType' },
       { key: 'vulnerable_type', label: '伤害易伤', dataType: 'array', subSelect: 'damageType' },
@@ -226,6 +300,8 @@ export const BUFF_TYPES = {
       { key: 'spell_attack_bonus', label: '法术攻击加值', dataType: 'number' },
       // 表格：法术豁免 DC 加值。仅数值。
       { key: 'save_dc_bonus', label: 'DC', dataType: 'number' },
+      // 内含法术：物品/附魔内嵌法术，半输入半从法术大全识别；环位、命中判断、射程/范围自动带出
+      { key: 'contained_spell', label: '内含法术', dataType: 'object', subSelect: 'containedSpell' },
       // 以下保留旧 key，供已有数据与计算器解析
       { key: 'speed_bonus', label: '移动速度', dataType: 'number', hidden: true },
       { key: 'flight_speed', label: '飞行速度', dataType: 'object', subSelect: 'flightSpeed', hidden: true },

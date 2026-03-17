@@ -188,12 +188,6 @@ export default function EquipmentBar({ character, canEdit, onSave }) {
             </>
           )}
         </div>
-        {(isWorn && entry && parsed) || (isShieldInOffHand && entry && parsed?.isShield) ? (
-          <p className="text-amber-200/90 text-[10px]">
-            {parsed?.isShield ? `AC +${parsed.bonus ?? 2}` : `AC ${parsed.baseAC ?? 10}${parsed.addDex ? (parsed.dexCap != null ? `+敏调(最大${parsed.dexCap})` : '+敏调') : ''}`}
-            {magicBonus > 0 && <span className="ml-1">{parsed?.isShield ? `盾牌增强 +${magicBonus}` : `+${magicBonus}`}</span>}
-          </p>
-        ) : null}
       </div>
     )
   }
@@ -241,7 +235,7 @@ export default function EquipmentBar({ character, canEdit, onSave }) {
               </button>
             )}
           </div>
-          <p className="text-gray-500 text-[10px]">身体不可删；可增删槽位。仅盔甲、衣服；显示 AC 与敏捷调整</p>
+          <p className="text-gray-500 text-[10px]">身体不可删；可增删槽位。仅盔甲、衣服</p>
           <div className="flex flex-col gap-2">
             {wornSlots.length === 0 ? (
               <p className="text-gray-500 text-xs py-1">暂无身穿槽位</p>

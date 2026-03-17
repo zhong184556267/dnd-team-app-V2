@@ -1,8 +1,21 @@
+import { isSupabaseEnabled } from './supabase'
+import * as whSupabase from './warehouseStoreSupabase'
+
 const WAREHOUSE_KEY_PREFIX = 'dnd_warehouse_'
 const WAREHOUSE_KEY_LEGACY = 'dnd_warehouse'
 
+/** Supabase 启用时按模组缓存仓库列表 */
+const warehouseCache = {}
+
 function warehouseKey(moduleId) {
   return WAREHOUSE_KEY_PREFIX + (moduleId || 'default')
+}
+
+/** 从 Supabase 拉取仓库并写入缓存（启用 Supabase 时由仓库页在 useEffect 中调用） */
+export async function loadWarehouseIntoCache(moduleId) {
+  if (!isSupabaseEnabled()) return
+  const list = await whSupabase.fetchWarehouse(moduleId)
+  warehouseCache[moduleId ?? 'default'] = list
 }
 
 /** 迁移：默认模组首次读取时从旧 key 迁入 */
@@ -20,6 +33,10 @@ function migrateWarehouseIfNeeded(moduleId) {
 }
 
 export function getWarehouse(moduleId) {
+  if (isSupabaseEnabled()) {
+    const mod = moduleId ?? 'default'
+    return Array.isArray(warehouseCache[mod]) ? warehouseCache[mod] : []
+  }
   migrateWarehouseIfNeeded(moduleId)
   try {
     const raw = localStorage.getItem(warehouseKey(moduleId))
@@ -31,6 +48,11 @@ export function getWarehouse(moduleId) {
 }
 
 function saveWarehouse(moduleId, list) {
+  if (isSupabaseEnabled()) {
+    const mod = moduleId ?? 'default'
+    warehouseCache[mod] = Array.isArray(list) ? list : []
+    return whSupabase.saveWarehouseRow(moduleId, list)
+  }
   try {
     localStorage.setItem(warehouseKey(moduleId), JSON.stringify(Array.isArray(list) ? list : []))
   } catch (_) {}
@@ -64,47 +86,50 @@ export function addToWarehouse(moduleId, entry) {
     }
   } else if (nameTrim) {
     list.push({ name: nameTrim, qty: qty || 1 })
-  } else return
-  saveWarehouse(moduleId, list)
-  return list
+  } else {
+    return Promise.resolve(list)
+  }
+  const saved = saveWarehouse(moduleId, list)
+  return saved && typeof saved.then === 'function' ? saved.then(() => list) : Promise.resolve(list)
 }
 
 /** 更新仓库中某条物品 */
 export function updateWarehouseItem(moduleId, index, updates) {
   const list = getWarehouse(moduleId)
-  if (index < 0 || index >= list.length) return list
+  if (index < 0 || index >= list.length) return Promise.resolve(list)
   const next = [...list]
   next[index] = { ...next[index], ...updates }
-  saveWarehouse(moduleId, next)
-  return next
+  const saved = saveWarehouse(moduleId, next)
+  return saved && typeof saved.then === 'function' ? saved.then(() => next) : Promise.resolve(next)
 }
 
 /** 从仓库移除或减少数量 */
 export function removeFromWarehouse(moduleId, index, amount = null) {
   const list = getWarehouse(moduleId)
-  if (index < 0 || index >= list.length) return list
+  if (index < 0 || index >= list.length) return Promise.resolve(list)
   const item = list[index]
   if (amount != null && item.qty > amount) {
     item.qty -= amount
-    saveWarehouse(moduleId, list)
   } else {
     list.splice(index, 1)
-    saveWarehouse(moduleId, list)
   }
-  return list
+  const saved = saveWarehouse(moduleId, list)
+  return saved && typeof saved.then === 'function' ? saved.then(() => list) : Promise.resolve(list)
 }
 
 export function setWarehouse(moduleId, list) {
-  saveWarehouse(moduleId, Array.isArray(list) ? list : [])
+  const next = Array.isArray(list) ? list : []
+  const saved = saveWarehouse(moduleId, next)
+  return saved && typeof saved.then === 'function' ? saved.then(() => next) : Promise.resolve(next)
 }
 
 /** 重排仓库物品顺序 */
 export function reorderWarehouse(moduleId, fromIndex, toIndex) {
   const list = getWarehouse(moduleId)
-  if (fromIndex < 0 || fromIndex >= list.length || toIndex < 0 || toIndex >= list.length || fromIndex === toIndex) return list
+  if (fromIndex < 0 || fromIndex >= list.length || toIndex < 0 || toIndex >= list.length || fromIndex === toIndex) return Promise.resolve(list)
   const next = [...list]
   const [item] = next.splice(fromIndex, 1)
   next.splice(toIndex, 0, item)
-  saveWarehouse(moduleId, next)
-  return next
+  const saved = saveWarehouse(moduleId, next)
+  return saved && typeof saved.then === 'function' ? saved.then(() => next) : Promise.resolve(next)
 }

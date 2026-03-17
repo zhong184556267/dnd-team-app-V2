@@ -1,8 +1,15 @@
+import { isSupabaseEnabled } from './supabase'
+import * as charSupabase from './characterStoreSupabase'
+
 const STORAGE_KEY = 'starlight_characters'
 
-/** 常用角色 ID 的 localStorage 键（按用户名） */
-function defaultCharKey(ownerName) {
-  return `starlight_default_character_${ownerName || ''}`
+/** Supabase 启用时的内存缓存（按当前加载的 owner/module 过滤后列表） */
+let charactersCache = []
+
+/** 常用角色 ID 的 localStorage 键（按用户名 + 模组） */
+function defaultCharKey(ownerName, moduleId) {
+  const mod = moduleId ?? 'default'
+  return `starlight_default_character_${ownerName || ''}_${mod}`
 }
 
 /** 属性调整值 */
@@ -19,8 +26,33 @@ export function proficiencyBonus(level) {
 
 const defaultAbilities = () => ({ str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 })
 
+/** 从 Supabase 拉取角色并写入缓存（启用 Supabase 时由页面在 useEffect 中调用） */
+export async function loadCharactersIntoCache(ownerName, isAdmin, moduleId) {
+  if (!isSupabaseEnabled()) return
+  const list = await charSupabase.fetchCharacters(ownerName, isAdmin, moduleId)
+  charactersCache = list
+}
+
+/** 按 id 拉取单条角色并写入缓存（用于直接打开角色页时） */
+export async function loadCharacterById(id) {
+  if (!isSupabaseEnabled() || !id) return null
+  const character = await charSupabase.fetchCharacterById(id)
+  if (character) {
+    const idx = charactersCache.findIndex((c) => c.id === id)
+    if (idx >= 0) charactersCache[idx] = character
+    else charactersCache.push(character)
+  }
+  return character
+}
+
 /** @param {string} [moduleId] 模组 id，传入则只返回该模组下的角色 */
 export function getCharacters(ownerName, isAdmin, moduleId) {
+  if (isSupabaseEnabled()) {
+    let out = charactersCache
+    if (!isAdmin && ownerName) out = out.filter((c) => c.owner === ownerName)
+    if (moduleId != null && moduleId !== '') out = out.filter((c) => (c.moduleId ?? 'default') === moduleId)
+    return out
+  }
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     const list = raw ? JSON.parse(raw) : []
@@ -36,6 +68,10 @@ export function getCharacters(ownerName, isAdmin, moduleId) {
 
 /** 获取所有角色（可按模组过滤） */
 export function getAllCharacters(moduleId) {
+  if (isSupabaseEnabled()) {
+    if (moduleId != null && moduleId !== '') return charactersCache.filter((c) => (c.moduleId ?? 'default') === moduleId)
+    return charactersCache
+  }
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     const list = raw ? JSON.parse(raw) : []
@@ -49,29 +85,35 @@ export function getAllCharacters(moduleId) {
 }
 
 export function getCharacter(id) {
-  const raw = localStorage.getItem(STORAGE_KEY)
-  const list = raw ? JSON.parse(raw) : []
-  return list.find((c) => c.id === id) ?? null
-}
-
-/** 获取当前用户的常用角色 ID（设为默认的角色） */
-export function getDefaultCharacterId(ownerName) {
-  if (!ownerName) return null
+  if (isSupabaseEnabled()) return charactersCache.find((c) => c.id === id) ?? null
   try {
-    return localStorage.getItem(defaultCharKey(ownerName)) || null
+    const raw = localStorage.getItem(STORAGE_KEY)
+    const list = raw ? JSON.parse(raw) : []
+    return list.find((c) => c.id === id) ?? null
   } catch {
     return null
   }
 }
 
-/** 设置或清除常用角色 ID；传 null 表示清除 */
-export function setDefaultCharacterId(ownerName, characterId) {
+/** 获取当前用户在指定模组下的常用角色 ID（不传 moduleId 时用 'default'） */
+export function getDefaultCharacterId(ownerName, moduleId) {
+  if (!ownerName) return null
+  try {
+    return localStorage.getItem(defaultCharKey(ownerName, moduleId ?? 'default')) || null
+  } catch {
+    return null
+  }
+}
+
+/** 设置或清除常用角色 ID；传 null 表示清除。moduleId 不传时用 'default' */
+export function setDefaultCharacterId(ownerName, characterId, moduleId) {
   if (!ownerName) return
   try {
+    const key = defaultCharKey(ownerName, moduleId ?? 'default')
     if (characterId) {
-      localStorage.setItem(defaultCharKey(ownerName), characterId)
+      localStorage.setItem(key, characterId)
     } else {
-      localStorage.removeItem(defaultCharKey(ownerName))
+      localStorage.removeItem(key)
     }
   } catch (_) {}
 }
@@ -93,9 +135,8 @@ function saveCharacters(list) {
 }
 
 export function addCharacter(ownerName, data = {}) {
-  const raw = localStorage.getItem(STORAGE_KEY)
-  const list = raw ? JSON.parse(raw) : []
   const id = crypto.randomUUID()
+  const now = new Date().toISOString()
   const character = {
     id,
     owner: ownerName,
@@ -118,15 +159,32 @@ export function addCharacter(ownerName, data = {}) {
     equipment: data.equipment ?? {},
     buffs: data.buffs ?? [],
     notes: data.notes ?? '',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    createdAt: now,
+    updatedAt: now,
   }
+  if (isSupabaseEnabled()) {
+    return charSupabase.insertCharacter(character).then((inserted) => {
+      charactersCache.push(inserted)
+      return inserted
+    })
+  }
+  const raw = localStorage.getItem(STORAGE_KEY)
+  const list = raw ? JSON.parse(raw) : []
   list.push(character)
   saveCharacters(list)
   return character
 }
 
 export function updateCharacter(id, patch) {
+  if (isSupabaseEnabled()) {
+    return charSupabase.updateCharacterRow(id, patch).then((updated) => {
+      if (updated) {
+        const idx = charactersCache.findIndex((c) => c.id === id)
+        if (idx >= 0) charactersCache[idx] = updated
+      }
+      return updated
+    })
+  }
   const raw = localStorage.getItem(STORAGE_KEY)
   const list = raw ? JSON.parse(raw) : []
   const idx = list.findIndex((c) => c.id === id)
@@ -137,13 +195,23 @@ export function updateCharacter(id, patch) {
 }
 
 export function deleteCharacter(id) {
+  if (isSupabaseEnabled()) {
+    return charSupabase.deleteCharacterRow(id).then(() => {
+      const deletedChar = charactersCache.find((c) => c.id === id)
+      if (deletedChar && deletedChar.owner && getDefaultCharacterId(deletedChar.owner, deletedChar.moduleId ?? 'default') === id) {
+        setDefaultCharacterId(deletedChar.owner, null, deletedChar.moduleId ?? 'default')
+      }
+      charactersCache = charactersCache.filter((c) => c.id !== id)
+      return true
+    })
+  }
   const raw = localStorage.getItem(STORAGE_KEY)
   const list = raw ? JSON.parse(raw) : []
-  const owner = list.find((c) => c.id === id)?.owner
   const next = list.filter((c) => c.id !== id)
   if (next.length === list.length) return false
-  if (owner && getDefaultCharacterId(owner) === id) {
-    setDefaultCharacterId(owner, null)
+  const deletedChar = list.find((c) => c.id === id)
+  if (deletedChar && deletedChar.owner && getDefaultCharacterId(deletedChar.owner, deletedChar.moduleId ?? 'default') === id) {
+    setDefaultCharacterId(deletedChar.owner, null, deletedChar.moduleId ?? 'default')
   }
   saveCharacters(next)
   return true
@@ -151,14 +219,20 @@ export function deleteCharacter(id) {
 
 /** 复制角色：深拷贝并生成新 ID，保留原所有者 */
 export function duplicateCharacter(id) {
-  const raw = localStorage.getItem(STORAGE_KEY)
-  const list = raw ? JSON.parse(raw) : []
-  const src = list.find((c) => c.id === id)
-  if (!src) return null
+  const src = (isSupabaseEnabled() ? charactersCache : (() => { try { const raw = localStorage.getItem(STORAGE_KEY); return raw ? JSON.parse(raw) : [] } catch { return [] } })()).find((c) => c.id === id)
+  if (!src) return isSupabaseEnabled() ? Promise.resolve(null) : null
   const copy = JSON.parse(JSON.stringify(src))
   copy.id = crypto.randomUUID()
   copy.createdAt = new Date().toISOString()
   copy.updatedAt = new Date().toISOString()
+  if (isSupabaseEnabled()) {
+    return charSupabase.insertCharacter(copy).then((inserted) => {
+      charactersCache.push(inserted)
+      return inserted
+    })
+  }
+  const raw = localStorage.getItem(STORAGE_KEY)
+  const list = raw ? JSON.parse(raw) : []
   list.push(copy)
   saveCharacters(list)
   return copy

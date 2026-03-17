@@ -3,7 +3,7 @@
  * 含：角色名、外观/基础、经验与等级、职业、Buff、背包、同调位。
  * 备份于恢复战斗状态之前。
  */
-import { useState, useEffect, useCallback, useRef, useMemo, forwardRef } from 'react'
+import { useState, useEffect, useCallback, useRef, forwardRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { ChevronUp, ChevronDown, Trash2, Star, Upload, X } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
@@ -14,8 +14,6 @@ import {
   getPactLevel,
   getPrimarySpellcastingAbility,
   ALL_CLASS_NAMES,
-  getClassDisplayName,
-  getSubclassOptions,
   isFanxingClass,
   getAvailableFeatures,
   resolveSelectedFeatures,
@@ -24,8 +22,6 @@ import { FANXING_PRESTIGE_CLASSES } from '../data/fanxing'
 import { ABILITY_NAMES_ZH } from '../data/buffTypes'
 import { FEATS, FEATS_BY_CATEGORY } from '../data/feats'
 import { useCombatState } from '../hooks/useCombatState'
-import { useBuffCalculator } from '../hooks/useBuffCalculator'
-import { getBuffsFromEquipmentAndInventory } from '../lib/effects/effectMapping'
 import BuffManager from '../components/BuffManager'
 import CombatStatus from '../components/CombatStatus'
 import EquipmentAndInventory from '../components/EquipmentAndInventory'
@@ -242,7 +238,7 @@ function AppearanceGrid({ char, canEdit, onSave, noBorder, compact }) {
   )
 }
 
-/** 经验与等级：进度条 + 现有经验/经验等级；剧情等级可手动输入。仅两种字号：普通文案 / 重点文案；排版紧凑。 */
+/** 经验与等级：进度条 + 现有经验/经验等级；剧情等级可手动输入 */
 function ExperienceLevelSection({ char, level, canEdit, onSave }) {
   const [xpInput, setXpInput] = useState('')
   const addXP = (raw) => {
@@ -260,16 +256,19 @@ function ExperienceLevelSection({ char, level, canEdit, onSave }) {
   const storyLevel = typeof char.storyLevel === 'number' && char.storyLevel >= 1 ? Math.min(20, Math.max(1, char.storyLevel)) : null
   const displayLevel = storyLevel != null && expLevel >= storyLevel ? storyLevel : expLevel
   return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between gap-2">
-        <span className="panel-label">经验 · 等级 {expLevel}</span>
-        <span className="panel-value font-mono">{xp.toLocaleString()}</span>
-      </div>
-      <div className="xp-progress-track w-full">
-        <div className="xp-progress-fill" style={{ width: `${Math.min(100, xpProgress * 100)}%` }} />
+    <div className="space-y-4">
+      {/* 经验条 + 等级 */}
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-between gap-2">
+          <span className="panel-label">经验 · 等级 {expLevel}</span>
+          <span className="panel-value font-mono">{xp.toLocaleString()}</span>
+        </div>
+        <div className="xp-progress-track w-full">
+          <div className="xp-progress-fill" style={{ width: `${Math.min(100, xpProgress * 100)}%` }} />
+        </div>
       </div>
       {canEdit && (
-        <div className="flex gap-1.5 items-center flex-wrap">
+        <div className="flex gap-2 items-center flex-wrap">
           <input
             type="number"
             min="0"
@@ -277,7 +276,7 @@ function ExperienceLevelSection({ char, level, canEdit, onSave }) {
             value={xpInput}
             onChange={(e) => setXpInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') addXP(e.target.value) }}
-            className="panel-input max-w-[9rem] font-mono shrink-0"
+            className="panel-input max-w-[10rem] font-mono shrink-0"
           />
           <button type="button" onClick={() => addXP(xpInput)} className="btn-panel-add shrink-0">
             加入
@@ -291,16 +290,16 @@ function ExperienceLevelSection({ char, level, canEdit, onSave }) {
           </button>
         </div>
       )}
-      <div className="grid grid-cols-2 gap-2">
-        <div className="panel-card-compact flex flex-col min-h-0 justify-center">
-          <p className="panel-label mb-0.5">现有经验</p>
-          <p className="panel-value font-mono">{xp.toLocaleString()}</p>
-          <p className="panel-label mt-0.5">经验等级 {expLevel}</p>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="panel-card flex flex-col min-h-0 justify-center">
+          <p className="panel-label mb-1">现有经验</p>
+          <p className="panel-value-lg font-mono">{xp.toLocaleString()}</p>
+          <p className="panel-label mt-1">经验等级 {expLevel}</p>
         </div>
-        <div className="panel-card-compact flex flex-col min-h-0 justify-center">
+        <div className="panel-card flex flex-col min-h-0 justify-center">
           {canEdit ? (
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <label className="panel-label shrink-0">剧情等级</label>
+            <div className="flex items-center gap-2 flex-wrap">
+              <label className="panel-label">剧情等级</label>
               <input
                 type="number"
                 min={1}
@@ -311,13 +310,13 @@ function ExperienceLevelSection({ char, level, canEdit, onSave }) {
                   onSave({ storyLevel: v })
                 }}
                 placeholder="可选"
-                className="panel-input-compact w-12 font-mono text-center"
+                className="panel-input w-14 font-mono text-sm"
               />
             </div>
           ) : storyLevel != null ? (
             <p className="panel-label">剧情等级 {storyLevel}</p>
           ) : null}
-          <p className="panel-value mt-0.5">lv.{displayLevel}</p>
+          <p className="text-[var(--text-title)] text-xl font-bold mt-1">lv.{displayLevel}</p>
         </div>
       </div>
     </div>
@@ -367,7 +366,7 @@ function ClassSpellcastingSummary({ char }) {
       {pactLevel > 0 && (
         <span className="px-3 py-1.5 rounded-lg bg-gray-700/80 text-white">
           <span className="text-dnd-gold-light font-bold">契约等级</span> {pactLevel}
-          <span className="text-gray-400 text-xs ml-1">（魔契师）</span>
+          <span className="text-gray-400 text-xs ml-1">（邪术师）</span>
         </span>
       )}
       {ability && (
@@ -727,14 +726,7 @@ function ClassSection({ char, level, canEdit, onSave }) {
               <div className="flex gap-2 items-center flex-wrap">
                 <select
                   value={classVal}
-                  onChange={(e) => {
-                    const nextClass = e.target.value
-                    const nextSubs = getSubclassOptions(nextClass)
-                    const keepSub = nextSubs.includes(subclass) ? subclass : ''
-                    setClassVal(nextClass)
-                    setSubclass(keepSub)
-                    persistClass({ 'class': nextClass, subclass: keepSub })
-                  }}
+                  onChange={(e) => { setClassVal(e.target.value); persistClass({ 'class': e.target.value }) }}
                   className={selectClass}
                 >
                   <option value="">—</option>
@@ -752,21 +744,19 @@ function ClassSection({ char, level, canEdit, onSave }) {
               </div>
               <div>
                 <label className="panel-label mb-1 block">子职（选填）</label>
-                <select
+                <input
+                  type="text"
                   value={subclass}
-                  onChange={(e) => { setSubclass(e.target.value); persistClass({ subclass: e.target.value }) }}
-                  className={selectClass + ' w-full'}
-                >
-                  <option value="">—</option>
-                  {getSubclassOptions(classVal).map((s) => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
-                </select>
+                  onChange={(e) => { setSubclass(e.target.value); persistClass({ subclass: e.target.value.trim() }) }}
+                  onBlur={(e) => persistClass({ subclass: e.target.value.trim() })}
+                  placeholder="如：学识学院、狂战士"
+                  className="panel-input w-full"
+                />
               </div>
             </div>
           ) : (
             <p className="text-[var(--text-main)] font-semibold text-sm">
-              {char?.['class'] ? `${getClassDisplayName(char['class'])}${char.subclass ? `（${char.subclass}）` : ''} ${char.classLevel ?? 1}` : '—'}
+              {char?.['class'] ? `${char['class']}${char.subclass ? `（${char.subclass}）` : ''} ${char.classLevel ?? 1}` : '—'}
             </p>
           )}
         </div>
@@ -792,16 +782,14 @@ function ClassSection({ char, level, canEdit, onSave }) {
                       </select>
                       <LevelStepper value={m.level} onChange={(n) => setMulticlassRow(i, 'level', n)} min={0} max={rowMax} disabled={!m['class']} />
                     </div>
-                    <select
+                    <input
+                      type="text"
                       value={m.subclass ?? ''}
                       onChange={(e) => setMulticlassRow(i, 'subclass', e.target.value)}
-                      className={selectClass + ' w-full text-sm'}
-                    >
-                      <option value="">—</option>
-                      {getSubclassOptions(m['class']).map((s) => (
-                        <option key={s} value={s}>{s}</option>
-                      ))}
-                    </select>
+                      onBlur={(e) => setMulticlassRow(i, 'subclass', e.target.value.trim())}
+                      placeholder="子职（选填）"
+                      className="panel-input w-full text-sm"
+                    />
                   </div>
                 )
               })}
@@ -809,7 +797,7 @@ function ClassSection({ char, level, canEdit, onSave }) {
             </div>
           ) : (
             <p className="text-[var(--text-main)] text-sm">
-              {Array.isArray(char?.multiclass) && char.multiclass.length ? char.multiclass.map((m) => `${getClassDisplayName(m['class']) || '?'}${m.subclass ? `（${m.subclass}）` : ''} ${m.level ?? 0}`).join(' / ') : '—'}
+              {Array.isArray(char?.multiclass) && char.multiclass.length ? char.multiclass.map((m) => `${m['class'] || '?'}${m.subclass ? `（${m.subclass}）` : ''} ${m.level ?? 0}`).join(' / ') : '—'}
             </p>
           )}
         </div>
@@ -842,7 +830,7 @@ function ClassSection({ char, level, canEdit, onSave }) {
             </div>
           ) : (
             <p className="text-[var(--text-main)] text-sm">
-              {Array.isArray(char?.prestige) && char.prestige.length ? char.prestige.map((p) => `${getClassDisplayName(p['class']) || '?'} ${p.level || 0}`).join(' / ') : char?.prestigeClass ? `${getClassDisplayName(char.prestigeClass)} ${char.prestigeLevel ?? 0}` : '—'}
+              {Array.isArray(char?.prestige) && char.prestige.length ? char.prestige.map((p) => `${p['class'] || '?'} ${p.level || 0}`).join(' / ') : char?.prestigeClass ? `${char.prestigeClass} ${char.prestigeLevel ?? 0}` : '—'}
             </p>
           )}
         </div>
@@ -865,12 +853,6 @@ export default function CharacterSheet() {
   const level = char ? levelFromXP(char.xp) : 0
   const spellLevel = char ? getSpellcastingLevel(char) : 0
   const combatState = useCombatState(char)
-  const mergedBuffs = useMemo(() => {
-    const manual = char?.buffs ?? []
-    const fromItems = getBuffsFromEquipmentAndInventory(char)
-    return [...manual, ...fromItems]
-  }, [char?.buffs, char?.inventory, char?.equippedHeld, char?.equippedWorn])
-  const buffStats = useBuffCalculator(char, mergedBuffs)
   const canEdit = isAdmin || char?.owner === user?.name
 
   useEffect(() => {
@@ -967,7 +949,7 @@ export default function CharacterSheet() {
               <AbilityModule
                 char={char}
                 abilities={char.abilities ?? { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 }}
-                buffStats={buffStats}
+                buffStats={{}}
                 level={level}
                 canEdit={canEdit}
                 onSave={persist}
@@ -976,7 +958,7 @@ export default function CharacterSheet() {
           </section>
           <section className="mt-6">
             <h3 className="section-title">Buff / 状态</h3>
-            <BuffManager buffs={mergedBuffs} baseAbilities={char.abilities ?? {}} onSave={(buffsList) => persist({ buffs: buffsList.filter((b) => !b.fromItem) })} canEdit={canEdit} />
+            <BuffManager buffs={char.buffs} baseAbilities={char.abilities ?? {}} onSave={(buffsList) => persist({ buffs: buffsList })} canEdit={canEdit} />
           </section>
           <section className="mt-6">
             <h3 className="section-title">战斗状态</h3>

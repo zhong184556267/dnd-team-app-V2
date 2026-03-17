@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { User, BookOpen, ChevronDown, ChevronRight, Plus, Pencil } from 'lucide-react'
+import { User, BookOpen, ChevronDown, ChevronRight, Plus, Pencil, Star, GripVertical } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useModule } from '../contexts/ModuleContext'
-import { getAllCharacters } from '../lib/characterStore'
+import { getAllCharacters, getDefaultCharacterId } from '../lib/characterStore'
 import { getClassDisplayName } from '../data/classDatabase'
-import { getModules, addModule, updateModule } from '../lib/moduleStore'
+import { getModules, addModule, updateModule, reorderModules } from '../lib/moduleStore'
 import { levelFromXP } from '../lib/xp5e'
 import { inputClass } from '../lib/inputStyles'
 
@@ -54,6 +54,10 @@ export default function Dashboard() {
     count: getAllCharacters(m.id).length,
   }))
 
+  useEffect(() => {
+    if (modules.length > 0) setCurrentModuleId(modules[0].id)
+  }, [])
+
   const toggleExpand = (moduleId) => {
     setExpandedModuleIds((prev) => {
       const next = new Set(prev)
@@ -97,6 +101,30 @@ export default function Dashboard() {
 
   const canOpen = (c) => isAdmin || c.owner === user?.name
 
+  const handleDragStart = (e, index) => {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', String(index))
+  }
+  const handleDragOver = (e) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+  }
+  const handleDrop = (e, dropIndex) => {
+    e.preventDefault()
+    const fromIndex = parseInt(e.dataTransfer.getData('text/plain'), 10)
+    if (Number.isNaN(fromIndex) || fromIndex === dropIndex) return
+    const next = [...moduleCounts]
+    const [removed] = next.splice(fromIndex, 1)
+    next.splice(dropIndex, 0, removed)
+    reorderModules(next.map(({ id, name }) => ({ id, name })))
+    refreshModules()
+  }
+  const formatDateTime = (iso) => {
+    if (!iso) return '—'
+    const d = new Date(iso)
+    return d.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' }) + ' ' + d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+  }
+
   return (
     <div className="p-4 pb-24 min-h-screen bg-dnd-bg">
       <h1 className="font-display text-xl font-semibold text-white mb-4">
@@ -107,13 +135,18 @@ export default function Dashboard() {
         模组
       </h2>
       <div className="space-y-3">
-        {moduleCounts.map((m) => {
+        {moduleCounts.map((m, index) => {
           const isExpanded = expandedModuleIds.has(m.id)
           const isEditing = editingModuleId === m.id
           const charList = getAllCharacters(m.id)
+          const defaultCharId = getDefaultCharacterId(user?.name, m.id)
           return (
             <div
               key={m.id}
+              draggable={!isEditing}
+              onDragStart={(e) => handleDragStart(e, index)}
+              onDragOver={handleDragOver}
+              onDrop={(e) => handleDrop(e, index)}
               className="rounded-xl border border-white/10 bg-dnd-card overflow-hidden"
             >
               <div
@@ -125,10 +158,17 @@ export default function Dashboard() {
                   isExpanded ? 'border-l-4 border-dnd-gold/50 bg-gray-900/70' : ''
                 }`}
               >
-                <div className="flex items-center gap-3 min-w-0 flex-1">
+                <div className="flex items-center gap-2 shrink-0">
+                  {!isEditing && (
+                    <span className="cursor-grab active:cursor-grabbing text-dnd-text-muted hover:text-dnd-gold-light" title="拖动排序" onClick={(e) => e.stopPropagation()}>
+                      <GripVertical className="w-5 h-5" />
+                    </span>
+                  )}
                   <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-black/30 border border-white/10">
                     <BookOpen className="w-5 h-5 text-dnd-gold-light" />
                   </span>
+                </div>
+                <div className="flex items-center gap-3 min-w-0 flex-1">
                   <div className="min-w-0 flex-1">
                     {isEditing ? (
                       <input
@@ -146,7 +186,12 @@ export default function Dashboard() {
                         autoFocus
                       />
                     ) : (
-                      <p className="font-semibold text-white truncate">{m.name}</p>
+                      <p className="font-semibold text-white truncate flex items-center gap-1.5">
+                        {m.name}
+                        {defaultCharId && (
+                          <Star className="w-4 h-4 text-dnd-gold-light shrink-0" fill="currentColor" title="已设常用角色" />
+                        )}
+                      </p>
                     )}
                     <p className="text-dnd-text-muted text-sm">{m.count} 个角色</p>
                   </div>
@@ -232,6 +277,9 @@ export default function Dashboard() {
                               <p className={`text-xs mt-0.5 font-mono font-semibold ${isLowHp ? 'text-dnd-red' : 'text-dnd-text-muted'}`}>
                                 HP {cur}/{max}
                                 {hp.temp ? ` +${hp.temp} 临时` : ''}
+                              </p>
+                              <p className="text-xs text-dnd-text-muted mt-0.5">
+                                创建 {c.owner ?? '—'} · 修改 {formatDateTime(c.updatedAt ?? c.createdAt)}
                               </p>
                             </div>
                           </>

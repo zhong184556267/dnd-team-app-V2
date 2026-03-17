@@ -3,11 +3,17 @@
 一个轻量的 D&D 跑团小助手（React + Vite + Tailwind）。  
 项目规划与功能说明见 **[策划.md](策划.md)**。
 
-## 运行
+## 运行（本地开发）
 
 - **推荐**：双击 **`start-dev.bat`**，浏览器打开提示的地址（如 http://localhost:5173）。
 - 或终端执行：`npm install` → `npm run dev`。
 
 关闭运行窗口或 Ctrl+C 会停止服务。
-"# Updated for Vercel deploy trigger" 
-"// Trigger first Vercel deployment" 
+
+## 部署与团队使用（约 10 人）
+
+要让小伙伴一起用，只需把应用部署成一个网址并分享链接。详细步骤见：
+
+- **[团队使用说明.md](团队使用说明.md)** — 部署方式（Vercel 等）、如何分享链接、每人如何用「自己的名字」登录、数据存在哪、可选 Supabase 同步。
+
+简要步骤：**部署到 Vercel（或其它静态托管）→ 把链接发给队友 → 每人打开链接输入自己的名字即可使用。**

@@ -3,6 +3,27 @@
  * 单条：id, name, level(0=戏法,1-9), school?, source?(职业法表[]), ritual?, castingTime?, range?, components?, duration?, description, sourceBook?
  */
 
+/** 魔杖与卷轴的法强：按法术环阶固定豁免DC与攻击加值，供魔杖/卷轴内含法术使用 */
+export const WAND_SCROLL_SPELL_POWER = [
+  { level: 0, label: '戏法', dc: 13, attackBonus: 5 },
+  { level: 1, label: '一环', dc: 13, attackBonus: 5 },
+  { level: 2, label: '二环', dc: 13, attackBonus: 5 },
+  { level: 3, label: '三环', dc: 15, attackBonus: 7 },
+  { level: 4, label: '四环', dc: 15, attackBonus: 7 },
+  { level: 5, label: '五环', dc: 17, attackBonus: 9 },
+  { level: 6, label: '六环', dc: 17, attackBonus: 9 },
+  { level: 7, label: '七环', dc: 18, attackBonus: 10 },
+  { level: 8, label: '八环', dc: 18, attackBonus: 10 },
+  { level: 9, label: '九环', dc: 19, attackBonus: 11 },
+]
+
+/** 按法术环阶取魔杖/卷轴法强；level 0–9，缺省返回 0 环数据 */
+export function getWandScrollSpellPower(level) {
+  const l = Math.max(0, Math.min(9, Number(level) || 0))
+  const row = WAND_SCROLL_SPELL_POWER.find((r) => r.level === l) ?? WAND_SCROLL_SPELL_POWER[0]
+  return { dc: row.dc, attackBonus: row.attackBonus }
+}
+
 export const SPELLS = [
   // ========== 戏法 ==========
   {

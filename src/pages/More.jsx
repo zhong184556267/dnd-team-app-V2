@@ -1,5 +1,6 @@
 import { useAuth } from '../contexts/AuthContext'
 import { Link, useNavigate } from 'react-router-dom'
+import { APP_VERSION_LABEL } from '../config/version'
 
 export default function More() {
   const { user, isAdmin, logout } = useAuth()
@@ -39,6 +40,9 @@ export default function More() {
         <p className="text-dnd-text-muted text-sm pt-2">
           当前：{user?.name}
           {isAdmin && ' (DM)'}
+        </p>
+        <p className="text-dnd-text-muted text-xs pt-1 opacity-80">
+          {APP_VERSION_LABEL} · D&D 团队小助手
         </p>
         <button
           type="button"

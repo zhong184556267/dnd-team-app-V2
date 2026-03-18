@@ -37,17 +37,48 @@ function getSaveProficiencyColor(level) {
   }
 }
 
-/** 技能行左边框颜色，与熟练度一致 */
-function getProficiencyBorderClass(level) {
+/** 技能行：熟练→金色文案，精通→红色，半熟练→天蓝 */
+function getSkillRowLabelClass(level) {
   switch (level) {
     case 'expertise':
-      return 'border-l-[3px] border-l-[#B8860B]'
+      return 'text-[#E01C2F]'
     case 'prof':
-      return 'border-l-[3px] border-l-[#E01C2F]'
+      return 'text-[#D4AF37]'
+    case 'half':
+      return 'text-sky-400'
+    default:
+      return 'text-gray-300'
+  }
+}
+
+/** 技能行左侧标识：熟练=金条；精通=金线+红条（参考图2）；半熟练=蓝；无=灰 */
+function getSkillRowLeftBorderClass(level) {
+  switch (level) {
+    case 'prof':
+      return 'border-l-[3px] border-l-[#D4AF37]'
     case 'half':
       return 'border-l-[3px] border-l-[#38BDF8]'
     default:
       return 'border-l-[3px] border-l-gray-500'
+  }
+}
+
+function getSkillDiceButtonClass(level, isRolling) {
+  if (isRolling) {
+    if (level === 'prof') return 'bg-white text-[#B8860B] scale-110'
+    if (level === 'expertise') return 'bg-white text-[#E01C2F] scale-110'
+    if (level === 'half') return 'bg-white text-sky-600 scale-110'
+    return 'bg-white text-gray-600 scale-110'
+  }
+  switch (level) {
+    case 'expertise':
+      return 'bg-[#E01C2F] hover:bg-[#C41828] text-white'
+    case 'prof':
+      return 'bg-[#B8860B] hover:bg-[#9A7209] text-white'
+    case 'half':
+      return 'bg-sky-600 hover:bg-sky-500 text-white'
+    default:
+      return 'bg-gray-600 hover:bg-gray-500 text-white'
   }
 }
 
@@ -191,16 +222,12 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
 
               {/* B. 核心区：3 列网格，紧凑排版 */}
               <div className="px-1.5 py-0.5">
-                <div className={`rounded-lg py-0.5 px-1.5 grid grid-cols-[1fr_1fr_1fr] grid-rows-2 gap-x-1.5 gap-y-0.5 min-w-0 border ${saveProfLevel === 'prof' ? 'border-[#B8860B]' : 'border-gray-500'}`} style={{ background: 'linear-gradient(180deg, rgba(55,65,81,0.5) 0%, rgba(45,55,72,0.6) 100%)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)' }}>
-                  {/* 左列：调整值（仅数值加大） */}
-                  <div className="col-start-1 row-span-2 flex flex-col items-center justify-center gap-0 min-w-0 border-r border-gray-500 pr-1.5">
+                <div className={`rounded-lg py-1 px-1.5 grid grid-cols-[1fr_1fr_1fr] grid-rows-[auto_auto] gap-x-1.5 gap-y-1 min-w-0 border ${saveProfLevel === 'prof' ? 'border-[#B8860B]' : 'border-gray-500'}`} style={{ background: 'linear-gradient(180deg, rgba(55,65,81,0.5) 0%, rgba(45,55,72,0.6) 100%)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)' }}>
+                  {/* 第一行：调整值文案 | 基础值输入 | 豁免文案 */}
+                  <div className="col-start-1 row-start-1 flex items-center justify-center min-w-0 border-r border-gray-500 pr-1.5">
                     <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide leading-tight">调整值</span>
-                    <span className="text-[1.4rem] font-bold text-white font-mono tabular-nums leading-none">
-                      {mod >= 0 ? '+' : ''}{mod}
-                    </span>
                   </div>
-                  {/* 中列上：仅数值/步进器，无「基础」文案 */}
-                  <div className="col-start-2 row-start-1 flex flex-col items-center justify-center gap-0 min-w-0 border-b border-gray-500/70 pb-0.5">
+                  <div className="col-start-2 row-start-1 flex items-center justify-center min-w-0">
                     {canEdit ? (
                       <NumberStepper
                         value={typeof baseScore === 'number' ? baseScore : (parseInt(baseScore, 10) || 10)}
@@ -213,31 +240,35 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
                       <span className="text-sm font-medium font-mono text-white tabular-nums">{baseScore}</span>
                     )}
                   </div>
-                  {/* 中列下：总值 */}
-                  <div className="col-start-2 row-start-2 flex flex-col items-center justify-center gap-0 min-w-0 pt-0.5">
+                  <div className="col-start-3 row-start-1 flex items-center justify-center min-w-0 border-l border-gray-500 pl-1.5">
+                    <span className="text-[10px] font-semibold text-dnd-gold-light uppercase tracking-wide leading-tight">豁免</span>
+                  </div>
+                  {/* 第二行：调整值数字 | 总值（与基础值之间无分割线） | 豁免加值+投掷 */}
+                  <div className="col-start-1 row-start-2 flex flex-col items-center justify-center min-w-0 border-r border-gray-500 pr-1.5">
+                    <span className="text-[1.75rem] font-bold text-white font-mono tabular-nums leading-none tracking-tight">
+                      {mod >= 0 ? '+' : ''}{mod}
+                    </span>
+                  </div>
+                  <div className="col-start-2 row-start-2 flex flex-col items-center justify-center gap-0.5 min-w-0">
                     <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide leading-tight">总值</span>
                     <span className="text-sm font-medium font-mono text-white tabular-nums">{effectiveScore}</span>
                   </div>
-                  {/* 右列：豁免（仅数值加大）+ 投掷按钮 */}
-                  <div className="col-start-3 row-span-2 flex flex-col items-center justify-center gap-0 min-w-0 pl-1.5 border-l border-gray-500">
-                    <span className="text-[10px] font-semibold text-dnd-gold-light uppercase tracking-wide leading-tight">豁免</span>
-                    <div className="flex items-center gap-1">
-                      <span className={`text-[1.4rem] font-bold font-mono tabular-nums leading-none ${saveProfLevel === 'prof' ? 'text-[#D4AF37]' : 'text-white'}`}>
-                        {saveBonus >= 0 ? '+' : ''}{saveBonus}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => handleSaveRoll(key)}
-                        className={`w-7 h-7 rounded flex items-center justify-center flex-shrink-0 transition-all duration-200 ${
-                          rollingId === `save-${key}`
-                            ? 'bg-white text-[#E01C2F]'
-                            : 'bg-[#E01C2F] hover:bg-[#C41828] text-white'
-                        }`}
-                        title={`投掷 ${SAVE_NAMES[key]}`}
-                      >
-                        <Dices className="w-3.5 h-3.5" aria-hidden />
-                      </button>
-                    </div>
+                  <div className="col-start-3 row-start-2 flex items-center justify-center gap-2.5 min-w-0 pl-1.5 border-l border-gray-500">
+                    <span className={`text-[1.75rem] font-bold font-mono tabular-nums leading-none tracking-tight ${saveProfLevel === 'prof' ? 'text-[#D4AF37]' : 'text-white'}`}>
+                      {saveBonus >= 0 ? '+' : ''}{saveBonus}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleSaveRoll(key)}
+                      className={`w-7 h-7 rounded flex items-center justify-center flex-shrink-0 transition-all duration-200 ${
+                        rollingId === `save-${key}`
+                          ? 'bg-white text-[#E01C2F]'
+                          : 'bg-[#E01C2F] hover:bg-[#C41828] text-white'
+                      }`}
+                      title={`投掷 ${SAVE_NAMES[key]}`}
+                    >
+                      <Dices className="w-3.5 h-3.5" aria-hidden />
+                    </button>
                   </div>
                 </div>
               </div>
@@ -256,14 +287,24 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
                       return (
                         <li
                           key={skill.id}
-                          className={`flex items-center gap-2 px-2 py-1.5 bg-gray-800/50 hover:bg-gray-800/70 transition-colors ${getProficiencyBorderClass(current)}`}
+                          className={`relative flex items-center gap-2 py-1.5 pr-2 bg-gray-800/50 hover:bg-gray-800/70 transition-colors ${
+                            current === 'expertise'
+                              ? 'pl-[7px]'
+                              : `pl-2 ${getSkillRowLeftBorderClass(current)}`
+                          }`}
                         >
+                          {current === 'expertise' && (
+                            <>
+                              <span className="pointer-events-none absolute left-0 top-0 bottom-0 w-px bg-[#D4AF37]" aria-hidden />
+                              <span className="pointer-events-none absolute left-px top-0 bottom-0 w-[3px] bg-[#E01C2F]" aria-hidden />
+                            </>
+                          )}
                           {/* 熟练度：下拉或图标，留足宽度避免与箭头重叠 */}
                           {canEdit ? (
                             <select
                               value={current}
                               onChange={(e) => setSkill(skill.id, e.target.value)}
-                              className="h-5 min-w-[4.5rem] w-14 rounded border border-gray-600 bg-gray-800 text-gray-300 text-[10px] pl-1.5 pr-5 focus:border-dnd-gold-light focus:ring-1 focus:ring-dnd-gold-light"
+                              className={`h-5 min-w-[4.5rem] w-14 rounded border border-gray-600 bg-gray-800 text-[10px] pl-1.5 pr-5 font-medium focus:border-dnd-gold-light focus:ring-1 focus:ring-dnd-gold-light ${getSkillRowLabelClass(current)}`}
                             >
                               {SKILL_PROF_OPTIONS.map((o) => (
                                 <option key={o.value} value={o.value}>{o.label}</option>
@@ -274,18 +315,14 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
                               <ProficiencyIcon level={current} className="w-4 h-4" />
                             </span>
                           )}
-                          <span className="text-gray-300 text-xs truncate flex-1 min-w-0">{skill.name}</span>
-                          <span className={`font-mono text-xs tabular-nums shrink-0 w-8 text-right font-bold ${getProficiencyColor(current)}`}>
+                          <span className={`text-xs truncate flex-1 min-w-0 font-medium ${getSkillRowLabelClass(current)}`}>{skill.name}</span>
+                          <span className={`font-mono text-xs tabular-nums shrink-0 w-8 text-right font-bold ${getSkillRowLabelClass(current)}`}>
                             {total >= 0 ? '+' : ''}{total}
                           </span>
                           <button
                             type="button"
                             onClick={() => handleSkillRoll(skill, total)}
-                            className={`shrink-0 w-6 h-6 rounded flex items-center justify-center transition-all duration-200 ${
-                              isRolling
-                                ? 'bg-white text-dnd-red scale-110'
-                                : 'bg-dnd-red hover:bg-dnd-red-hover text-white'
-                            }`}
+                            className={`shrink-0 w-6 h-6 rounded flex items-center justify-center transition-all duration-200 ${getSkillDiceButtonClass(current, isRolling)}`}
                             title={`投掷 ${skill.name}`}
                           >
                             <Dices

@@ -26,8 +26,8 @@ export default function BottomNav() {
   }
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-40 bg-[#2D3748] border-t border-white/10 safe-area-pb shadow-[0_-4px_20px_rgba(0,0,0,0.5)]">
-      <div className="flex items-center justify-around h-14 max-w-lg mx-auto">
+    <nav className="fixed bottom-0 left-0 right-0 z-40 w-full min-w-0 bg-[#2D3748] border-t border-white/10 safe-area-pb shadow-[0_-4px_20px_rgba(0,0,0,0.5)]">
+      <div className="mx-auto flex h-14 w-full max-w-full min-w-0 items-center justify-around px-1 sm:px-2">
         {tabs.map((tab) => {
           const to = getLinkTo(tab)
           const Icon = tab.icon

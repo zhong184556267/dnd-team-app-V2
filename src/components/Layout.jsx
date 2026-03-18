@@ -45,8 +45,8 @@ export default function Layout() {
   return (
     <RollProvider>
       <ScrollToTop />
-      <div className="min-h-screen bg-dnd-bg font-body text-dnd-text-body">
-        <main>
+      <div className="min-h-screen w-full min-w-0 bg-dnd-bg font-body text-dnd-text-body">
+        <main className="w-full min-w-0 pb-[calc(3.5rem+env(safe-area-inset-bottom,0px))]">
           <Outlet />
         </main>
         <BottomNav />

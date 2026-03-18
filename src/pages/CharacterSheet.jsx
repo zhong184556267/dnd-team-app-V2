@@ -31,7 +31,10 @@ import BuffManager from '../components/BuffManager'
 import CombatStatus from '../components/CombatStatus'
 import EquipmentAndInventory from '../components/EquipmentAndInventory'
 import AbilityModule from '../components/AbilityModule'
+import AvatarCropModal from '../components/AvatarCropModal'
 import { inputClass, labelClass } from '../lib/inputStyles'
+
+const RAW_AVATAR_FILE_MAX = 12 * 1024 * 1024 // 裁剪前原图上限，裁剪后会压到约 800KB 内
 
 const NameInput = forwardRef(function NameInput({ value, onChange, onFocus, onBlur, onKeyDown, className }, ref) {
   return (
@@ -49,26 +52,41 @@ const NameInput = forwardRef(function NameInput({ value, onChange, onFocus, onBl
   )
 })
 
-const AVATAR_MAX_SIZE = 800 * 1024 // 800KB，避免 localStorage 过大
-
 function AvatarFrame({ char, canEdit, onSave, large }) {
   const inputRef = useRef(null)
+  const zoneRef = useRef(null)
   const avatar = char?.avatar ?? null
+  const [cropOpen, setCropOpen] = useState(false)
+  const [cropSrc, setCropSrc] = useState(null)
+  const [cropAspect, setCropAspect] = useState(1)
 
   const handleFile = (e) => {
     const file = e.target.files?.[0]
     if (!file || !file.type.startsWith('image/')) return
-    if (file.size > AVATAR_MAX_SIZE) {
-      alert('图片请小于 800KB，以免存储过大')
+    if (file.size > RAW_AVATAR_FILE_MAX) {
+      alert('请选择 12MB 以内的图片，裁剪后会自动压缩保存')
       return
     }
     const reader = new FileReader()
     reader.onload = () => {
       const dataUrl = reader.result
-      if (typeof dataUrl === 'string') onSave({ avatar: dataUrl })
+      if (typeof dataUrl !== 'string') return
+      let ar = 1
+      if (large && zoneRef.current) {
+        const r = zoneRef.current.getBoundingClientRect()
+        if (r.width >= 48 && r.height >= 48) ar = r.width / r.height
+      }
+      setCropAspect(ar)
+      setCropSrc(dataUrl)
+      setCropOpen(true)
     }
     reader.readAsDataURL(file)
     e.target.value = ''
+  }
+
+  const closeCrop = () => {
+    setCropOpen(false)
+    setCropSrc(null)
   }
 
   const removeAvatar = () => {
@@ -79,7 +97,21 @@ function AvatarFrame({ char, canEdit, onSave, large }) {
 
   if (large) {
     return (
-      <div className="avatar-upload-zone w-full h-full min-h-[220px] flex flex-col items-center justify-center relative">
+      <>
+      <AvatarCropModal
+        open={cropOpen}
+        imageSrc={cropSrc}
+        aspect={cropAspect}
+        onCancel={closeCrop}
+        onConfirm={(dataUrl) => {
+          onSave({ avatar: dataUrl })
+          closeCrop()
+        }}
+      />
+      <div
+        ref={zoneRef}
+        className="avatar-upload-zone w-full h-full min-h-[220px] flex flex-col items-center justify-center relative"
+      >
         {avatar ? (
           <img src={avatar} alt="头像" className="w-full h-full object-cover absolute inset-0" />
         ) : (
@@ -116,10 +148,22 @@ function AvatarFrame({ char, canEdit, onSave, large }) {
           </>
         )}
       </div>
+      </>
     )
   }
 
   return (
+    <>
+    <AvatarCropModal
+      open={cropOpen}
+      imageSrc={cropSrc}
+      aspect={cropAspect}
+      onCancel={closeCrop}
+      onConfirm={(dataUrl) => {
+        onSave({ avatar: dataUrl })
+        closeCrop()
+      }}
+    />
     <div className="flex flex-col items-center gap-1.5 flex-shrink-0 w-full">
       {avatar ? (
         <div className="w-36 h-36 md:w-40 md:h-40 rounded-lg overflow-hidden flex items-center justify-center shrink-0 border border-[var(--border-color)]">
@@ -166,6 +210,7 @@ function AvatarFrame({ char, canEdit, onSave, large }) {
         </>
       )}
     </div>
+    </>
   )
 }
 
@@ -233,7 +278,10 @@ function AppearanceGrid({ char, canEdit, onSave, noBorder, compact }) {
   const frameClass = noBorder ? 'p-0 min-w-0 w-full' : 'profile-section p-3 min-w-0 w-full'
   return (
     <div className={frameClass}>
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-2 gap-y-2">
+      <div
+        className="grid gap-x-3 gap-y-2 w-full min-w-0"
+        style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 9rem), 1fr))' }}
+      >
         {cells.map(({ label, value, set }) => (
           <Cell key={label} label={label} value={value} set={set} />
         ))}
@@ -293,32 +341,43 @@ function ExperienceLevelSection({ char, level, canEdit, onSave }) {
         </div>
       )}
       <div className="grid grid-cols-2 gap-2">
-        <div className="panel-card-compact flex flex-col min-h-0 justify-center">
-          <p className="panel-label mb-0.5">现有经验</p>
-          <p className="panel-value font-mono">{xp.toLocaleString()}</p>
-          <p className="panel-label mt-0.5">经验等级 {expLevel}</p>
+        <div className="panel-card-compact flex flex-row items-center justify-between gap-3 min-h-0 py-2 px-2">
+          <div className="flex min-w-0 flex-1 flex-col justify-center">
+            <p className="panel-label mb-0.5">经验等级</p>
+            <p className="panel-value font-mono text-lg leading-tight">{expLevel}</p>
+          </div>
+          <div className="flex min-w-0 flex-1 flex-col items-end justify-center text-right border-l border-[var(--card-border)] pl-3">
+            <p className="panel-label mb-0.5">现有经验</p>
+            <p className="panel-value font-mono text-lg leading-tight tabular-nums">{xp.toLocaleString()}</p>
+          </div>
         </div>
-        <div className="panel-card-compact flex flex-col min-h-0 justify-center">
-          {canEdit ? (
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <label className="panel-label shrink-0">剧情等级</label>
-              <input
-                type="number"
-                min={1}
-                max={20}
-                value={storyLevel ?? ''}
-                onChange={(e) => {
-                  const v = e.target.value === '' ? null : Math.max(1, Math.min(20, parseInt(e.target.value, 10) || 1))
-                  onSave({ storyLevel: v })
-                }}
-                placeholder="可选"
-                className="panel-input-compact w-12 font-mono text-center"
-              />
-            </div>
-          ) : storyLevel != null ? (
-            <p className="panel-label">剧情等级 {storyLevel}</p>
-          ) : null}
-          <p className="panel-value mt-0.5">lv.{displayLevel}</p>
+        <div className="panel-card-compact flex min-h-0 flex-row items-center justify-between gap-3 py-2 px-2">
+          <div className="flex min-w-0 flex-1 flex-col justify-center">
+            {canEdit ? (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <label className="panel-label shrink-0">剧情等级</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={storyLevel ?? ''}
+                  onChange={(e) => {
+                    const v = e.target.value === '' ? null : Math.max(1, Math.min(20, parseInt(e.target.value, 10) || 1))
+                    onSave({ storyLevel: v })
+                  }}
+                  placeholder="可选"
+                  className="panel-input-compact w-12 font-mono text-center"
+                />
+              </div>
+            ) : storyLevel != null ? (
+              <p className="panel-label">剧情等级 {storyLevel}</p>
+            ) : (
+              <p className="panel-label text-[var(--text-muted)]">剧情等级</p>
+            )}
+          </div>
+          <div className="flex shrink-0 flex-col items-end justify-center border-l border-[var(--card-border)] pl-3 text-right">
+            <p className="panel-value font-mono text-lg leading-tight tabular-nums">lv.{displayLevel}</p>
+          </div>
         </div>
       </div>
     </div>
@@ -716,7 +775,7 @@ function ClassSection({ char, level, canEdit, onSave }) {
     persistClass({ prestige: next })
   }
 
-  const selectClass = 'panel-select min-h-[40px] min-w-[7rem]'
+  const selectClass = 'panel-select panel-class-control-h min-w-[7rem]'
   return (
     <div className="space-y-4">
       <ClassSpellcastingSummary char={char} />
@@ -815,7 +874,7 @@ function ClassSection({ char, level, canEdit, onSave }) {
           )}
         </div>
         <div className="panel-card flex flex-col min-h-[4rem]">
-          <label className="panel-label mb-2 block">进阶</label>
+          <label className="panel-label mb-2 block">进阶（选填）</label>
           {canEdit ? (
             <div className="space-y-2">
               {prestige.map((p, i) => {
@@ -823,8 +882,7 @@ function ClassSection({ char, level, canEdit, onSave }) {
                 const rowMax = Math.max(0, maxLevel - otherLevels)
                 return (
                   <div key={i} className="space-y-2 border border-[var(--card-border)] rounded-lg p-2 bg-[rgba(30,38,50,0.4)]">
-                    <div className="flex items-center justify-between">
-                      <span className="panel-label">进阶（选填）</span>
+                    <div className="flex items-center justify-end">
                       <button type="button" onClick={() => removePrestigeRow(i)} className="p-1 text-[var(--text-muted)] hover:text-[var(--btn-primary)]" title="移除"><Trash2 className="w-3 h-3" /></button>
                     </div>
                     <div className="flex gap-2 items-center flex-wrap">

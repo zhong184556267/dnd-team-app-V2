@@ -39,6 +39,11 @@ body {
   font-size: 16px;
   line-height: 1.6;
 }
+/* 保证主栏随视口变宽变窄，避免子级 flex 把宽度撑死 */
+#root {
+  width: 100%;
+  min-width: 0;
+}
 h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-siyuan);
   color: #FFFFFF;
@@ -265,19 +270,39 @@ select option {
   border-color: var(--input-focus);
 }
 
+/* 起始职业行：职业 / 等级 / 子职 控件统一外框高度 */
+.panel-select.panel-class-control-h,
+select.panel-class-control-h {
+  height: 40px;
+  min-height: 40px;
+  max-height: 40px;
+  padding-top: 0;
+  padding-bottom: 0;
+  padding-left: 12px;
+  padding-right: 12px;
+  line-height: 38px;
+  box-sizing: border-box;
+}
+
 /* 等级步进器（面板内）：浅灰箭头 */
 .level-stepper-panel {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   gap: 2px;
   border: 1px solid var(--input-border);
   border-radius: 8px;
   background: var(--input-bg);
   overflow: hidden;
+  height: 40px;
+  min-height: 40px;
+  max-height: 40px;
+  box-sizing: border-box;
 }
 .level-stepper-panel button {
   width: 36px;
-  height: 40px;
+  flex: 0 0 36px;
+  align-self: stretch;
+  min-height: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -296,7 +321,9 @@ select option {
 }
 .level-stepper-panel span {
   min-width: 2rem;
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-weight: 700;
   font-size: 0.875rem;
   color: var(--text-main);

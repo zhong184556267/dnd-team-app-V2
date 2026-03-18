@@ -10,6 +10,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { Trash2, Plus } from 'lucide-react'
 import { getItemListGrouped, getItemById, getItemDisplayName, parseWeaponNoteToTraits, buildWeaponNoteFromTraits, WEAPON_TRAIT_OPTIONS, WEAPON_MASTERY_OPTIONS } from '../data/itemDatabase'
 import { inputClass, textareaClass } from '../lib/inputStyles'
+import { useModule } from '../contexts/ModuleContext'
 import { BUFF_TYPES, getCategories, normalizeEffectCategory, parseDamageString, formatDamageForAttack } from '../data/buffTypes'
 import { EffectValueEditor, isComplexValueType, DamageDiceInlineRow, NumberStepper } from './BuffForm'
 
@@ -156,7 +157,8 @@ const RARITY_OPTIONS = [
 ]
 
 export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确认加入', editEntry = null, inventory = [], spellDC, spellAttackBonus }) {
-  const grouped = useMemo(() => getItemListGrouped(), [])
+  const { customLibraryEpoch } = useModule()
+  const grouped = useMemo(() => getItemListGrouped(), [customLibraryEpoch])
   const ammoOptionsFromInv = useMemo(() => {
     const cats = new Set()
     inventory.forEach((entry) => {

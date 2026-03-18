@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { X } from 'lucide-react'
 import { useModule } from '../contexts/ModuleContext'
 import { CURRENCY_CONFIG, getCurrencyDisplayName } from '../data/currencyConfig'
-import { getTeamVault, getCharacterWallet, transferCurrency } from '../lib/currencyStore'
+import { getTeamVault, getCharacterWallet, transferCurrency, loadTeamVaultIntoCache } from '../lib/currencyStore'
 
 export default function TransferModal({ open, onClose, direction, characterId, characterName, onSuccess }) {
   const { currentModuleId } = useModule()
@@ -10,6 +10,12 @@ export default function TransferModal({ open, onClose, direction, characterId, c
   const [amount, setAmount] = useState('')
   const [error, setError] = useState('')
   const [shake, setShake] = useState(false)
+  const [, setVaultTick] = useState(0)
+
+  useEffect(() => {
+    if (!open || !currentModuleId) return
+    loadTeamVaultIntoCache(currentModuleId).then(() => setVaultTick((t) => t + 1))
+  }, [open, currentModuleId])
 
   const vault = open ? getTeamVault(currentModuleId) : {}
   const wallet = open && characterId ? getCharacterWallet(characterId) : {}
@@ -34,15 +40,16 @@ export default function TransferModal({ open, onClose, direction, characterId, c
       setTimeout(() => setShake(false), 400)
       return
     }
-    const result = transferCurrency(currentModuleId, direction, characterId, currencyId, amt)
-    if (result.success) {
-      onSuccess?.()
-      onClose()
-    } else {
-      setError(result.error || '操作失败')
-      setShake(true)
-      setTimeout(() => setShake(false), 400)
-    }
+    Promise.resolve(transferCurrency(currentModuleId, direction, characterId, currencyId, amt)).then((result) => {
+      if (result.success) {
+        onSuccess?.()
+        onClose()
+      } else {
+        setError(result.error || '操作失败')
+        setShake(true)
+        setTimeout(() => setShake(false), 400)
+      }
+    })
   }
 
   if (!open) return null

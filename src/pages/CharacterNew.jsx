@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useModule } from '../contexts/ModuleContext'
-import { addCharacter } from '../lib/characterStore'
+import { addCharacter, loadCharacterById } from '../lib/characterStore'
+import { logTeamActivity } from '../lib/activityLog'
 
 export default function CharacterNew() {
   const { user } = useAuth()
@@ -12,17 +13,53 @@ export default function CharacterNew() {
   const [name, setName] = useState('')
   const [classVal, setClassVal] = useState('')
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
 
-  const moduleId = searchParams.get('moduleId') ?? currentModuleId ?? 'default'
+  const moduleId = String(searchParams.get('moduleId') ?? currentModuleId ?? 'default').trim() || 'default'
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
     const n = name.trim()
-    if (!n || !user?.name) return
+    setError('')
+    if (!n) return
+    if (!user?.name) {
+      setError('未获取到玩家名，请返回登录页重新进入。')
+      return
+    }
     setSaving(true)
-    const char = addCharacter(user.name, { name: n, 'class': classVal.trim(), moduleId })
-    setSaving(false)
-    navigate(`/characters/${char.id}`, { replace: true })
+    try {
+      const char = await Promise.resolve(
+        addCharacter(user.name, { name: n, 'class': classVal.trim(), moduleId })
+      )
+      if (!char?.id) {
+        throw new Error('创建未成功：未返回角色 ID。请检查 Supabase 中是否已执行 supabase-schema-v2.sql（characters 表）。')
+      }
+      try {
+        await loadCharacterById(char.id)
+      } catch (e) {
+        console.warn('创建后同步角色缓存失败（将尝试直接进入角色卡）', e)
+      }
+      logTeamActivity({
+        actor: user.name,
+        moduleId,
+        summary: `玩家 ${user.name} 创建了角色「${n}」`,
+      })
+      navigate(`/characters/${char.id}`, { replace: true })
+    } catch (err) {
+      console.error(err)
+      const msg =
+        err?.message ||
+        err?.error_description ||
+        (typeof err === 'string' ? err : '') ||
+        '创建失败'
+      setError(
+        msg.includes('JWT') || msg.includes('401')
+          ? '连接被拒绝：请检查 .env 里是否为 Publishable Key（sb_publishable_），不要用 Secret Key。'
+          : msg
+      )
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -31,6 +68,11 @@ export default function CharacterNew() {
         新建角色
       </h1>
       <form onSubmit={handleSubmit} className="space-y-4">
+        {error ? (
+          <div className="rounded-xl border border-dnd-red/50 bg-dnd-red/10 px-4 py-3 text-sm text-red-200">
+            {error}
+          </div>
+        ) : null}
         <div>
           <label className="block text-xs text-dnd-text-label uppercase tracking-label mb-1">
             角色名 <span className="text-dnd-red">*</span>

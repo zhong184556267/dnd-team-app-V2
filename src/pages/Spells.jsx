@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { ChevronDown, ChevronRight, Search, Plus } from 'lucide-react'
 import {
@@ -236,6 +236,12 @@ export default function Spells() {
 
   const refreshSpells = () => setSpellsList(getMergedSpells())
 
+  useEffect(() => {
+    const h = () => refreshSpells()
+    window.addEventListener('dnd-realtime-custom-library', h)
+    return () => window.removeEventListener('dnd-realtime-custom-library', h)
+  }, [])
+
   const addSpellToChar = (spellId) => {
     if (!char?.id) return
     const spell = getSpellById(spellId)
@@ -247,10 +253,11 @@ export default function Spells() {
   }
 
   const handleSaveSpell = () => {
-    addCustomSpell(spellForm)
-    setSpellForm(initialSpellForm)
-    setShowAddSpell(false)
-    refreshSpells()
+    Promise.resolve(addCustomSpell(spellForm)).then(() => {
+      setSpellForm(initialSpellForm)
+      setShowAddSpell(false)
+      refreshSpells()
+    })
   }
 
   let list = spellsList

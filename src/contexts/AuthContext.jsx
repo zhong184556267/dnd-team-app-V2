@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState } from 'react'
-import { getStoredUser, setStoredUser, clearStoredUser, ADMIN_NAME } from '../lib/auth'
+import { getStoredUser, setStoredUser, clearStoredUser, isUserAdmin } from '../lib/auth'
 
 const AuthContext = createContext(null)
 
@@ -16,7 +16,7 @@ export function AuthProvider({ children }) {
     setStoredUser(n)
     setUser({
       name: n,
-      isAdmin: n === ADMIN_NAME,
+      isAdmin: isUserAdmin(n),
     })
   }
 

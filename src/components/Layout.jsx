@@ -1,6 +1,11 @@
 import { useEffect } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import { RollProvider } from '../contexts/RollContext'
+import { useAuth } from '../contexts/AuthContext'
+import { useModule } from '../contexts/ModuleContext'
+import { loadAllCharactersIntoCache } from '../lib/characterStore'
+import { startSupabaseRealtime } from '../lib/realtimeSync'
+import { isSupabaseEnabled } from '../lib/supabase'
 import BottomNav from './BottomNav'
 import DiceRoller from './DiceRoller'
 
@@ -13,6 +18,30 @@ function ScrollToTop() {
 }
 
 export default function Layout() {
+  const { user, isAdmin } = useAuth()
+  const { currentModuleId } = useModule()
+
+  useEffect(() => {
+    if (!isSupabaseEnabled() || !user?.name) return
+    let cancelled = false
+    loadAllCharactersIntoCache(user.name, isAdmin).then(() => {
+      if (!cancelled) window.dispatchEvent(new CustomEvent('dnd-realtime-characters'))
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [user?.name, isAdmin])
+
+  useEffect(() => {
+    if (!isSupabaseEnabled() || !user?.name) return () => {}
+    const mod = currentModuleId ?? 'default'
+    return startSupabaseRealtime({
+      ownerName: user.name,
+      isAdmin,
+      moduleId: mod,
+    })
+  }, [user?.name, isAdmin, currentModuleId])
+
   return (
     <RollProvider>
       <ScrollToTop />

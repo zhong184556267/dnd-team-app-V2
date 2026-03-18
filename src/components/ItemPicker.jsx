@@ -1,12 +1,14 @@
 import { useState, useMemo, useEffect } from 'react'
 import { getItemListGrouped, getItemDisplayName, getItemById } from '../data/itemDatabase'
+import { useModule } from '../contexts/ModuleContext'
 
 /**
  * 多层级物品选择器：类型 → 子类型 → 物品，便于查找。
  * value: 当前选中的物品 id；onChange: (id) => void
  */
 export default function ItemPicker({ value, onChange, className = '', placeholder = '— 从物品表选择 —' }) {
-  const grouped = useMemo(() => getItemListGrouped(), [])
+  const { customLibraryEpoch } = useModule()
+  const grouped = useMemo(() => getItemListGrouped(), [customLibraryEpoch])
   const [type, setType] = useState('')
   const [subType, setSubType] = useState('')
 

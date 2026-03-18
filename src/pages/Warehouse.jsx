@@ -1,6 +1,8 @@
 import { useState, useEffect, Fragment } from 'react'
 import { Package, Pencil, Trash2, GripVertical } from 'lucide-react'
+import { useAuth } from '../contexts/AuthContext'
 import { useModule } from '../contexts/ModuleContext'
+import { logTeamActivity } from '../lib/activityLog'
 import { getItemById, getItemDisplayName } from '../data/itemDatabase'
 import { getWarehouse, loadWarehouseIntoCache, addToWarehouse, removeFromWarehouse, updateWarehouseItem, reorderWarehouse, setWarehouse } from '../lib/warehouseStore'
 import { getAllCharacters, updateCharacter } from '../lib/characterStore'
@@ -14,6 +16,7 @@ import { inputClass } from '../lib/inputStyles'
 const subTitleClass = 'text-dnd-gold-light text-xs font-bold uppercase tracking-wider'
 
 export default function Warehouse() {
+  const { user } = useAuth()
   const { currentModuleId } = useModule()
   const [list, setList] = useState([])
   const [addFormOpen, setAddFormOpen] = useState(false)
@@ -32,6 +35,16 @@ export default function Warehouse() {
     }
     load()
     return () => { cancelled = true }
+  }, [currentModuleId])
+
+  useEffect(() => {
+    const h = () => {
+      loadWarehouseIntoCache(currentModuleId).then(() => {
+        setList(getWarehouse(currentModuleId))
+      })
+    }
+    window.addEventListener('dnd-realtime-warehouse', h)
+    return () => window.removeEventListener('dnd-realtime-warehouse', h)
   }, [currentModuleId])
 
   const refreshList = () => setList(getWarehouse(currentModuleId))
@@ -136,7 +149,16 @@ export default function Warehouse() {
       : removeFromWarehouse(currentModuleId, depositIndex, q)
     Promise.resolve(updateCharacter(depositCharId, { inventory: [...inv, invEntry] }))
       .then(() => Promise.resolve(removePromise))
-      .then(refreshList)
+      .then(() => {
+        if (user?.name) {
+          logTeamActivity({
+            actor: user.name,
+            moduleId: currentModuleId,
+            summary: `玩家 ${user.name} 将团队仓库「${displayName(entry)}」存入了角色「${char.name || '未命名'}」的背包`,
+          })
+        }
+        refreshList()
+      })
     setDepositIndex(null)
     setDepositCharId('')
     setDepositQty(1)
@@ -186,7 +208,26 @@ export default function Warehouse() {
             <button type="button" onClick={() => setAddFormOpen(true)} className="h-7 px-2 rounded-lg bg-dnd-red hover:bg-dnd-red-hover text-white font-bold text-xs">
               添加物品
             </button>
-            <ItemAddForm open={addFormOpen} onClose={() => setAddFormOpen(false)} onSave={(entry) => { Promise.resolve(addToWarehouse(currentModuleId, entry)).then(() => { refreshList(); setAddFormOpen(false) }) }} submitLabel="放入仓库" inventory={list} />
+            <ItemAddForm
+              open={addFormOpen}
+              onClose={() => setAddFormOpen(false)}
+              onSave={(entry) => {
+                Promise.resolve(addToWarehouse(currentModuleId, entry)).then(() => {
+                  const nm = entry?.name?.trim() || entry?.itemId || '物品'
+                  if (user?.name) {
+                    logTeamActivity({
+                      actor: user.name,
+                      moduleId: currentModuleId,
+                      summary: `玩家 ${user.name} 向团队仓库放入了「${nm}」`,
+                    })
+                  }
+                  refreshList()
+                  setAddFormOpen(false)
+                })
+              }}
+              submitLabel="放入仓库"
+              inventory={list}
+            />
             <ItemAddForm open={editingIndex !== null} onClose={() => setEditingIndex(null)} onSave={applyEditSave} submitLabel="保存" editEntry={editingIndex != null ? list[editingIndex] : null} inventory={list} />
           </>
         </div>

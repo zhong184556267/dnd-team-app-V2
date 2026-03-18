@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { User, BookOpen, ChevronDown, ChevronRight, Plus, Pencil, Star, GripVertical } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
@@ -6,6 +6,8 @@ import { useModule } from '../contexts/ModuleContext'
 import { getAllCharacters, getDefaultCharacterId } from '../lib/characterStore'
 import { getClassDisplayName } from '../data/classDatabase'
 import { getModules, addModule, updateModule, reorderModules } from '../lib/moduleStore'
+import { loadTeamActivities } from '../lib/activityLog'
+import { isSupabaseEnabled } from '../lib/supabase'
 import { levelFromXP } from '../lib/xp5e'
 import { inputClass } from '../lib/inputStyles'
 
@@ -43,11 +45,16 @@ function displayClassLevel(c) {
 export default function Dashboard() {
   const { user, isAdmin } = useAuth()
   const { setCurrentModuleId, modules, refreshModules } = useModule()
+  const [, setRealtimeTick] = useState(0)
+  const [activities, setActivities] = useState([])
   const [newModuleName, setNewModuleName] = useState('')
   const [showAddModule, setShowAddModule] = useState(false)
   const [editingModuleId, setEditingModuleId] = useState(null)
   const [editingName, setEditingName] = useState('')
   const [expandedModuleIds, setExpandedModuleIds] = useState(() => new Set())
+  const moduleNameInputRef = useRef(null)
+  const editingModuleIdRef = useRef(null)
+  const savingModuleRef = useRef(false)
 
   const moduleCounts = modules.map((m) => ({
     ...m,
@@ -55,7 +62,23 @@ export default function Dashboard() {
   }))
 
   useEffect(() => {
-    if (modules.length > 0) setCurrentModuleId(modules[0].id)
+    const h = () => setRealtimeTick((t) => t + 1)
+    window.addEventListener('dnd-realtime-characters', h)
+    return () => window.removeEventListener('dnd-realtime-characters', h)
+  }, [])
+
+  const refreshActivities = () => {
+    loadTeamActivities(35).then(setActivities)
+  }
+
+  useEffect(() => {
+    refreshActivities()
+  }, [])
+
+  useEffect(() => {
+    const h = () => refreshActivities()
+    window.addEventListener('dnd-realtime-activity', h)
+    return () => window.removeEventListener('dnd-realtime-activity', h)
   }, [])
 
   const toggleExpand = (moduleId) => {
@@ -73,30 +96,62 @@ export default function Dashboard() {
   const handleAddModule = () => {
     const name = newModuleName?.trim()
     if (!name) return
-    addModule(name)
-    refreshModules()
-    const mods = getModules()
-    const added = mods.find((m) => m.name === name) ?? mods[mods[mods.length - 1]]
-    if (added) setCurrentModuleId(added.id)
-    setNewModuleName('')
-    setShowAddModule(false)
+    Promise.resolve(addModule(name))
+      .then((created) => {
+        refreshModules()
+        const mods = getModules()
+        const added = created?.id ? created : mods.find((m) => m.name === name) ?? mods[mods.length - 1]
+        if (added?.id) setCurrentModuleId(added.id)
+        setNewModuleName('')
+        setShowAddModule(false)
+      })
+      .catch((e) => {
+        console.warn(e)
+        alert(e?.message ? `添加模组失败：${e.message}` : '添加模组失败，请检查 Supabase 与 campaign_modules 表')
+      })
   }
 
   const startEditModule = (e, m) => {
     e.stopPropagation()
+    editingModuleIdRef.current = m.id
     setEditingModuleId(m.id)
     setEditingName(m.name)
   }
 
-  const saveEditModule = () => {
-    if (editingModuleId == null) return
-    const trimmed = editingName?.trim()
-    if (trimmed) {
-      updateModule(editingModuleId, trimmed)
-      refreshModules()
-    }
+  const cancelEditModule = () => {
+    editingModuleIdRef.current = null
     setEditingModuleId(null)
     setEditingName('')
+  }
+
+  /** nameOverride 用输入框 DOM 当前值，避免 onBlur 时 React state 尚未提交导致保存旧名 */
+  const saveEditModule = (nameOverride, moduleIdExplicit) => {
+    const id = moduleIdExplicit ?? editingModuleIdRef.current ?? editingModuleId
+    if (id == null || savingModuleRef.current) return
+    const raw =
+      nameOverride !== undefined && nameOverride !== null
+        ? String(nameOverride)
+        : (moduleNameInputRef.current?.value ?? editingName)
+    const trimmed = raw.trim()
+    if (!trimmed) {
+      cancelEditModule()
+      return
+    }
+    savingModuleRef.current = true
+    Promise.resolve(updateModule(id, trimmed))
+      .then((result) => {
+        if (result != null) refreshModules()
+        else alert('无法保存模组名称，请刷新页面后重试')
+        cancelEditModule()
+      })
+      .catch((e) => {
+        console.warn(e)
+        const msg = e?.message || e?.error_description || String(e)
+        alert(msg ? `保存失败：${msg}` : '保存失败，请检查网络与 Supabase 配置')
+      })
+      .finally(() => {
+        savingModuleRef.current = false
+      })
   }
 
   const canOpen = (c) => isAdmin || c.owner === user?.name
@@ -116,8 +171,7 @@ export default function Dashboard() {
     const next = [...moduleCounts]
     const [removed] = next.splice(fromIndex, 1)
     next.splice(dropIndex, 0, removed)
-    reorderModules(next.map(({ id, name }) => ({ id, name })))
-    refreshModules()
+    Promise.resolve(reorderModules(next.map(({ id, name }) => ({ id, name })))).then(() => refreshModules())
   }
   const formatDateTime = (iso) => {
     if (!iso) return '—'
@@ -128,8 +182,32 @@ export default function Dashboard() {
   return (
     <div className="p-4 pb-24 min-h-screen bg-dnd-bg">
       <h1 className="font-display text-xl font-semibold text-white mb-4">
-        欢迎，{user?.name}
+        欢迎，玩家 {user?.name}
       </h1>
+
+      {isSupabaseEnabled() && (
+        <section className="mb-6 rounded-xl border border-white/10 bg-dnd-card/80 overflow-hidden">
+          <div className="px-4 py-2 border-b border-white/10 bg-black/20">
+            <h2 className="text-dnd-gold-light text-xs font-bold uppercase tracking-wider">团队动态</h2>
+            <p className="text-dnd-text-muted text-[10px] mt-0.5">仓库、背包等操作会记录在此（需已执行 supabase-activity-log.sql）</p>
+          </div>
+          <ul className="max-h-52 overflow-y-auto divide-y divide-white/5">
+            {activities.length === 0 ? (
+              <li className="px-4 py-3 text-dnd-text-muted text-sm">暂无记录。向仓库放物品或往背包加物后会出现在这里。</li>
+            ) : (
+              activities.map((a) => (
+                <li key={a.id} className="px-4 py-2.5 text-sm">
+                  <span className="text-dnd-text-muted text-xs font-mono tabular-nums">{formatDateTime(a.created_at)}</span>
+                  <p className="text-dnd-text-body mt-0.5 leading-snug">{a.summary}</p>
+                  <p className="text-[10px] text-dnd-text-muted mt-0.5">
+                    模组 {modules.find((m) => m.id === a.module_id)?.name || a.module_id}
+                  </p>
+                </li>
+              ))
+            )}
+          </ul>
+        </section>
+      )}
 
       <h2 className="text-dnd-text-label text-xs font-medium uppercase tracking-label mb-3">
         模组
@@ -171,20 +249,51 @@ export default function Dashboard() {
                 <div className="flex items-center gap-3 min-w-0 flex-1">
                   <div className="min-w-0 flex-1">
                     {isEditing ? (
-                      <input
-                        type="text"
-                        value={editingName}
-                        onChange={(e) => setEditingName(e.target.value)}
-                        onBlur={saveEditModule}
-                        onKeyDown={(e) => {
-                          e.stopPropagation()
-                          if (e.key === 'Enter') saveEditModule()
-                          if (e.key === 'Escape') { setEditingModuleId(null); setEditingName(''); }
-                        }}
+                      <div
+                        className="relative z-20 flex flex-wrap items-center gap-2 py-1"
                         onClick={(e) => e.stopPropagation()}
-                        className={inputClass + ' w-full h-8 text-sm font-semibold'}
-                        autoFocus
-                      />
+                      >
+                        <input
+                          ref={moduleNameInputRef}
+                          type="text"
+                          value={editingName}
+                          onChange={(e) => setEditingName(e.target.value)}
+                          onKeyDown={(e) => {
+                            e.stopPropagation()
+                            if (e.key === 'Enter') {
+                              e.preventDefault()
+                              saveEditModule(e.currentTarget.value, m.id)
+                            }
+                            if (e.key === 'Escape') cancelEditModule()
+                          }}
+                          className={inputClass + ' flex-1 min-w-[8rem] h-9 text-sm font-semibold touch-manipulation'}
+                          autoFocus
+                        />
+                        {/* 勿对按钮 mousedown preventDefault，否则会阻止 click（尤其手机浏览器），表现为点保存没反应 */}
+                        <button
+                          type="button"
+                          data-module-save="1"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            saveEditModule(moduleNameInputRef.current?.value, m.id)
+                          }}
+                          className="shrink-0 min-h-9 min-w-[4.5rem] px-3 rounded-lg bg-dnd-red hover:bg-dnd-red-hover text-white text-xs font-bold touch-manipulation"
+                        >
+                          保存
+                        </button>
+                        <button
+                          type="button"
+                          data-module-cancel="1"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            cancelEditModule()
+                          }}
+                          className="shrink-0 min-h-9 min-w-[4.5rem] px-3 rounded-lg bg-gray-600 hover:bg-gray-500 text-white text-xs touch-manipulation"
+                        >
+                          取消
+                        </button>
+                        <p className="w-full text-[10px] text-dnd-text-muted">点「保存」或按回车生效</p>
+                      </div>
                     ) : (
                       <p className="font-semibold text-white truncate flex items-center gap-1.5">
                         {m.name}

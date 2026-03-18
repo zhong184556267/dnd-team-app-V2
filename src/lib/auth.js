@@ -1,7 +1,13 @@
-/** DM 判定：此名字为管理员（可后续改为配置） */
+/** DM 判定：此名字为管理员（不区分大小写，如 AdminBEAR / adminbear 均可） */
 export const ADMIN_NAME = 'AdminBEAR'
 
 const STORAGE_KEY = 'starlight_user'
+
+export function isUserAdmin(name) {
+  const n = String(name ?? '').trim()
+  if (!n) return false
+  return n.toLowerCase() === ADMIN_NAME.toLowerCase()
+}
 
 /**
  * 从 localStorage 读取已记住的用户
@@ -13,9 +19,10 @@ export function getStoredUser() {
     if (!raw) return null
     const data = JSON.parse(raw)
     if (!data?.name) return null
+    const name = String(data.name).trim()
     return {
-      name: String(data.name).trim(),
-      isAdmin: data.name.trim() === ADMIN_NAME,
+      name,
+      isAdmin: isUserAdmin(name),
     }
   } catch {
     return null
@@ -31,7 +38,7 @@ export function setStoredUser(name) {
   if (!n) return
   const user = {
     name: n,
-    isAdmin: n === ADMIN_NAME,
+    isAdmin: isUserAdmin(n),
   }
   localStorage.setItem(STORAGE_KEY, JSON.stringify(user))
 }

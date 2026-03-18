@@ -2,7 +2,7 @@
  * 魔法物品制作工厂：D&D 3R 奥法工坊规则
  * 选择类型、填写物品信息、推进制作进度，完成后可存入仓库或角色
  */
-import { useState, useEffect, Fragment } from 'react'
+import { useState, useEffect, useMemo, Fragment } from 'react'
 import { Package, Pencil, Trash2, GripVertical, Hammer, Plus } from 'lucide-react'
 import {
   getCraftingProjects,
@@ -23,10 +23,14 @@ import {
   calcWandMarketPrice,
   calcStaffMarketPrice,
 } from '../lib/craftingFormulas'
+import { useAuth } from '../contexts/AuthContext'
 import { useModule } from '../contexts/ModuleContext'
+import { logTeamActivity } from '../lib/activityLog'
 import { getAllCharacters, getCharacter, updateCharacter } from '../lib/characterStore'
 import { CRAFTING_FEAT_IDS } from '../data/feats'
-import { getTeamVault, adjustVault } from '../lib/currencyStore'
+import { getTeamVault, adjustVault, loadTeamVaultIntoCache } from '../lib/currencyStore'
+import { loadCraftingIntoCache } from '../lib/craftingStore'
+import { isSupabaseEnabled } from '../lib/supabase'
 import { addToWarehouse } from '../lib/warehouseStore'
 import { inputClass, textareaClass } from '../lib/inputStyles'
 
@@ -69,6 +73,7 @@ function normalizeProject(p) {
 }
 
 export default function MagicCraftingPanel() {
+  const { user } = useAuth()
   const { currentModuleId } = useModule()
   const [projects, setProjects] = useState([])
   const [expandedIndex, setExpandedIndex] = useState(null)
@@ -94,16 +99,34 @@ export default function MagicCraftingPanel() {
   const [depositProjectIndex, setDepositProjectIndex] = useState(null)
   const [depositCharId, setDepositCharId] = useState('')
   const [depositToWarehouse, setDepositToWarehouse] = useState(true)
+  const [vaultRtTick, setVaultRtTick] = useState(0)
 
   const characters = getAllCharacters(currentModuleId)
   const eligibleCrafters = getEligibleCrafters(characters)
-  const vault = getTeamVault(currentModuleId)
+  const vault = useMemo(() => getTeamVault(currentModuleId), [currentModuleId, vaultRtTick])
   const vaultGp = vault.gp ?? 0
 
   const refresh = () => setProjects(getCraftingProjects(currentModuleId))
 
   useEffect(() => {
-    refresh()
+    const onCraft = () => refresh()
+    const onVault = () => setVaultRtTick((t) => t + 1)
+    window.addEventListener('dnd-realtime-crafting', onCraft)
+    window.addEventListener('dnd-realtime-team-vault', onVault)
+    return () => {
+      window.removeEventListener('dnd-realtime-crafting', onCraft)
+      window.removeEventListener('dnd-realtime-team-vault', onVault)
+    }
+  }, [currentModuleId])
+
+  useEffect(() => {
+    if (isSupabaseEnabled()) {
+      Promise.all([loadCraftingIntoCache(currentModuleId), loadTeamVaultIntoCache(currentModuleId)]).then(() =>
+        refresh()
+      )
+    } else {
+      refresh()
+    }
   }, [currentModuleId])
 
   const computeNewProjectStats = () => {
@@ -139,47 +162,50 @@ export default function MagicCraftingPanel() {
     const name = new物品名称?.trim()
     if (!name) return
     const { costStr, xp, days } = computeNewProjectStats()
-    addCraftingProject(currentModuleId, {
-      类型: new类型,
-      物品名称: name,
-      详细介绍: new详细介绍,
-      制作天数: days,
-      消耗金额: costStr,
-      ...(new类型 !== 'weapon_armor' ? { 材料费用: new材料费用 } : {}),
-      消耗经验: xp,
-      制作需求人: new制作需求人,
-      ...(['potion', 'scroll', 'wand', 'staff'].includes(new类型) ? { 所含法术环级: new所含法术环级 } : {}),
-      ...(['wand', 'staff'].includes(new类型) ? { 充能次数: new充能次数, 单次材料费: new单次材料费 } : {}),
-      ...(new类型 === 'staff' ? { 法术数量: new法术数量 } : {}),
-      ...(new类型 === 'scroll' ? { 数量: new数量 } : {}),
+    Promise.resolve(
+      addCraftingProject(currentModuleId, {
+        类型: new类型,
+        物品名称: name,
+        详细介绍: new详细介绍,
+        制作天数: days,
+        消耗金额: costStr,
+        ...(new类型 !== 'weapon_armor' ? { 材料费用: new材料费用 } : {}),
+        消耗经验: xp,
+        制作需求人: new制作需求人,
+        ...(['potion', 'scroll', 'wand', 'staff'].includes(new类型) ? { 所含法术环级: new所含法术环级 } : {}),
+        ...(['wand', 'staff'].includes(new类型) ? { 充能次数: new充能次数, 单次材料费: new单次材料费 } : {}),
+        ...(new类型 === 'staff' ? { 法术数量: new法术数量 } : {}),
+        ...(new类型 === 'scroll' ? { 数量: new数量 } : {}),
+      })
+    ).then(() => {
+      refresh()
+      setNew物品名称('')
+      setNew详细介绍('')
+      setNew消耗金额('')
+      setNew材料费用('')
+      setNew消耗经验(0)
+      setNew制作需求人('')
+      setNew所含法术环级(1)
+      setNew充能次数(50)
+      setNew单次材料费(0)
+      setNew法术数量(1)
+      setNew数量(1)
+      setShowNewCraftModal(false)
     })
-    refresh()
-    setNew物品名称('')
-    setNew详细介绍('')
-    setNew消耗金额('')
-    setNew材料费用('')
-    setNew消耗经验(0)
-    setNew制作需求人('')
-    setNew所含法术环级(1)
-    setNew充能次数(50)
-    setNew单次材料费(0)
-    setNew法术数量(1)
-    setNew数量(1)
-    setShowNewCraftModal(false)
   }
 
   const handleUpdate = (index, patch) => {
-    updateCraftingProject(currentModuleId, index, patch)
-    refresh()
+    Promise.resolve(updateCraftingProject(currentModuleId, index, patch)).then(refresh)
   }
 
   const handleRemove = (index) => {
-    removeCraftingProject(currentModuleId, index)
-    refresh()
+    Promise.resolve(removeCraftingProject(currentModuleId, index)).then(() => {
+      refresh()
     if (expandedIndex === index) setExpandedIndex(null)
     else if (expandedIndex != null && expandedIndex > index) setExpandedIndex(expandedIndex - 1)
     if (selectedProjectIndex === index) setSelectedProjectIndex(null)
     else if (selectedProjectIndex != null && selectedProjectIndex > index) setSelectedProjectIndex(selectedProjectIndex - 1)
+    })
   }
 
   const handleAdvanceDay = () => {
@@ -204,22 +230,26 @@ export default function MagicCraftingPanel() {
       alert(`制作人「${crafter?.name || '未命名'}」经验不足！需要 ${Math.ceil(dailyXp)} XP，当前 ${Math.round(crafterXp)} XP`)
       return
     }
-    const vaultResult = adjustVault(currentModuleId, 'gp', -dailyGp)
-    if (!vaultResult.success) {
-      alert(vaultResult.error || '扣除金币失败')
-      return
-    }
-    if (crafterId && dailyXp > 0) {
-      updateCharacter(crafterId, { xp: Math.max(0, crafterXp - dailyXp) })
-    }
-    const nextDone = daysDone + 1
-    const isComplete = nextDone >= daysTotal
-    updateCraftingProject(currentModuleId, selectedProjectIndex, {
-      已制作天数: nextDone,
-      状态: isComplete ? 'COMPLETED' : 'IN_PROGRESS',
+    Promise.resolve(adjustVault(currentModuleId, 'gp', -dailyGp)).then((vaultResult) => {
+      if (!vaultResult.success) {
+        alert(vaultResult.error || '扣除金币失败')
+        return
+      }
+      if (crafterId && dailyXp > 0) {
+        updateCharacter(crafterId, { xp: Math.max(0, crafterXp - dailyXp) })
+      }
+      setVaultRtTick((t) => t + 1)
+      const nextDone = daysDone + 1
+      const isComplete = nextDone >= daysTotal
+      return updateCraftingProject(currentModuleId, selectedProjectIndex, {
+        已制作天数: nextDone,
+        状态: isComplete ? 'COMPLETED' : 'IN_PROGRESS',
+      }).then(() => {
+        refresh()
+        loadTeamVaultIntoCache(currentModuleId)
+        if (isComplete) setSelectedProjectIndex(null)
+      })
     })
-    refresh()
-    if (isComplete) setSelectedProjectIndex(null)
   }
 
   const handleAbandon = (index) => {
@@ -229,16 +259,17 @@ export default function MagicCraftingPanel() {
 
   const handleReorder = (fromIndex, toIndex) => {
     if (fromIndex === toIndex) return
-    reorderCraftingProjects(currentModuleId, fromIndex, toIndex)
-    refresh()
-    if (selectedProjectIndex === fromIndex) setSelectedProjectIndex(toIndex)
-    else if (selectedProjectIndex === toIndex) setSelectedProjectIndex(fromIndex)
-    else if (selectedProjectIndex != null) {
-      let s = selectedProjectIndex
-      if (s > fromIndex && s <= toIndex) s--
-      else if (s >= toIndex && s < fromIndex) s++
-      setSelectedProjectIndex(s)
-    }
+    Promise.resolve(reorderCraftingProjects(currentModuleId, fromIndex, toIndex)).then(() => {
+      refresh()
+      if (selectedProjectIndex === fromIndex) setSelectedProjectIndex(toIndex)
+      else if (selectedProjectIndex === toIndex) setSelectedProjectIndex(fromIndex)
+      else if (selectedProjectIndex != null) {
+        let s = selectedProjectIndex
+        if (s > fromIndex && s <= toIndex) s--
+        else if (s >= toIndex && s < fromIndex) s++
+        setSelectedProjectIndex(s)
+      }
+    })
   }
 
   const confirmDeposit = () => {
@@ -250,8 +281,24 @@ export default function MagicCraftingPanel() {
     }
     const name = p.物品名称?.trim() || '未命名魔法物品'
     const desc = p.详细介绍?.trim() ?? ''
+    const finishDeposit = () =>
+      Promise.resolve(removeCraftingProject(currentModuleId, depositProjectIndex)).then(() => {
+        refresh()
+        setDepositProjectIndex(null)
+        setDepositCharId('')
+      })
+
     if (depositToWarehouse) {
-      addToWarehouse(currentModuleId, { name, 详细介绍: desc, qty: 1 })
+      Promise.resolve(addToWarehouse(currentModuleId, { name, 详细介绍: desc, qty: 1 })).then(() => {
+        if (user?.name) {
+          logTeamActivity({
+            actor: user.name,
+            moduleId: currentModuleId,
+            summary: `玩家 ${user.name} 将制作的「${name}」放入团队仓库`,
+          })
+        }
+        return finishDeposit()
+      })
     } else {
       if (!depositCharId) return
       const char = characters.find((c) => c.id === depositCharId)
@@ -260,14 +307,21 @@ export default function MagicCraftingPanel() {
         return
       }
       const inv = char.inventory ?? []
-      updateCharacter(depositCharId, {
-        inventory: [...inv, { id: 'inv_' + Date.now(), name, 详细介绍: desc, qty: 1 }],
+      Promise.resolve(
+        updateCharacter(depositCharId, {
+          inventory: [...inv, { id: 'inv_' + Date.now(), name, 详细介绍: desc, qty: 1 }],
+        })
+      ).then(() => {
+        if (user?.name) {
+          logTeamActivity({
+            actor: user.name,
+            moduleId: currentModuleId,
+            summary: `玩家 ${user.name} 将制作的「${name}」存入了角色「${char.name || '未命名'}」的背包`,
+          })
+        }
+        return finishDeposit()
       })
     }
-    removeCraftingProject(currentModuleId, depositProjectIndex)
-    refresh()
-    setDepositProjectIndex(null)
-    setDepositCharId('')
   }
 
   return (

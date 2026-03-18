@@ -19,6 +19,7 @@ import { abilityModifier, proficiencyBonus } from '../lib/formulas'
 import { useBuffCalculator } from '../hooks/useBuffCalculator'
 import { getPrimarySpellcastingAbility } from '../data/classDatabase'
 import { inputClass } from '../lib/inputStyles'
+import { logTeamActivity } from '../lib/activityLog'
 import { NumberStepper } from './BuffForm'
 
 const HELD_LABELS = ['主手', '副手']
@@ -113,7 +114,7 @@ function buildEquipmentForAC(heldSlots, wornSlots, inv) {
   return eq
 }
 
-export default function EquipmentAndInventory({ character, canEdit, onSave, onWalletSuccess }) {
+export default function EquipmentAndInventory({ character, canEdit, onSave, onWalletSuccess, activityActor }) {
   const inv = character?.inventory ?? []
   const migrated = migrateSlots(character)
   const buffStats = useBuffCalculator(character, character?.buffs)
@@ -698,7 +699,26 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                 <button type="button" onClick={() => setAddFormOpen(true)} className="h-7 px-2 rounded-lg bg-dnd-red hover:bg-dnd-red-hover text-white font-bold text-xs">
                   添加物品
                 </button>
-                <ItemAddForm open={addFormOpen} onClose={() => setAddFormOpen(false)} onSave={(entry) => { onSave({ inventory: [...inv, entry] }); setAddFormOpen(false); }} submitLabel="放入背包" inventory={inv} spellDC={spellDC} spellAttackBonus={spellAttackBonus} />
+                <ItemAddForm
+                  open={addFormOpen}
+                  onClose={() => setAddFormOpen(false)}
+                  onSave={(entry) => {
+                    onSave({ inventory: [...inv, entry] })
+                    if (activityActor && character?.name) {
+                      const nm = entry?.name?.trim() || '物品'
+                      logTeamActivity({
+                        actor: activityActor,
+                        moduleId: character.moduleId ?? 'default',
+                        summary: `玩家 ${activityActor} 为角色「${character.name}」的背包添加了「${nm}」`,
+                      })
+                    }
+                    setAddFormOpen(false)
+                  }}
+                  submitLabel="放入背包"
+                  inventory={inv}
+                  spellDC={spellDC}
+                  spellAttackBonus={spellAttackBonus}
+                />
                 <ItemAddForm open={editingIndex !== null} onClose={() => setEditingIndex(null)} onSave={applyEditSave} submitLabel="保存" editEntry={editingIndex != null ? inv[editingIndex] : null} inventory={inv} spellDC={spellDC} spellAttackBonus={spellAttackBonus} />
               </>
             )}

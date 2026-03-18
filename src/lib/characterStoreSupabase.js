@@ -32,6 +32,15 @@ function characterToRow(character) {
   }
 }
 
+/** 拉取当前用户可见的全部角色（跨模组，用于首页与 Realtime 刷新） */
+export async function fetchAllCharacters(ownerName, isAdmin) {
+  let query = supabase.from(TABLE).select('*').order('updated_at', { ascending: false })
+  if (!isAdmin && ownerName) query = query.eq('owner', ownerName)
+  const { data: rows, error } = await query
+  if (error) throw error
+  return (rows || []).map(rowToCharacter)
+}
+
 /** 拉取并填入缓存，返回角色列表 */
 export async function fetchCharacters(ownerName, isAdmin, moduleId) {
   const mod = moduleId ?? 'default'

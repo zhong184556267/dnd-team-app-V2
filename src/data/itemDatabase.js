@@ -4,7 +4,20 @@
  * 显示名：名称 || 类别
  */
 
+import { isSupabaseEnabled } from '../lib/supabase'
+import * as teamData from '../lib/teamDataSupabase'
+
 const CUSTOM_ITEMS_KEY = 'dnd_custom_items'
+let customItemsRemoteCache = null
+
+export async function loadCustomItemsFromSupabase() {
+  if (!isSupabaseEnabled()) return
+  try {
+    customItemsRemoteCache = await teamData.fetchCustomLibrary('custom_items')
+  } catch {
+    customItemsRemoteCache = []
+  }
+}
 
 /** 物品类型（子目录）；武器拆分为近战武器、远程武器；弹药独立；卷轴/爆炸品归入消耗品 */
 export const ITEM_TYPES = [
@@ -362,8 +375,11 @@ export function getItemById(id) {
   return custom ? { ...custom } : null
 }
 
-/** 自定义物品列表（localStorage） */
+/** 自定义物品列表 */
 export function getCustomItems() {
+  if (isSupabaseEnabled()) {
+    return Array.isArray(customItemsRemoteCache) ? [...customItemsRemoteCache] : []
+  }
   try {
     const raw = localStorage.getItem(CUSTOM_ITEMS_KEY)
     const list = raw ? JSON.parse(raw) : []
@@ -373,10 +389,19 @@ export function getCustomItems() {
   }
 }
 
-function saveCustomItems(list) {
+function saveCustomItemsLocal(list) {
   try {
     localStorage.setItem(CUSTOM_ITEMS_KEY, JSON.stringify(list))
   } catch (_) {}
+}
+
+function persistCustomItems(list) {
+  if (isSupabaseEnabled()) {
+    customItemsRemoteCache = [...list]
+    return teamData.saveCustomLibrary('custom_items', customItemsRemoteCache)
+  }
+  saveCustomItemsLocal(list)
+  return Promise.resolve()
 }
 
 /** 已删除类型：首饰→饰品，瓶罐→药品，武器→近战武器，爆炸物→消耗品，奇物/液体/套组→其他 */
@@ -448,7 +473,8 @@ export function addCustomItem(item) {
     详细介绍: item.详细介绍?.trim() || '',
   }
   list.push(newItem)
-  saveCustomItems(list)
+  const p = persistCustomItems(list)
+  if (p && typeof p.then === 'function') return p.then(() => newItem)
   return newItem
 }
 
@@ -459,13 +485,15 @@ export function updateCustomItem(id, patch) {
   if (idx === -1) return null
   const p = patch.类型 !== undefined ? { ...patch, 类型: normalizeItemType(patch.类型) } : patch
   list[idx] = { ...list[idx], ...p }
-  saveCustomItems(list)
+  const pr = persistCustomItems(list)
+  if (pr && typeof pr.then === 'function') return pr.then(() => list[idx])
   return list[idx]
 }
 
 /** 删除自定义物品 */
 export function removeCustomItem(id) {
   const list = getCustomItems().filter((x) => x.id !== id)
-  saveCustomItems(list)
-  return true
+  const pr = persistCustomItems(list)
+  if (pr && typeof pr.then === 'function') return pr.then(() => true)
+  return Promise.resolve(true)
 }

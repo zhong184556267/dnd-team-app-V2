@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Plus, Minus, ArrowRightLeft } from 'lucide-react'
 import { useModule } from '../contexts/ModuleContext'
-import { getTeamVault, adjustVault, convertVaultCurrency, convertCurrency } from '../lib/currencyStore'
+import { getTeamVault, adjustVault, convertVaultCurrency, convertCurrency, loadTeamVaultIntoCache } from '../lib/currencyStore'
 import { CURRENCY_CONFIG, getCurrencyDisplayName } from '../data/currencyConfig'
 import { CurrencyGrid } from './CurrencyDisplay'
 
@@ -22,7 +22,14 @@ export default function CurrencyPanel() {
   const refresh = () => setVault(getTeamVault(currentModuleId))
 
   useEffect(() => {
-    refresh()
+    if (!currentModuleId) return
+    Promise.resolve(loadTeamVaultIntoCache(currentModuleId)).then(() => refresh())
+  }, [currentModuleId])
+
+  useEffect(() => {
+    const h = () => refresh()
+    window.addEventListener('dnd-realtime-team-vault', h)
+    return () => window.removeEventListener('dnd-realtime-team-vault', h)
   }, [currentModuleId])
 
   useEffect(() => {
@@ -40,13 +47,14 @@ export default function CurrencyPanel() {
       return
     }
     const delta = sign === '+' ? num : -num
-    const result = adjustVault(currentModuleId, currencyId, delta)
-    if (result.success) {
-      refresh()
-      setAmountInput('')
-    } else {
-      setError(result.error || '操作失败')
-    }
+    Promise.resolve(adjustVault(currentModuleId, currencyId, delta)).then((result) => {
+      if (result.success) {
+        refresh()
+        setAmountInput('')
+      } else {
+        setError(result.error || '操作失败')
+      }
+    })
   }
 
   const convertAmountNum = parseFloat(String(convertAmount).replace(/,/g, ''))
@@ -67,13 +75,14 @@ export default function CurrencyPanel() {
       setConvertError('请输入有效数量或「全部」')
       return
     }
-    const result = convertVaultCurrency(currentModuleId, convertFrom, convertTo, amt)
-    if (result.success) {
-      refresh()
-      setConvertAmount('')
-    } else {
-      setConvertError(result.error || '兑换失败')
-    }
+    Promise.resolve(convertVaultCurrency(currentModuleId, convertFrom, convertTo, amt)).then((result) => {
+      if (result.success) {
+        refresh()
+        setConvertAmount('')
+      } else {
+        setConvertError(result.error || '兑换失败')
+      }
+    })
   }
 
   const inputClass = 'h-9 rounded-lg bg-gray-800 border border-gray-600 text-white px-2.5 text-sm focus:border-dnd-red focus:ring-1 focus:ring-dnd-red'

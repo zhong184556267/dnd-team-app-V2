@@ -2,6 +2,8 @@
  * 法术大全：与职业库、专长表平行，供法术大全页与角色卡调用。
  * 单条：id, name, level(0=戏法,1-9), school?, source?(职业法表[]), ritual?, castingTime?, range?, components?, duration?, description, sourceBook?
  */
+import { isSupabaseEnabled } from '../lib/supabase'
+import * as teamData from '../lib/teamDataSupabase'
 
 /** 魔杖与卷轴的法强：按法术环阶固定豁免DC与攻击加值，供魔杖/卷轴内含法术使用 */
 export const WAND_SCROLL_SPELL_POWER = [
@@ -1014,9 +1016,22 @@ export const SPELL_SCHOOLS = [
 ]
 
 const CUSTOM_SPELLS_KEY = 'dnd_custom_spells'
+let customSpellsRemoteCache = null
 
-/** 自定义法术（localStorage），供法术大全与角色卡合并使用 */
+export async function loadCustomSpellsFromSupabase() {
+  if (!isSupabaseEnabled()) return
+  try {
+    customSpellsRemoteCache = await teamData.fetchCustomLibrary('custom_spells')
+  } catch {
+    customSpellsRemoteCache = []
+  }
+}
+
+/** 自定义法术 */
 export function getCustomSpells() {
+  if (isSupabaseEnabled()) {
+    return Array.isArray(customSpellsRemoteCache) ? [...customSpellsRemoteCache] : []
+  }
   try {
     const raw = localStorage.getItem(CUSTOM_SPELLS_KEY)
     const list = raw ? JSON.parse(raw) : []
@@ -1026,10 +1041,19 @@ export function getCustomSpells() {
   }
 }
 
-function saveCustomSpells(list) {
+function saveCustomSpellsLocal(list) {
   try {
     localStorage.setItem(CUSTOM_SPELLS_KEY, JSON.stringify(list))
   } catch (_) {}
+}
+
+function persistCustomSpells(list) {
+  if (isSupabaseEnabled()) {
+    customSpellsRemoteCache = [...list]
+    return teamData.saveCustomLibrary('custom_spells', customSpellsRemoteCache)
+  }
+  saveCustomSpellsLocal(list)
+  return Promise.resolve()
 }
 
 /** 内置 + 自定义合并列表（法术大全、角色卡统一使用此列表） */
@@ -1055,7 +1079,8 @@ export function addCustomSpell(spell) {
     ritual: !!spell.ritual,
   }
   list.push(newSpell)
-  saveCustomSpells(list)
+  const p = persistCustomSpells(list)
+  if (p && typeof p.then === 'function') return p.then(() => newSpell)
   return newSpell
 }
 
@@ -1065,15 +1090,17 @@ export function updateCustomSpell(id, patch) {
   const idx = list.findIndex((s) => s.id === id)
   if (idx === -1) return null
   list[idx] = { ...list[idx], ...patch }
-  saveCustomSpells(list)
+  const pr = persistCustomSpells(list)
+  if (pr && typeof pr.then === 'function') return pr.then(() => list[idx])
   return list[idx]
 }
 
 /** 删除自定义法术 */
 export function removeCustomSpell(id) {
   const list = getCustomSpells().filter((s) => s.id !== id)
-  saveCustomSpells(list)
-  return true
+  const pr = persistCustomSpells(list)
+  if (pr && typeof pr.then === 'function') return pr.then(() => true)
+  return Promise.resolve(true)
 }
 
 export function getSpellById(id) {

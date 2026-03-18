@@ -149,23 +149,32 @@ export default function DataMaintain() {
     refresh()
   }, [])
 
+  useEffect(() => {
+    const h = () => refresh()
+    window.addEventListener('dnd-realtime-custom-library', h)
+    return () => window.removeEventListener('dnd-realtime-custom-library', h)
+  }, [])
+
   const handleAddItem = (form) => {
-    addCustomItem(form)
-    setShowAddItem(false)
-    refresh()
+    Promise.resolve(addCustomItem(form)).then(() => {
+      setShowAddItem(false)
+      refresh()
+    })
   }
 
   const handleUpdateItem = (id, form) => {
-    updateCustomItem(id, form)
-    setEditingId(null)
-    refresh()
+    Promise.resolve(updateCustomItem(id, form)).then(() => {
+      setEditingId(null)
+      refresh()
+    })
   }
 
   const handleRemoveItem = (id) => {
     if (window.confirm('确定删除该自定义物品？角色卡与仓库中已引用仍保留名称，但无法再从物品表选择。')) {
-      removeCustomItem(id)
-      setEditingId(null)
-      refresh()
+      Promise.resolve(removeCustomItem(id)).then(() => {
+        setEditingId(null)
+        refresh()
+      })
     }
   }
 

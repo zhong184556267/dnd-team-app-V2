@@ -1,5 +1,6 @@
 import { isSupabaseEnabled } from './supabase'
 import * as charSupabase from './characterStoreSupabase'
+import { getDefaultCharIdFromPrefs, setDefaultCharInPrefs } from './moduleStore'
 
 const STORAGE_KEY = 'starlight_characters'
 
@@ -30,6 +31,13 @@ const defaultAbilities = () => ({ str: 10, dex: 10, con: 10, int: 10, wis: 10, c
 export async function loadCharactersIntoCache(ownerName, isAdmin, moduleId) {
   if (!isSupabaseEnabled()) return
   const list = await charSupabase.fetchCharacters(ownerName, isAdmin, moduleId)
+  charactersCache = list
+}
+
+/** 拉取当前用户可见的全部角色（跨模组），写入缓存 — 登录后 / Realtime 用 */
+export async function loadAllCharactersIntoCache(ownerName, isAdmin) {
+  if (!isSupabaseEnabled()) return
+  const list = await charSupabase.fetchAllCharacters(ownerName, isAdmin)
   charactersCache = list
 }
 
@@ -98,6 +106,9 @@ export function getCharacter(id) {
 /** 获取当前用户在指定模组下的常用角色 ID（不传 moduleId 时用 'default'） */
 export function getDefaultCharacterId(ownerName, moduleId) {
   if (!ownerName) return null
+  if (isSupabaseEnabled()) {
+    return getDefaultCharIdFromPrefs(ownerName, moduleId)
+  }
   try {
     return localStorage.getItem(defaultCharKey(ownerName, moduleId ?? 'default')) || null
   } catch {
@@ -108,6 +119,10 @@ export function getDefaultCharacterId(ownerName, moduleId) {
 /** 设置或清除常用角色 ID；传 null 表示清除。moduleId 不传时用 'default' */
 export function setDefaultCharacterId(ownerName, characterId, moduleId) {
   if (!ownerName) return
+  if (isSupabaseEnabled()) {
+    setDefaultCharInPrefs(ownerName, moduleId, characterId || null)
+    return
+  }
   try {
     const key = defaultCharKey(ownerName, moduleId ?? 'default')
     if (characterId) {
@@ -196,10 +211,13 @@ export function updateCharacter(id, patch) {
 
 export function deleteCharacter(id) {
   if (isSupabaseEnabled()) {
-    return charSupabase.deleteCharacterRow(id).then(() => {
-      const deletedChar = charactersCache.find((c) => c.id === id)
-      if (deletedChar && deletedChar.owner && getDefaultCharacterId(deletedChar.owner, deletedChar.moduleId ?? 'default') === id) {
-        setDefaultCharacterId(deletedChar.owner, null, deletedChar.moduleId ?? 'default')
+    const deletedChar = charactersCache.find((c) => c.id === id)
+    const clearDefault =
+      deletedChar?.owner &&
+      getDefaultCharacterId(deletedChar.owner, deletedChar.moduleId ?? 'default') === id
+    return charSupabase.deleteCharacterRow(id).then(async () => {
+      if (clearDefault && deletedChar.owner) {
+        await setDefaultCharInPrefs(deletedChar.owner, deletedChar.moduleId ?? 'default', null)
       }
       charactersCache = charactersCache.filter((c) => c.id !== id)
       return true

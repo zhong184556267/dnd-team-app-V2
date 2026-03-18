@@ -7,7 +7,8 @@ import { useState, useEffect, useCallback, useRef, useMemo, forwardRef } from 'r
 import { useParams, Link } from 'react-router-dom'
 import { ChevronUp, ChevronDown, Trash2, Star, Upload, X } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
-import { getCharacter, updateCharacter } from '../lib/characterStore'
+import { getCharacter, updateCharacter, loadCharacterById } from '../lib/characterStore'
+import { isSupabaseEnabled } from '../lib/supabase'
 import { levelFromXP, xpForLevel } from '../lib/xp5e'
 import {
   getSpellcastingLevel,
@@ -856,6 +857,23 @@ function ClassSection({ char, level, canEdit, onSave }) {
 
 function noop() {}
 
+function briefClassSummary(c) {
+  if (!c) return '—'
+  const parts = []
+  if (c.class) parts.push(`${getClassDisplayName(c.class)} ${Math.max(0, Number(c.classLevel) || 1)}`)
+  if (Array.isArray(c.multiclass)) {
+    c.multiclass.forEach((m) => {
+      if (m?.['class']) parts.push(`${getClassDisplayName(m['class'])} ${Math.max(0, Number(m.level) || 0)}`)
+    })
+  }
+  if (Array.isArray(c.prestige)) {
+    c.prestige.forEach((p) => {
+      if (p?.['class']) parts.push(`${getClassDisplayName(p['class'])} ${Math.max(0, Number(p.level) || 0)}`)
+    })
+  }
+  return parts.length ? parts.join(' / ') : '—'
+}
+
 export default function CharacterSheet() {
   const { id } = useParams()
   const { user, isAdmin } = useAuth()
@@ -875,8 +893,33 @@ export default function CharacterSheet() {
 
   useEffect(() => {
     if (!id || id === 'new') return
-    setChar(getCharacter(id))
+    let cancelled = false
+    ;(async () => {
+      if (isSupabaseEnabled()) {
+        let c = getCharacter(id)
+        if (!c) c = await loadCharacterById(id)
+        if (!cancelled) setChar(c ?? null)
+      } else {
+        setChar(getCharacter(id))
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
   }, [id])
+
+  useEffect(() => {
+    if (!id || id === 'new') return
+    const onRealtime = async () => {
+      if (!isSupabaseEnabled()) return
+      await loadCharacterById(id)
+      const next = getCharacter(id)
+      if (next && next.id === id) setChar(next)
+    }
+    window.addEventListener('dnd-realtime-characters', onRealtime)
+    return () => window.removeEventListener('dnd-realtime-characters', onRealtime)
+  }, [id])
+
   useEffect(() => {
     setEditingName(null)
   }, [char?.id])
@@ -884,6 +927,12 @@ export default function CharacterSheet() {
   const persist = useCallback((patch) => {
     if (!char?.id) return null
     const updated = updateCharacter(char.id, patch)
+    if (updated && typeof updated.then === 'function') {
+      updated.then((u) => {
+        if (u) setChar(u)
+      })
+      return updated
+    }
     if (updated) setChar(updated)
     return updated
   }, [char?.id])
@@ -893,6 +942,27 @@ export default function CharacterSheet() {
       <div className="p-4 pb-24 min-h-screen">
         <p className="text-dnd-text-muted">未找到该角色。</p>
         <Link to="/characters" className="text-dnd-red mt-2 inline-block">返回列表</Link>
+      </div>
+    )
+  }
+
+  const sheetBlocked = char && !isAdmin && char.owner !== user?.name
+  if (sheetBlocked) {
+    const level = char ? levelFromXP(char.xp) : 0
+    const cls = briefClassSummary(char)
+    return (
+      <div className="p-4 pb-24 min-h-screen" style={{ backgroundColor: 'var(--page-bg)' }}>
+        <Link to="/characters" className="text-dnd-red">← 返回角色列表</Link>
+        <div className="mt-8 max-w-md mx-auto rounded-xl border border-amber-600/40 bg-dnd-card p-6 text-center">
+          <p className="text-amber-200 font-bold text-lg mb-2">无法查看完整角色卡</p>
+          <p className="text-dnd-text-muted text-sm mb-4">
+            仅创建人（玩家 ID：<span className="text-dnd-gold-light">{char.owner}</span>）可打开详情。你可在首页或「我的角色」列表查看公开概要。
+          </p>
+          <div className="text-left text-sm text-dnd-text-body space-y-1 border-t border-white/10 pt-4">
+            <p><span className="text-dnd-text-muted">角色名：</span>{char.name || '未命名'}</p>
+            <p><span className="text-dnd-text-muted">职业 / 等级：</span>{cls} · 等级 {level}</p>
+          </div>
+        </div>
       </div>
     )
   }
@@ -991,7 +1061,13 @@ export default function CharacterSheet() {
           </section>
           <section className="mt-6">
             <h3 className="section-title">装备与背包</h3>
-            <EquipmentAndInventory character={char} canEdit={canEdit} onSave={persist} onWalletSuccess={noop} />
+            <EquipmentAndInventory
+              character={char}
+              canEdit={canEdit}
+              onSave={persist}
+              onWalletSuccess={noop}
+              activityActor={user?.name}
+            />
           </section>
           <section className="mt-6">
             <div className="grid grid-cols-1 md:grid-cols-5 gap-4">

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { isSupabaseEnabled } from '../lib/supabase'
+import { APP_VERSION_LABEL } from '../config/version'
 
 export default function Login() {
   const { login } = useAuth()
@@ -18,7 +19,7 @@ export default function Login() {
       className="min-h-screen bg-dnd-bg flex flex-col items-center justify-center p-6"
       style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24, backgroundColor: '#121212' }}
     >
-      <div className="w-full max-w-sm" style={{ width: '100%', maxWidth: 384 }}>
+      <div className="w-full max-w-md" style={{ width: '100%', maxWidth: 480 }}>
         <div
           className="rounded-xl bg-dnd-card border border-white/10 shadow-dnd-card border-l-4 border-dnd-red p-8"
           style={{ borderRadius: 12, backgroundColor: '#1E293B', padding: 32, borderLeft: '4px solid #E01C2F' }}
@@ -26,7 +27,7 @@ export default function Login() {
           <h1 className="font-display text-2xl sm:text-3xl font-bold text-white text-center mb-1" style={{ color: '#fff', fontSize: '1.5rem', fontWeight: 700, textAlign: 'center', marginBottom: 4 }}>
             繁星 D&D 小助手
           </h1>
-          <p className="text-dnd-text-label text-center text-sm mb-8" style={{ color: '#94a3b8', textAlign: 'center', fontSize: 14, marginBottom: 32 }}>
+          <p className="text-dnd-text-label text-center text-sm mb-8 whitespace-nowrap" style={{ color: '#94a3b8', textAlign: 'center', fontSize: 14, marginBottom: 32 }}>
             输入你的玩家名进入（类似账号 ID，每人固定一个）
           </p>
           <form onSubmit={handleSubmit} className="space-y-5">
@@ -98,7 +99,7 @@ export default function Login() {
           )}
         </div>
         <p className="text-dnd-text-muted text-sm text-center mt-6">
-          风格参考 D&D Beyond App
+          {APP_VERSION_LABEL}
         </p>
       </div>
     </div>

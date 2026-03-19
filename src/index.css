@@ -2,28 +2,30 @@
 @tailwind components;
 @tailwind utilities;
 
-/* 全站统一思源体：中文、英文、数字 */
+/* 全站统一思源体 + 参考图美术：深海军蓝底、金黄主强调、灰蓝边框、层次分明 */
 :root {
   --font-siyuan: 'Noto Sans SC', 'Source Han Sans SC', 'Source Han Sans', 'Inter', sans-serif;
-  /* 角色面板深色主题：现代扁平 + 微质感渐变 + 轻玻璃态 */
-  --page-bg: #1a1f26;
-  --page-bg-end: #151920;
-  --card-bg: rgba(30, 38, 50, 0.7);
-  --card-border: #2a3545;
-  --border-color: #2a3545;
-  --text-title: #d4a017;
-  --accent: #d4a017;
-  --accent-gold: #d4a017;
+  /* 主背景：极深海军蓝 */
+  --page-bg: #12141a;
+  --page-bg-end: #0f1218;
+  /* 容器/卡片：略浅深蓝灰，层次感 */
+  --card-bg: #1e222b;
+  --card-border: #2d323e;
+  --border-color: #2d323e;
+  /* 主强调：金黄（区块标题、激活态） */
+  --text-title: #e9b343;
+  --accent: #e9b343;
+  --accent-gold: #e9b343;
   --text-main: #ffffff;
-  --text-muted: #a0a8b5;
+  --text-muted: #9ca3af;
   --btn-primary: #e63946;
   --btn-primary-hover: #d42d3a;
-  --btn-secondary: #2d3748;
-  --btn-secondary-border: #4a5568;
-  --input-bg: #2d3748;
-  --input-border: #4a5568;
-  --input-focus: #5a6d8a;
-  --panel-radius: 10px;
+  --btn-secondary: #252a33;
+  --btn-secondary-border: #2d323e;
+  --input-bg: #252a33;
+  --input-border: #2d323e;
+  --input-focus: #3d4554;
+  --panel-radius: 8px;
   --panel-padding: 8px 16px;
 }
 html {
@@ -39,10 +41,11 @@ body {
   font-size: 16px;
   line-height: 1.6;
 }
-/* 保证主栏随视口变宽变窄，避免子级 flex 把宽度撑死 */
+/* 主体固定宽度时，窄视口可横向滚动 */
 #root {
   width: 100%;
   min-width: 0;
+  overflow-x: auto;
 }
 h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-siyuan);
@@ -65,7 +68,7 @@ input:focus, textarea:focus, select:focus {
 }
 input:focus, textarea:focus, select:focus {
   border-color: var(--input-focus);
-  box-shadow: 0 0 0 2px rgba(90, 109, 138, 0.25);
+  box-shadow: 0 0 0 2px rgba(233, 179, 67, 0.12);
 }
 
 /* 背包表格：固定行高 48px，文案超出部分隐藏，绝不随内容增高 */
@@ -164,30 +167,29 @@ select option {
   letter-spacing: 0.02em;
 }
 
-/* 模块面板：半透明深蓝灰 + 微渐变 + 极细亮边 + 内阴影（玻璃态） */
+/* 模块面板：参考图层次 — 深蓝灰底 + 细边框 + 轻微内高光 */
 .module-panel {
-  background: linear-gradient(180deg, rgba(34, 42, 55, 0.75) 0%, rgba(30, 38, 50, 0.7) 100%);
+  background: var(--card-bg);
   border: 1px solid var(--card-border);
   border-radius: var(--panel-radius);
   padding: 16px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03), 0 1px 2px rgba(0, 0, 0, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
-/* 面板内子卡片：同风格、轻分隔 */
+/* 面板内子卡片：同色系略深、轻分隔 */
 .panel-card {
-  background: linear-gradient(180deg, rgba(38, 46, 60, 0.6) 0%, rgba(30, 38, 50, 0.55) 100%);
+  background: #252a33;
   border: 1px solid var(--card-border);
   border-radius: var(--panel-radius);
   padding: 12px 16px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
-/* 经验/等级等紧凑卡片：减少内边距 */
 .panel-card-compact {
-  background: linear-gradient(180deg, rgba(38, 46, 60, 0.6) 0%, rgba(30, 38, 50, 0.55) 100%);
+  background: #252a33;
   border: 1px solid var(--card-border);
   border-radius: var(--panel-radius);
   padding: 8px 12px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
 /* 面板内分隔线 */
@@ -216,7 +218,7 @@ select option {
 .panel-select:focus {
   outline: none;
   border-color: var(--input-focus);
-  box-shadow: 0 0 0 2px rgba(90, 109, 138, 0.25);
+  box-shadow: 0 0 0 2px rgba(233, 179, 67, 0.15);
 }
 /* 剧情等级等紧凑数字框：外框高度贴近数字，减少留白 */
 .panel-input-compact {
@@ -284,7 +286,7 @@ select.panel-class-control-h {
   box-sizing: border-box;
 }
 
-/* 等级步进器（面板内）：浅灰箭头 */
+/* 等级步进器（面板内）：浅灰箭头；随外框宽度伸缩 */
 .level-stepper-panel {
   display: flex;
   align-items: stretch;
@@ -297,6 +299,9 @@ select.panel-class-control-h {
   min-height: 40px;
   max-height: 40px;
   box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
 }
 .level-stepper-panel button {
   width: 36px;
@@ -320,6 +325,7 @@ select.panel-class-control-h {
   cursor: not-allowed;
 }
 .level-stepper-panel span {
+  flex: 1 1 auto;
   min-width: 2rem;
   display: flex;
   align-items: center;
@@ -506,7 +512,7 @@ select.panel-class-control-h {
 }
 .xp-progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, var(--text-title), #e8b84a);
+  background: linear-gradient(90deg, var(--accent), #f0c14d);
   border-radius: 9999px;
   transition: width 0.25s ease;
 }

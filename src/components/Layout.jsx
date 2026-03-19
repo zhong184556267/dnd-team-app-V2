@@ -45,11 +45,13 @@ export default function Layout() {
   return (
     <RollProvider>
       <ScrollToTop />
-      <div className="min-h-screen w-full min-w-0 bg-dnd-bg font-body text-dnd-text-body">
-        <main className="w-full min-w-0 pb-[calc(3.5rem+env(safe-area-inset-bottom,0px))]">
-          <Outlet />
-        </main>
-        <BottomNav />
+      <div className="min-h-screen w-full min-w-[1180px] bg-shell-side">
+        <div className="mx-auto w-[1180px] min-w-[1180px] shrink-0 min-h-screen min-h-[100dvh] bg-dnd-bg font-body text-dnd-text-body">
+          <main className="w-full min-w-0 pb-[calc(3.5rem+env(safe-area-inset-bottom,0px))]">
+            <Outlet />
+          </main>
+          <BottomNav />
+        </div>
         <DiceRoller />
       </div>
     </RollProvider>

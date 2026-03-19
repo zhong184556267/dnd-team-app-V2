@@ -132,38 +132,38 @@ export default function Characters() {
 
   return (
     <div className="p-4 pb-24 min-h-screen bg-dnd-bg">
-      <div className="flex flex-col gap-3 mb-4">
-        <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+        <div className="flex flex-wrap items-center gap-2">
           <h1 className="font-display text-xl font-semibold text-white">
             {isAdmin && !adminModuleOnly ? '全部角色（管理员）' : '我的角色'}
           </h1>
-          <Link
+          {isAdmin && (
+            <>
+              <button
+                type="button"
+                onClick={() => setAdminModuleOnly(false)}
+                className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${!adminModuleOnly ? 'bg-dnd-gold-light/25 text-dnd-gold-light' : 'bg-white/10 text-dnd-text-muted hover:text-white'}`}
+              >
+                查看全部玩家 · 全部模组
+              </button>
+              <button
+                type="button"
+                onClick={() => setAdminModuleOnly(true)}
+                className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${adminModuleOnly ? 'bg-dnd-gold-light/25 text-dnd-gold-light' : 'bg-white/10 text-dnd-text-muted hover:text-white'}`}
+              >
+                仅当前模组
+              </button>
+              <span className="text-dnd-text-muted text-xs">（与顶部选中的模组一致）</span>
+            </>
+          )}
+        </div>
+        <Link
           to="/characters/new"
-          className="flex items-center gap-2 py-2 px-4 rounded-lg bg-dnd-red hover:bg-dnd-red-hover text-white font-medium uppercase text-xs tracking-label transition-colors"
+          className="flex shrink-0 items-center gap-2 py-2 px-4 rounded-lg bg-dnd-red hover:bg-dnd-red-hover text-white font-medium uppercase text-xs tracking-label transition-colors"
         >
           <Plus className="w-5 h-5" />
           新角色
         </Link>
-        </div>
-        {isAdmin && (
-          <div className="flex flex-wrap items-center gap-2 text-xs">
-            <button
-              type="button"
-              onClick={() => setAdminModuleOnly(false)}
-              className={`rounded-lg px-3 py-1.5 font-semibold transition-colors ${!adminModuleOnly ? 'bg-dnd-gold-light/25 text-dnd-gold-light' : 'bg-white/10 text-dnd-text-muted hover:text-white'}`}
-            >
-              查看全部玩家 · 全部模组
-            </button>
-            <button
-              type="button"
-              onClick={() => setAdminModuleOnly(true)}
-              className={`rounded-lg px-3 py-1.5 font-semibold transition-colors ${adminModuleOnly ? 'bg-dnd-gold-light/25 text-dnd-gold-light' : 'bg-white/10 text-dnd-text-muted hover:text-white'}`}
-            >
-              仅当前模组
-            </button>
-            <span className="text-dnd-text-muted">（与顶部选中的模组一致）</span>
-          </div>
-        )}
       </div>
 
       {list.length === 0 ? (
@@ -216,29 +216,31 @@ export default function Characters() {
                   <p className="text-dnd-text-muted text-sm">
                     {classLevelText} · 等级 {level}
                   </p>
-                  <p className="text-xs text-dnd-text-muted mt-0.5">
-                    {isAdmin && !adminModuleOnly ? (
-                      <>
-                        玩家 <span className="text-dnd-gold-light/90 font-medium">{c.owner ?? '—'}</span>
-                        {' · 模组 '}
-                        <span className="text-emerald-400/90">{moduleLabel(c.moduleId)}</span>
-                        {' · 修改 '}
-                        {formatDateTime(c.updatedAt ?? c.createdAt)}
-                      </>
-                    ) : (
-                      <>创建 {c.owner ?? '—'} · 修改 {formatDateTime(c.updatedAt ?? c.createdAt)}</>
-                    )}
-                  </p>
                   <div className="mt-1.5 h-1.5 rounded-full bg-black/30 overflow-hidden">
                     <div
                       className={`h-full rounded-full transition-all ${barColor}`}
                       style={{ width: `${pct}%` }}
                     />
                   </div>
-                  <p className={`text-xs mt-0.5 font-mono font-semibold ${isLowHp ? 'text-dnd-red' : 'text-dnd-text-muted'}`}>
-                    HP {cur}/{max}
-                    {hp.temp ? ` +${hp.temp} 临时` : ''}
-                  </p>
+                  <div className="flex items-end justify-between gap-2 mt-0.5 min-h-[1.25rem]">
+                    <p className="text-xs text-dnd-text-muted truncate min-w-0">
+                      {isAdmin && !adminModuleOnly ? (
+                        <>
+                          玩家 <span className="text-dnd-gold-light/90 font-medium">{c.owner ?? '—'}</span>
+                          {' · 模组 '}
+                          <span className="text-emerald-400/90">{moduleLabel(c.moduleId)}</span>
+                          {' · 修改 '}
+                          {formatDateTime(c.updatedAt ?? c.createdAt)}
+                        </>
+                      ) : (
+                        <>创建 {c.owner ?? '—'} · 修改 {formatDateTime(c.updatedAt ?? c.createdAt)}</>
+                      )}
+                    </p>
+                    <p className={`text-xs font-mono font-semibold shrink-0 ${isLowHp ? 'text-dnd-red' : 'text-dnd-text-muted'}`}>
+                      HP {cur}/{max}
+                      {hp.temp ? ` +${hp.temp} 临时` : ''}
+                    </p>
+                  </div>
                 </div>
               </>
             )

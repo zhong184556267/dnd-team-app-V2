@@ -428,13 +428,15 @@ export default function Dashboard() {
                                   style={{ width: `${pct}%` }}
                                 />
                               </div>
-                              <p className={`text-xs mt-0.5 font-mono font-semibold ${isLowHp ? 'text-dnd-red' : 'text-dnd-text-muted'}`}>
-                                HP {cur}/{max}
-                                {hp.temp ? ` +${hp.temp} 临时` : ''}
-                              </p>
-                              <p className="text-xs text-dnd-text-muted mt-0.5">
-                                创建 {c.owner ?? '—'} · 修改 {formatDateTime(c.updatedAt ?? c.createdAt)}
-                              </p>
+                              <div className="flex items-end justify-between gap-2 mt-0.5 min-h-[1.25rem]">
+                                <p className="text-xs text-dnd-text-muted truncate min-w-0">
+                                  创建 {c.owner ?? '—'} · 修改 {formatDateTime(c.updatedAt ?? c.createdAt)}
+                                </p>
+                                <p className={`text-xs font-mono font-semibold shrink-0 ${isLowHp ? 'text-dnd-red' : 'text-dnd-text-muted'}`}>
+                                  HP {cur}/{max}
+                                  {hp.temp ? ` +${hp.temp} 临时` : ''}
+                                </p>
+                              </div>
                             </div>
                           </>
                         )

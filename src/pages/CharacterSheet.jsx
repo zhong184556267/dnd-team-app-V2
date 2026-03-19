@@ -32,6 +32,7 @@ import CombatStatus from '../components/CombatStatus'
 import EquipmentAndInventory from '../components/EquipmentAndInventory'
 import AbilityModule from '../components/AbilityModule'
 import AvatarCropModal from '../components/AvatarCropModal'
+import { APP_VERSION_LABEL } from '../config/version'
 import { inputClass, labelClass } from '../lib/inputStyles'
 
 const RAW_AVATAR_FILE_MAX = 12 * 1024 * 1024 // 裁剪前原图上限，裁剪后会压到约 800KB 内
@@ -214,6 +215,27 @@ function AvatarFrame({ char, canEdit, onSave, large }) {
   )
 }
 
+/** 必须定义在模块顶层，避免父组件每次渲染时子组件类型变化导致输入框失焦 */
+function AppearanceField({ label, value, setValue, onBlur, canEdit, inputCls, labelCls }) {
+  return (
+    <div className="form-group-compact">
+      <label className={labelCls}>{label}</label>
+      {canEdit ? (
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onBlur={onBlur}
+          className={inputCls}
+          placeholder="—"
+        />
+      ) : (
+        <span className="text-[var(--text-main)] text-sm truncate max-w-[7.5rem] block">{value || '—'}</span>
+      )}
+    </div>
+  )
+}
+
 function AppearanceGrid({ char, canEdit, onSave, noBorder, compact }) {
   const app = char?.appearance ?? {}
   const [age, setAge] = useState(app.age ?? '')
@@ -257,23 +279,6 @@ function AppearanceGrid({ char, canEdit, onSave, noBorder, compact }) {
     ? 'input-thin h-7 max-w-[7.5rem]'
     : 'profile-input h-7 max-w-[7.5rem]'
   const labelCls = compact ? 'form-label block' : 'profile-label block'
-  const Cell = ({ label, value, set }) => (
-    <div className="form-group-compact">
-      <label className={labelCls}>{label}</label>
-      {canEdit ? (
-        <input
-          type="text"
-          value={value}
-          onChange={(e) => set(e.target.value)}
-          onBlur={save}
-          className={inputCls}
-          placeholder="—"
-        />
-      ) : (
-        <span className="text-[var(--text-main)] text-sm truncate max-w-[7.5rem] block">{value || '—'}</span>
-      )}
-    </div>
-  )
 
   const frameClass = noBorder ? 'p-0 min-w-0 w-full' : 'profile-section p-3 min-w-0 w-full'
   return (
@@ -283,7 +288,16 @@ function AppearanceGrid({ char, canEdit, onSave, noBorder, compact }) {
         style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 9rem), 1fr))' }}
       >
         {cells.map(({ label, value, set }) => (
-          <Cell key={label} label={label} value={value} set={set} />
+          <AppearanceField
+            key={label}
+            label={label}
+            value={value}
+            setValue={set}
+            onBlur={save}
+            canEdit={canEdit}
+            inputCls={inputCls}
+            labelCls={labelCls}
+          />
         ))}
       </div>
       {canEdit && <p className="save-hint mt-1 text-right">点击他处即保存</p>}
@@ -802,13 +816,15 @@ function ClassSection({ char, level, canEdit, onSave }) {
                     <option key={c} value={c}>{isFanxingClass(c) ? `★ ${c}` : c}</option>
                   ))}
                 </select>
-                <LevelStepper
-                  value={classLevel}
-                  onChange={setMainLevel}
-                  min={1}
-                  max={Math.max(1, maxLevel - multiclass.reduce((s, m) => s + (m.level || 0), 0) - prestigeLevelSum)}
-                  disabled={!classVal}
-                />
+                <div className="min-w-0 flex-1">
+                  <LevelStepper
+                    value={classLevel}
+                    onChange={setMainLevel}
+                    min={1}
+                    max={Math.max(1, maxLevel - multiclass.reduce((s, m) => s + (m.level || 0), 0) - prestigeLevelSum)}
+                    disabled={!classVal}
+                  />
+                </div>
               </div>
               <div>
                 <label className="panel-label mb-1 block">子职（选填）</label>
@@ -850,7 +866,9 @@ function ClassSection({ char, level, canEdit, onSave }) {
                           <option key={c} value={c}>{isFanxingClass(c) ? `★ ${c}` : c}</option>
                         ))}
                       </select>
-                      <LevelStepper value={m.level} onChange={(n) => setMulticlassRow(i, 'level', n)} min={0} max={rowMax} disabled={!m['class']} />
+                      <div className="min-w-0 flex-1">
+                        <LevelStepper value={m.level} onChange={(n) => setMulticlassRow(i, 'level', n)} min={0} max={rowMax} disabled={!m['class']} />
+                      </div>
                     </div>
                     <select
                       value={m.subclass ?? ''}
@@ -892,7 +910,9 @@ function ClassSection({ char, level, canEdit, onSave }) {
                           <option key={c} value={c}>★ {c}</option>
                         ))}
                       </select>
-                      <LevelStepper value={p.level} onChange={(n) => setPrestigeRow(i, 'level', n)} min={0} max={rowMax} disabled={!p['class']} />
+                      <div className="min-w-0 flex-1">
+                        <LevelStepper value={p.level} onChange={(n) => setPrestigeRow(i, 'level', n)} min={0} max={rowMax} disabled={!p['class']} />
+                      </div>
                     </div>
                   </div>
                 )
@@ -1028,7 +1048,7 @@ export default function CharacterSheet() {
   return (
     <div className="p-4 pb-24 min-h-screen" style={{ backgroundColor: 'var(--page-bg)' }}>
       <Link to="/characters" className="text-dnd-red">← 返回角色列表</Link>
-      <p className="text-white mt-4 text-sm text-gray-400">角色卡 id: {id}</p>
+      <p className="text-white mt-4 text-sm text-gray-400">版本 {APP_VERSION_LABEL}</p>
       {char ? (
         <>
           {/* 统一卡片：左 核心+属性网格 | 右 大头像（与截图风格一致） */}

@@ -222,10 +222,10 @@ function NumberStepper({ value, onChange, min = -999, max = 999, step = 1, compa
     else { const v = parseInt(s, 10); if (!Number.isNaN(v)) onChange(clamp(v)) }
   }
   const padX = pill ? 'pl-1.5 pr-1.5' : (narrow ? 'px-5' : 'px-7')
-  const inputWidth = pill ? 'min-w-[1.5rem] w-8 flex-1' : (narrow ? 'min-w-[2rem] w-11' : 'min-w-[3.5rem] w-20')
+  const inputWidth = pill ? 'min-w-[1.5rem] w-8 flex-1' : (narrow ? 'min-w-[2rem] w-11' : compact ? 'min-w-[2rem] flex-1' : 'min-w-[3.5rem] w-20')
   const wrapperCls = pill
     ? `relative flex items-center border border-gray-600 rounded-full bg-gray-700 shadow-sm ${padX} ${rowH} max-w-full`
-    : `relative flex items-center border border-gray-500/60 rounded-md bg-gray-800/90 shadow-sm ${padX} ${rowH}`
+    : `relative flex items-center border border-gray-500/60 rounded-md bg-gray-800/90 shadow-sm ${padX} ${rowH} ${compact ? 'w-full min-w-0 max-w-full' : ''}`
   return (
     <div className={wrapperCls}>
       <button

@@ -154,6 +154,8 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
   const [editingIndex, setEditingIndex] = useState(null)
   const [storeToVaultIndex, setStoreToVaultIndex] = useState(null)
   const [storeToVaultQty, setStoreToVaultQty] = useState(1)
+  const [isStoreToVaulting, setIsStoreToVaulting] = useState(false)
+  const [transferHint, setTransferHint] = useState('')
 
   useEffect(() => {
     if (character?.id) setWallet(getCharacterWallet(character.id))
@@ -332,32 +334,35 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
     setStoreToVaultQty(1)
   }
   const confirmStoreToVault = () => {
-    if (storeToVaultIndex == null) return
+    if (storeToVaultIndex == null || isStoreToVaulting) return
     const e = inv[storeToVaultIndex]
     if (!e) { setStoreToVaultIndex(null); return }
     const q = Math.max(1, Number(e.qty) ?? 1)
     const toStore = Math.min(Math.max(1, storeToVaultQty), q)
     const moduleId = character?.moduleId ?? 'default'
-    if (e.itemId) {
-      addToWarehouse(moduleId, {
-        itemId: e.itemId,
-        name: e.name,
-        攻击: e.攻击,
-        伤害: e.伤害,
-        攻击距离: e.攻击距离,
-        详细介绍: e.详细介绍,
-        ...(e.附注 ? { 附注: e.附注 } : {}),
+    const addPromise = e.itemId
+      ? Promise.resolve(addToWarehouse(moduleId, {
+        ...e,
         qty: toStore,
-      })
-    } else {
-      addToWarehouse(moduleId, { name: e.name || '—', qty: toStore })
-    }
+      }))
+      : Promise.resolve(addToWarehouse(moduleId, { name: e.name || '—', qty: toStore }))
+    setIsStoreToVaulting(true)
+    setTransferHint('物品存入中，请耐心等待；若长时间未完成请尝试刷新页面。')
     if (toStore >= q) {
       onSave({ inventory: inv.filter((_, i) => i !== storeToVaultIndex) })
     } else {
       const next = inv.map((entry, i) => (i === storeToVaultIndex ? { ...entry, qty: q - toStore } : entry))
       onSave({ inventory: next })
     }
+    addPromise
+      .catch((err) => {
+        console.error('[EquipmentAndInventory] 存到团队仓库失败', err)
+        alert('存入失败，请重试或刷新页面')
+      })
+      .finally(() => {
+        setIsStoreToVaulting(false)
+        setTransferHint('')
+      })
     setStoreToVaultIndex(null)
     setStoreToVaultQty(1)
   }
@@ -462,7 +467,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                         <>
                           <span className="text-white text-sm flex-1">{getEntryDisplayName(entry)}</span>
                           {i === 1 && isShield && shieldMagicBonus > 0 && (
-                            <span className="text-amber-200/90 text-xs font-mono shrink-0" title="盾牌增强加值">+{shieldMagicBonus}</span>
+                            <span className="text-dnd-gold-light/90 text-xs font-mono shrink-0" title="盾牌增强加值">+{shieldMagicBonus}</span>
                           )}
                         </>
                       )}
@@ -471,7 +476,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                       const parsed = parseArmorNote(entry.附注 ?? proto?.附注 ?? '')
                       const baseAC = parsed?.isShield ? (parsed.bonus || 2) : 2
                       return (
-                        <p className="text-amber-200/90 text-[10px]">
+                        <p className="text-dnd-gold-light/90 text-[10px]">
                           AC +{baseAC}{shieldMagicBonus > 0 ? <span className="ml-1">盾牌增强 +{shieldMagicBonus}</span> : null}
                         </p>
                       )
@@ -594,7 +599,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                       const stoneEffect = Array.isArray(entry?.effects) ? entry.effects.find((e) => e.effectType === 'ac_cap_stone_layer') : null
                       const stoneValue = stoneEffect != null ? (Number(stoneEffect.value) || 0) : 0
                       return stoneEffect && stoneValue > 0 ? (
-                        <span className="text-amber-200/90 text-xs font-mono shrink-0" title="瓦石层">{stoneValue}层</span>
+                        <span className="text-dnd-gold-light/90 text-xs font-mono shrink-0" title="瓦石层">{stoneValue}层</span>
                       ) : null
                     })()}
                   </>
@@ -664,7 +669,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                             <span className="text-gray-400 text-xs shrink-0">{slotLabel}</span>
                             <span className="text-white text-sm flex-1">{getEntryDisplayName(entry)}</span>
                             {entry && isArmorOrShield && magicBonus > 0 && (
-                              <span className="text-amber-200/90 text-xs font-mono shrink-0">+{magicBonus}</span>
+                              <span className="text-dnd-gold-light/90 text-xs font-mono shrink-0">+{magicBonus}</span>
                             )}
                           </>
                         )}
@@ -696,7 +701,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
             <h3 className={subTitleClass + ' mb-0'}>背包</h3>
             {canEdit && (
               <>
-                <button type="button" onClick={() => setAddFormOpen(true)} className="h-7 px-2 rounded-lg bg-dnd-red hover:bg-dnd-red-hover text-white font-bold text-xs">
+                <button type="button" onClick={() => setAddFormOpen(true)} className="h-7 px-2 rounded-lg border border-dnd-red text-dnd-red hover:bg-dnd-red hover:text-white text-xs font-medium transition-colors">
                   添加物品
                 </button>
                 <ItemAddForm
@@ -769,14 +774,15 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                         <td className="py-1 px-4 text-white font-medium align-middle text-left overflow-hidden" style={{ height: 48, maxHeight: 48 }}>
                           <span className="inline-flex items-center gap-0.5 truncate max-w-full">
                             {invDisplayName(entry)}
-                            {(Number(entry.magicBonus) || 0) > 0 ? (
-                              <span className="text-amber-200/90 text-xs font-mono tabular-nums shrink-0">+{entry.magicBonus}</span>
-                            ) : null}
                             {(() => {
                               const stoneEffect = Array.isArray(entry?.effects) ? entry.effects.find((e) => e.effectType === 'ac_cap_stone_layer') : null
                               const stoneVal = stoneEffect != null && stoneEffect.value != null ? Number(stoneEffect.value) : null
-                              if (stoneVal == null || Number.isNaN(stoneVal)) return null
-                              return <span className="text-amber-200/90 text-xs font-mono tabular-nums shrink-0" title="瓦石层">{stoneVal}层</span>
+                              if (stoneVal != null && !Number.isNaN(stoneVal) && stoneVal > 0) {
+                                return <span className="text-dnd-gold-light/90 text-xs font-mono tabular-nums shrink-0" title="瓦石层">{stoneVal}层</span>
+                              }
+                              return (Number(entry.magicBonus) || 0) > 0
+                                ? <span className="text-dnd-gold-light/90 text-xs font-mono tabular-nums shrink-0">+{entry.magicBonus}</span>
+                                : null
                             })()}
                           </span>
                         </td>
@@ -822,7 +828,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                               <button type="button" onClick={() => openStoreToVault(i)} title="存到团队仓库" className="p-1 rounded text-emerald-400 hover:bg-emerald-400/20 shrink-0">
                                 <Package size={14} />
                               </button>
-                              <button type="button" onClick={() => startEdit(i)} title="编辑" className="p-1 rounded text-amber-400 hover:bg-amber-400/20 shrink-0">
+                              <button type="button" onClick={() => startEdit(i)} title="编辑" className="p-1 rounded text-dnd-gold-light hover:bg-dnd-gold/20 shrink-0">
                                 <Pencil size={14} />
                               </button>
                               <button type="button" onClick={() => removeItem(i)} title="移除" className="p-1 rounded text-dnd-red hover:text-dnd-red/20 shrink-0">
@@ -850,7 +856,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
             </div>
             {canEdit && (
               <div className="flex flex-col justify-center shrink-0 w-[7rem] gap-1">
-                <button type="button" onClick={() => { setTransferDirection('toVault'); setTransferOpen(true); }} className="h-7 w-full inline-flex items-center justify-center gap-1 rounded-md bg-amber-600/80 hover:bg-amber-600 text-white text-xs font-medium">
+                <button type="button" onClick={() => { setTransferDirection('toVault'); setTransferOpen(true); }} className="h-7 w-full inline-flex items-center justify-center gap-1 rounded-md bg-dnd-gold/80 hover:bg-dnd-gold text-white text-xs font-medium">
                   <ArrowDownToLine size={14} /> 存入金库
                 </button>
                 <button type="button" onClick={() => { setTransferDirection('fromVault'); setTransferOpen(true); }} className="h-7 w-full inline-flex items-center justify-center gap-1 rounded-md bg-dnd-red hover:bg-dnd-red-hover text-white text-xs font-medium">
@@ -892,8 +898,15 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
             </div>
             <div className="flex gap-2 justify-end">
               <button type="button" onClick={() => setStoreToVaultIndex(null)} className="h-10 px-4 rounded-lg bg-gray-600 hover:bg-gray-500 text-white font-bold text-sm">取消</button>
-              <button type="button" onClick={confirmStoreToVault} className="h-10 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm">确认存入</button>
+              <button type="button" onClick={confirmStoreToVault} disabled={isStoreToVaulting} className="h-10 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm disabled:opacity-50 disabled:cursor-not-allowed">{isStoreToVaulting ? '存入中...' : '确认存入'}</button>
             </div>
+          </div>
+        </div>
+      )}
+      {transferHint && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 pointer-events-none">
+          <div className="pointer-events-auto rounded-lg border border-dnd-gold/40 bg-gray-900/95 px-4 py-3 shadow-xl max-w-sm mx-4">
+            <p className="text-dnd-gold-light text-sm font-medium">{transferHint}</p>
           </div>
         </div>
       )}

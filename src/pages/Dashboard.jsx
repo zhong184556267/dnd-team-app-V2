@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, Fragment } from 'react'
 import { Link } from 'react-router-dom'
 import { User, BookOpen, ChevronDown, ChevronRight, Plus, Pencil, Star, GripVertical, Trash2 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
@@ -213,20 +213,20 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="p-4 pb-24 min-h-screen bg-dnd-bg">
-      <h1 className="font-display text-xl font-semibold text-white mb-4">
+    <div className="p-4 pb-24 min-h-screen" style={{ backgroundColor: 'var(--page-bg)' }}>
+      <h1 className="font-display text-xl font-semibold text-white mb-4 section-title">
         欢迎，玩家 {user?.name}
       </h1>
 
       {isSupabaseEnabled() && (
-        <section className="mb-6 rounded-xl border border-white/10 bg-dnd-card/80 overflow-hidden">
-          <div className="px-4 py-2 border-b border-white/10 bg-black/20">
+        <section className="mb-6 rounded-xl border border-white/10 bg-gradient-to-b from-[#2a3952]/24 to-[#222f45]/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] overflow-hidden">
+          <div className="px-4 py-2 border-b border-white/10 bg-black/15">
             <h2 className="text-dnd-gold-light text-xs font-bold uppercase tracking-wider">团队动态</h2>
             <p className="text-dnd-text-muted text-[10px] mt-0.5">仓库、背包等操作会记录在此（需已执行 supabase-activity-log.sql）</p>
           </div>
           <ul className="max-h-52 overflow-y-auto divide-y divide-white/5">
             {activities.length === 0 ? (
-              <li className="px-4 py-3 text-dnd-text-muted text-sm">暂无记录。向仓库放物品或往背包加物后会出现在这里。</li>
+              <li className="px-4 py-3 text-dnd-text-muted text-sm">暂无记录。仓库/背包流转与制作完成后会出现在这里。</li>
             ) : (
               activities.map((a) => (
                 <li key={a.id} className="px-4 py-2.5 text-sm">
@@ -242,7 +242,7 @@ export default function Dashboard() {
         </section>
       )}
 
-      <h2 className="text-dnd-text-label text-xs font-medium uppercase tracking-label mb-3">
+      <h2 className="section-subtitle mb-3">
         模组
       </h2>
       <div className="space-y-3">
@@ -258,15 +258,15 @@ export default function Dashboard() {
               onDragStart={(e) => handleDragStart(e, index)}
               onDragOver={handleDragOver}
               onDrop={(e) => handleDrop(e, index)}
-              className="rounded-xl border border-white/10 bg-dnd-card overflow-hidden"
+              className="rounded-xl border border-white/10 bg-gradient-to-b from-[#2a3952]/24 to-[#222f45]/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] overflow-hidden"
             >
               <div
                 role="button"
                 tabIndex={0}
                 onClick={() => !isEditing && toggleExpand(m.id)}
                 onKeyDown={(e) => e.key === 'Enter' && !isEditing && toggleExpand(m.id)}
-                className={`flex items-center justify-between gap-3 p-4 text-left transition-colors cursor-pointer hover:bg-gray-800/70 ${
-                  isExpanded ? 'border-l-4 border-dnd-gold/50 bg-gray-900/70' : ''
+                className={`flex items-center justify-between gap-3 p-4 text-left transition-colors cursor-pointer hover:bg-[#24344d]/55 ${
+                  isExpanded ? 'border-l-4 border-dnd-gold/50 bg-[#1b2536]/70' : ''
                 }`}
               >
                 <div className="flex items-center gap-2 shrink-0">
@@ -370,7 +370,7 @@ export default function Dashboard() {
               </div>
 
               {isExpanded && (
-                <div className="border-t border-white/10 bg-gray-900/30">
+                <div className="border-t border-white/10 bg-[#1a2435]/45">
                   {charList.length === 0 ? (
                     <div className="px-4 py-4 flex flex-col gap-3">
                       <p className="text-dnd-text-muted text-sm">该模组暂无角色。</p>
@@ -386,76 +386,121 @@ export default function Dashboard() {
                   ) : (
                     <>
                     <ul className="p-3 pt-2 space-y-3">
-                      {charList.map((c) => {
-                        const hp = c.hp || {}
-                        const max = hp.max || 1
-                        const cur = hp.current ?? 0
-                        const pct = Math.max(0, Math.min(100, (cur / max) * 100))
-                        const isLowHp = max > 0 && pct < 25
-                        const isMidHp = max > 0 && pct >= 25 && pct < 50
-                        const barColor = isLowHp ? 'bg-dnd-red' : isMidHp ? 'bg-dnd-warning' : 'bg-dnd-success'
-                        const level = displayLevel(c)
-                        const classLevelText = displayClassLevel(c)
-                        const isClickable = canOpen(c)
-                        const cardClass =
-                          'flex items-center gap-4 rounded-xl bg-dnd-card border border-white/10 p-4 ' +
-                          (isClickable
-                            ? 'border-l-4 border-dnd-red hover:shadow-dnd-card-hover transition-shadow'
-                            : 'border-l-4 border-dnd-text-muted opacity-90')
+                      {(() => {
+                        const mains = charList.filter((c) => !c.parentId)
+                        const subs = charList.filter((c) => !!c.parentId)
+                        const subByParent = new Map()
+                        subs.forEach((s) => {
+                          const key = s.parentId
+                          const arr = subByParent.get(key) || []
+                          arr.push(s)
+                          subByParent.set(key, arr)
+                        })
+                        const orphanSubs = subs.filter((s) => !mains.some((m0) => m0.id === s.parentId))
 
-                        const content = (
-                          <>
-                            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-black/30 border border-white/10 overflow-hidden">
-                              {c.avatar ? (
-                                <img src={c.avatar} alt="" className="h-full w-full object-cover" />
-                              ) : (
-                                <User className="w-6 h-6 text-dnd-text-muted" />
-                              )}
-                            </span>
-                            <div className="min-w-0 flex-1">
-                              {c.codename ? (
-                                <p className="text-base font-semibold text-white truncate mb-0.5">{c.codename}</p>
-                              ) : null}
-                              <p className="text-xs text-dnd-text-muted truncate">
-                                {c.name || '未命名'}
-                              </p>
-                              <p className="text-dnd-text-muted text-sm">
-                                {classLevelText} · 等级 {level}
-                              </p>
-                              <div className="mt-1.5 h-1.5 rounded-full bg-black/30 overflow-hidden">
-                                <div
-                                  className={`h-full rounded-full transition-all ${barColor}`}
-                                  style={{ width: `${pct}%` }}
-                                />
+                        const renderMainCard = (c) => {
+                          const hp = c.hp || {}
+                          const max = hp.max || 1
+                          const cur = hp.current ?? 0
+                          const pct = Math.max(0, Math.min(100, (cur / max) * 100))
+                          const isLowHp = max > 0 && pct < 25
+                          const isMidHp = max > 0 && pct >= 25 && pct < 50
+                          const barColor = isLowHp ? 'bg-dnd-red' : isMidHp ? 'bg-dnd-warning' : 'bg-dnd-success'
+                          const level = displayLevel(c)
+                          const classLevelText = displayClassLevel(c)
+                          const isClickable = canOpen(c)
+                          const cardClass =
+                            'flex items-center gap-4 rounded-xl bg-dnd-card border border-white/10 p-4 ' +
+                            (isClickable
+                              ? 'border-l-4 border-dnd-red hover:shadow-dnd-card-hover transition-shadow'
+                              : 'border-l-4 border-dnd-text-muted opacity-90')
+                          const content = (
+                            <>
+                              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-black/30 border border-white/10 overflow-hidden aspect-square">
+                                {c.avatar ? (
+                                  <img src={c.avatar} alt="" className="h-full w-full object-cover object-center" />
+                                ) : (
+                                  <User className="w-6 h-6 text-dnd-text-muted" />
+                                )}
+                              </span>
+                              <div className="min-w-0 flex-1">
+                                {c.codename ? <p className="text-base font-semibold text-white truncate mb-0.5">{c.codename}</p> : null}
+                                <p className="text-xs text-dnd-text-muted truncate">{c.name || '未命名'}</p>
+                                <p className="text-dnd-text-muted text-sm">{classLevelText} · 等级 {level}</p>
+                                <div className="mt-1.5 h-1.5 rounded-full bg-black/30 overflow-hidden">
+                                  <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${pct}%` }} />
+                                </div>
+                                <div className="flex items-end justify-between gap-2 mt-0.5 min-h-[1.25rem]">
+                                  <p className="text-xs text-dnd-text-muted truncate min-w-0">创建 {c.owner ?? '—'} · 修改 {formatDateTime(c.updatedAt ?? c.createdAt)}</p>
+                                  <p className={`text-xs font-mono font-semibold shrink-0 ${isLowHp ? 'text-dnd-red' : 'text-dnd-text-muted'}`}>HP {cur}/{max}{hp.temp ? ` +${hp.temp} 临时` : ''}</p>
+                                </div>
                               </div>
-                              <div className="flex items-end justify-between gap-2 mt-0.5 min-h-[1.25rem]">
-                                <p className="text-xs text-dnd-text-muted truncate min-w-0">
-                                  创建 {c.owner ?? '—'} · 修改 {formatDateTime(c.updatedAt ?? c.createdAt)}
-                                </p>
-                                <p className={`text-xs font-mono font-semibold shrink-0 ${isLowHp ? 'text-dnd-red' : 'text-dnd-text-muted'}`}>
-                                  HP {cur}/{max}
-                                  {hp.temp ? ` +${hp.temp} 临时` : ''}
-                                </p>
+                            </>
+                          )
+                          return isClickable ? <Link to={`/characters/${c.id}`} className={cardClass}>{content}</Link> : <div className={cardClass} aria-disabled>{content}<span className="text-dnd-text-muted text-xs shrink-0">仅创建人可进入</span></div>
+                        }
+
+                        const renderSubCard = (c) => {
+                          const isClickable = canOpen(c)
+                          const cardClass =
+                            'flex items-center gap-3 rounded-lg bg-black/20 border border-white/10 px-3 py-2 min-w-0 ' +
+                            (isClickable
+                              ? 'border-l-2 border-cyan-400/70 hover:bg-black/30 transition-colors'
+                              : 'border-l-2 border-dnd-text-muted opacity-90')
+                          const content = (
+                            <>
+                              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-black/30 border border-white/10 overflow-hidden aspect-square">
+                                {c.avatar ? (
+                                  <img src={c.avatar} alt="" className="h-full w-full object-cover object-center" />
+                                ) : (
+                                  <User className="w-4 h-4 text-dnd-text-muted" />
+                                )}
+                              </span>
+                              <div className="min-w-0 flex-1">
+                                {c.codename ? (
+                                  <p className="text-sm font-semibold text-white truncate mb-0.5">
+                                    {c.codename}
+                                    <span className="ml-1 text-[10px] text-cyan-300/90 align-middle">附属卡</span>
+                                  </p>
+                                ) : null}
+                                <p className="text-[11px] text-dnd-text-muted truncate">{c.name || '未命名'}</p>
                               </div>
-                            </div>
-                          </>
-                        )
+                            </>
+                          )
+                          return isClickable ? <Link to={`/characters/${c.id}`} className={cardClass}>{content}</Link> : <div className={cardClass} aria-disabled>{content}<span className="text-dnd-text-muted text-[10px] shrink-0">仅创建人可进入</span></div>
+                        }
 
                         return (
-                          <li key={c.id}>
-                            {isClickable ? (
-                              <Link to={`/characters/${c.id}`} className={cardClass}>
-                                {content}
-                              </Link>
-                            ) : (
-                              <div className={cardClass} aria-disabled>
-                                {content}
-                                <span className="text-dnd-text-muted text-xs shrink-0">仅创建人可进入</span>
-                              </div>
+                          <>
+                            {mains.map((m0) => {
+                              const children = subByParent.get(m0.id) || []
+                              return (
+                                <Fragment key={m0.id}>
+                                  <li>{renderMainCard(m0)}</li>
+                                  {children.length > 0 && (
+                                    <li className="ml-8">
+                                      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+                                        {children.map((s) => (
+                                          <div key={s.id} className="min-w-0">{renderSubCard(s)}</div>
+                                        ))}
+                                      </div>
+                                    </li>
+                                  )}
+                                </Fragment>
+                              )
+                            })}
+                            {orphanSubs.length > 0 && (
+                              <li className="ml-8">
+                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+                                  {orphanSubs.map((s) => (
+                                    <div key={s.id} className="min-w-0">{renderSubCard(s)}</div>
+                                  ))}
+                                </div>
+                              </li>
                             )}
-                          </li>
+                          </>
                         )
-                      })}
+                      })()}
                     </ul>
                     <div className="px-3 pb-3 pt-1">
                       <Link

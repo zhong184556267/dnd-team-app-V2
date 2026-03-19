@@ -53,6 +53,35 @@ export async function loadCharacterById(id) {
   return character
 }
 
+/** 拉取指定模组内全部角色并合并进缓存（非 DM 可见模组内所有角色） */
+export async function loadCharactersInModule(moduleId) {
+  if (!isSupabaseEnabled()) return
+  const list = await charSupabase.fetchCharactersInModule(moduleId)
+  const mod = moduleId ?? 'default'
+  const rest = charactersCache.filter((c) => (c.moduleId ?? 'default') !== mod)
+  charactersCache = [...rest, ...list]
+}
+
+/** 返回指定模组内全部角色（先需 loadCharactersInModule 或 loadAllCharactersIntoCache） */
+export function getCharactersInModule(moduleId) {
+  const mod = moduleId ?? 'default'
+  if (isSupabaseEnabled()) {
+    return charactersCache.filter((c) => (c.moduleId ?? 'default') === mod)
+  }
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    const list = raw ? JSON.parse(raw) : []
+    return list.filter((c) => (c.moduleId ?? 'default') === mod)
+  } catch {
+    return []
+  }
+}
+
+/** 指定模组内的主卡（无 parentId，用于附属卡的下拉选择） */
+export function getMainCharactersInModule(moduleId) {
+  return getCharactersInModule(moduleId).filter((c) => !c.parentId)
+}
+
 /** @param {string} [moduleId] 模组 id，传入则只返回该模组下的角色 */
 export function getCharacters(ownerName, isAdmin, moduleId) {
   if (isSupabaseEnabled()) {
@@ -152,10 +181,14 @@ function saveCharacters(list) {
 export function addCharacter(ownerName, data = {}) {
   const id = crypto.randomUUID()
   const now = new Date().toISOString()
+  const cardType = data.cardType ?? 'main'
   const character = {
     id,
     owner: ownerName,
     moduleId: data.moduleId ?? 'default',
+    cardType,
+    parentId: data.parentId ?? undefined,
+    subordinateTemplate: data.subordinateTemplate ?? undefined,
     name: data.name?.trim() || '未命名',
     'class': data['class']?.trim() || '',
     classLevel: typeof data.classLevel === 'number' ? data.classLevel : 1,
@@ -167,6 +200,7 @@ export function addCharacter(ownerName, data = {}) {
     abilities: data.abilities ?? defaultAbilities(),
     savingThrows: data.savingThrows ?? { str: false, dex: false, con: false, int: false, wis: false, cha: false },
     skills: data.skills ?? {},
+    proficiencies: data.proficiencies ?? { weapons: [], tools: [], armors: [], languages: [] },
     avatar: data.avatar ?? null,
     appearance: data.appearance ?? {},
     inventory: data.inventory ?? [],

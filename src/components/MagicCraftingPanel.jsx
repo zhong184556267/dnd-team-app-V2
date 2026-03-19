@@ -2,7 +2,7 @@
  * 魔法物品制作工厂：D&D 3R 奥法工坊规则
  * 选择类型、填写物品信息、推进制作进度，完成后可存入仓库或角色
  */
-import { useState, useEffect, useMemo, Fragment } from 'react'
+import { useState, useEffect, Fragment } from 'react'
 import { Package, Pencil, Trash2, GripVertical, Hammer, Plus } from 'lucide-react'
 import {
   getCraftingProjects,
@@ -99,18 +99,19 @@ export default function MagicCraftingPanel() {
   const [depositProjectIndex, setDepositProjectIndex] = useState(null)
   const [depositCharId, setDepositCharId] = useState('')
   const [depositToWarehouse, setDepositToWarehouse] = useState(true)
-  const [vaultRtTick, setVaultRtTick] = useState(0)
+  const [isAdvancing, setIsAdvancing] = useState(false)
+  const [vault, setVault] = useState({})
 
   const characters = getAllCharacters(currentModuleId)
   const eligibleCrafters = getEligibleCrafters(characters)
-  const vault = useMemo(() => getTeamVault(currentModuleId), [currentModuleId, vaultRtTick])
   const vaultGp = vault.gp ?? 0
 
   const refresh = () => setProjects(getCraftingProjects(currentModuleId))
+  const refreshVault = () => setVault(getTeamVault(currentModuleId))
 
   useEffect(() => {
     const onCraft = () => refresh()
-    const onVault = () => setVaultRtTick((t) => t + 1)
+    const onVault = () => refreshVault()
     window.addEventListener('dnd-realtime-crafting', onCraft)
     window.addEventListener('dnd-realtime-team-vault', onVault)
     return () => {
@@ -122,10 +123,14 @@ export default function MagicCraftingPanel() {
   useEffect(() => {
     if (isSupabaseEnabled()) {
       Promise.all([loadCraftingIntoCache(currentModuleId), loadTeamVaultIntoCache(currentModuleId)]).then(() =>
-        refresh()
+        {
+          refresh()
+          refreshVault()
+        }
       )
     } else {
       refresh()
+      refreshVault()
     }
   }, [currentModuleId])
 
@@ -149,6 +154,11 @@ export default function MagicCraftingPanel() {
       const mp = calcStaffMarketPrice(new所含法术环级, new法术数量, new单次材料费, new充能次数)
       costGp = Math.floor(mp / 2)
       xp = Math.floor(mp / 25)
+    } else if (type === 'weapon_armor') {
+      const market = parseCostFromString(new消耗金额)
+      costGp = Math.floor(market / 2)
+      // 武器/盔甲：经验消耗固定为成交价格的 1/25
+      xp = Math.floor(market / 25)
     } else {
       const market = parseCostFromString(new消耗金额)
       costGp = Math.floor(market / 2)
@@ -209,10 +219,11 @@ export default function MagicCraftingPanel() {
   }
 
   const handleAdvanceDay = () => {
-    if (selectedProjectIndex == null) return
+    if (selectedProjectIndex == null || isAdvancing) return
     const p = projects[selectedProjectIndex]
     const norm = normalizeProject(p)
     if (norm.状态 === 'COMPLETED') return
+    const projectName = p.物品名称?.trim() || '未命名物品'
     const daysTotal = norm.制作天数 || 1
     const daysDone = norm.已制作天数 ?? 0
     const costGp = parseCostFromString(p.消耗金额)
@@ -230,25 +241,60 @@ export default function MagicCraftingPanel() {
       alert(`制作人「${crafter?.name || '未命名'}」经验不足！需要 ${Math.ceil(dailyXp)} XP，当前 ${Math.round(crafterXp)} XP`)
       return
     }
+    const prevProjects = projects
+    const prevVault = vault
+    const nextDone = daysDone + 1
+    const isComplete = nextDone >= daysTotal
+    const optimisticVaultGp = Math.max(0, (vault.gp ?? 0) - dailyGp)
+
+    // 乐观更新：先让 UI 立即变化（进度 + 金库）
+    setIsAdvancing(true)
+    setVault((v) => ({ ...v, gp: optimisticVaultGp }))
+    setProjects((prev) => prev.map((proj, idx) => (
+      idx === selectedProjectIndex
+        ? { ...proj, 已制作天数: nextDone, 状态: isComplete ? 'COMPLETED' : 'IN_PROGRESS' }
+        : proj
+    )))
+    if (isComplete) setSelectedProjectIndex(null)
+
     Promise.resolve(adjustVault(currentModuleId, 'gp', -dailyGp)).then((vaultResult) => {
-      if (!vaultResult.success) {
-        alert(vaultResult.error || '扣除金币失败')
-        return
-      }
-      if (crafterId && dailyXp > 0) {
-        updateCharacter(crafterId, { xp: Math.max(0, crafterXp - dailyXp) })
-      }
-      setVaultRtTick((t) => t + 1)
-      const nextDone = daysDone + 1
-      const isComplete = nextDone >= daysTotal
-      return updateCraftingProject(currentModuleId, selectedProjectIndex, {
+      if (!vaultResult.success) throw new Error(vaultResult.error || '扣除金币失败')
+      const updateProjectPromise = Promise.resolve(updateCraftingProject(currentModuleId, selectedProjectIndex, {
         已制作天数: nextDone,
         状态: isComplete ? 'COMPLETED' : 'IN_PROGRESS',
-      }).then(() => {
+      }))
+      const consumeXpPromise = (crafterId && dailyXp > 0)
+        ? Promise.resolve(updateCharacter(crafterId, { xp: Math.max(0, crafterXp - dailyXp) }))
+        : Promise.resolve(null)
+      return Promise.all([updateProjectPromise, consumeXpPromise]).then(() => {
+        if (isComplete && user?.name) {
+          const crafterName = crafter?.name || '未指定工匠'
+          logTeamActivity({
+            actor: user.name,
+            moduleId: currentModuleId,
+            summary: `玩家 ${user.name} 完成了「${projectName}」的制作（工匠：${crafterName}）`,
+          })
+        }
         refresh()
-        loadTeamVaultIntoCache(currentModuleId)
-        if (isComplete) setSelectedProjectIndex(null)
+        refreshVault()
       })
+    }).catch((err) => {
+      console.error('[Crafting] 推进制作失败，已回滚', err)
+      setProjects(prevProjects)
+      setVault(prevVault)
+      setSelectedProjectIndex(selectedProjectIndex)
+      if (isSupabaseEnabled()) {
+        Promise.all([loadCraftingIntoCache(currentModuleId), loadTeamVaultIntoCache(currentModuleId)]).then(() => {
+          refresh()
+          refreshVault()
+        })
+      } else {
+        refresh()
+        refreshVault()
+      }
+      alert(err?.message || '制作失败，已回滚，请重试')
+    }).finally(() => {
+      setIsAdvancing(false)
     })
   }
 
@@ -398,7 +444,7 @@ export default function MagicCraftingPanel() {
                   <div><label className="block text-dnd-text-muted text-xs mb-1">成交价格(gp)</label><input type="text" value={new消耗金额} onChange={(e) => setNew消耗金额(e.target.value)} placeholder="如：500 GP" className={inputClass + ' h-9 w-24'} /></div>
                   <div><label className="block text-dnd-text-muted text-xs mb-1">制作成本</label><input type="text" value={new消耗金额 ? `${Math.floor(parseCostFromString(new消耗金额) / 2)} GP` : '0 GP'} readOnly className={inputClass + ' h-9 w-20 ' + autoCalcClass} /></div>
                   <div><label className="block text-dnd-text-muted text-xs mb-1">制作天数</label><input type="text" value={new消耗金额 ? calcCraftingDays(new消耗金额) : 0} readOnly className={inputClass + ' h-9 w-14 ' + autoCalcClass} /></div>
-                  <div><label className="block text-dnd-text-muted text-xs mb-1">消耗经验</label><input type="number" min={0} value={new消耗经验} onChange={(e) => setNew消耗经验(parseInt(e.target.value, 10) || 0)} className={inputClass + ' h-9 w-16'} /></div>
+                  <div><label className="block text-dnd-text-muted text-xs mb-1">消耗经验</label><input type="text" value={new消耗金额 ? Math.floor(parseCostFromString(new消耗金额) / 25) : 0} readOnly className={inputClass + ' h-9 w-16 ' + autoCalcClass} /></div>
                 </div>
               )}
               {['rod', 'wondrous', 'ring'].includes(new类型) && (
@@ -475,8 +521,8 @@ export default function MagicCraftingPanel() {
             const canAfford = vaultGp >= dailyGp && (!effectiveCrafterId || crafterXp >= dailyXp)
             return (
               <div className="space-y-1">
-                <button type="button" onClick={handleAdvanceDay} disabled={!canAfford} className="w-full h-14 rounded-lg font-bold text-base flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed bg-emerald-600/30 border border-emerald-500/50 text-emerald-200 hover:bg-emerald-500/40 hover:border-emerald-400 disabled:bg-gray-700/50 disabled:border-gray-600 disabled:text-gray-500">
-                  <Hammer size={18} /> 制作：{p.物品名称 || '未命名'} — 消耗 {dailyGp} GP / {dailyXp} XP
+                <button type="button" onClick={handleAdvanceDay} disabled={!canAfford || isAdvancing} className="w-full h-14 rounded-lg font-bold text-base flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed bg-emerald-600/30 border border-emerald-500/50 text-emerald-200 hover:bg-emerald-500/40 hover:border-emerald-400 disabled:bg-gray-700/50 disabled:border-gray-600 disabled:text-gray-500">
+                  <Hammer size={18} /> {isAdvancing ? '制作中...' : `制作：${p.物品名称 || '未命名'} — 消耗 ${dailyGp} GP / ${dailyXp} XP`}
                 </button>
                 {!canAfford && (
                   <p className="text-dnd-red text-sm">
@@ -613,7 +659,7 @@ export default function MagicCraftingPanel() {
                           <>
                             <div>
                               <label className="block text-dnd-text-muted text-[10px] mb-0.5">{p.类型 === 'weapon_armor' ? '成交价格' : '消耗金额'}</label>
-                              <input type="text" value={p.消耗金额 ?? ''} onChange={(e) => { const v = e.target.value; handleUpdate(i, { 消耗金额: v }); }} className={inputClass + ' h-8 w-full'} />
+                              <input type="text" value={p.消耗金额 ?? ''} onChange={(e) => { const v = e.target.value; handleUpdate(i, p.类型 === 'weapon_armor' ? { 消耗金额: v, 消耗经验: Math.floor(parseCostFromString(v) / 25) } : { 消耗金额: v }); }} className={inputClass + ' h-8 w-full'} />
                             </div>
                             {p.类型 !== 'weapon_armor' && (
                               <div>
@@ -627,7 +673,10 @@ export default function MagicCraftingPanel() {
                             </div>
                             <div>
                               <label className="block text-dnd-text-muted text-[10px] mb-0.5">消耗经验</label>
-                              <input type="number" min={0} value={p.消耗经验 ?? 0} onChange={(e) => handleUpdate(i, { 消耗经验: parseInt(e.target.value, 10) || 0 })} className={inputClass + ' h-8 w-full'} />
+                              {p.类型 === 'weapon_armor'
+                                ? <input type="text" value={Math.floor(parseCostFromString(p.消耗金额 ?? '') / 25)} readOnly className={inputClass + ' h-8 w-full ' + autoCalcClass} />
+                                : <input type="number" min={0} value={p.消耗经验 ?? 0} onChange={(e) => handleUpdate(i, { 消耗经验: parseInt(e.target.value, 10) || 0 })} className={inputClass + ' h-8 w-full'} />
+                              }
                             </div>
                           </>
                         )}

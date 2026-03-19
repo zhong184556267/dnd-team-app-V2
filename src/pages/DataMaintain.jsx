@@ -181,11 +181,11 @@ export default function DataMaintain() {
   const builtInCount = ITEM_DATABASE.length
 
   return (
-    <div className="p-4 pb-24 min-h-screen bg-dnd-bg">
+    <div className="p-4 pb-24 min-h-screen" style={{ backgroundColor: 'var(--page-bg)' }}>
       <Link to="/more" className="text-dnd-red text-sm mb-4 inline-block font-medium">
         ← 返回更多
       </Link>
-      <h1 className="font-display text-xl font-semibold text-white mb-4">
+      <h1 className="font-display text-xl font-semibold text-white mb-4 section-title">
         数据维护
       </h1>
       <p className="text-dnd-text-muted text-sm mb-6">
@@ -193,11 +193,11 @@ export default function DataMaintain() {
       </p>
 
       {/* 物品资料库 */}
-      <section className="rounded-xl bg-dnd-card border border-white/10 shadow-dnd-card overflow-hidden mb-6">
+      <section className="rounded-xl bg-gradient-to-b from-[#2a3952]/24 to-[#222f45]/20 border border-white/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] overflow-hidden mb-6">
         <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
           <div className="flex items-center gap-2">
             <Package className="w-5 h-5 text-dnd-gold" />
-            <h2 className="font-display font-semibold text-white">物品资料库</h2>
+            <h2 className="font-display font-semibold text-white section-title">物品资料库</h2>
           </div>
           <button
             type="button"
@@ -307,7 +307,7 @@ export default function DataMaintain() {
         </div>
       </section>
 
-      <div className="rounded-xl bg-dnd-card border border-white/10 shadow-dnd-card p-4">
+      <div className="rounded-xl bg-gradient-to-b from-[#2a3952]/24 to-[#222f45]/20 border border-white/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] p-4">
         <p className="text-dnd-text-muted text-sm">
           职业表、专长表等维护功能开发中。法术大全支持在「法术大全」页内直接新增自定义法术。
         </p>

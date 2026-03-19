@@ -56,7 +56,7 @@ function normalizeValueForSave(module, currentEffect) {
   const isDamageTypeArray = needsSubSelect === 'damageType' && currentEffect.dataType === 'array'
   if (isBoolean) return value === true || value === 'true' || value === 1
   if (isText && !needsSubSelect) return typeof value === 'string' ? value : (customText ?? '')
-  if (isCustom) return customText
+  if (isCustom) return typeof customText === 'string' ? customText : ''
   if (needsSubSelect === 'damageType' && !isDamageTypeArray) return value
   if (isDamageTypeArray) return Array.isArray(value) ? value : []
   if (needsSubSelect === 'abilityScores') return value
@@ -327,6 +327,13 @@ function EffectValueEditor({ module, onChange, catData, inline, spellDC, spellAt
   const customText = module.customText ?? ''
   const textDisplay = typeof value === 'string' ? value : (isCustom ? customText : '')
 
+  useEffect(() => {
+    if (!['abilityScores', 'abilityScoresAndAdvantage'].includes(needsSubSelect)) return
+    if (!(value && typeof value === 'object' && !Array.isArray(value))) return
+    const preferred = ABILITY_KEYS.find((k) => value[k] != null && Number(value[k]) !== 0) || ABILITY_KEYS.find((k) => value[k] != null)
+    if (preferred && preferred !== selectedAbilityId) setSelectedAbilityId(preferred)
+  }, [module.id, module.effectType, needsSubSelect])
+
   const compactClass = inputClass + ' h-8 text-xs'
   if (isBoolean) {
     if (inline) {
@@ -435,7 +442,18 @@ function EffectValueEditor({ module, onChange, catData, inline, spellDC, spellAt
         <>
           <select
             value={selectedAbilityId}
-            onChange={(e) => setSelectedAbilityId(e.target.value)}
+            onChange={(e) => {
+              const nextKey = e.target.value
+              const obj = (value && typeof value === 'object' && !Array.isArray(value)) ? value : {}
+              const currentVal = selectedAbilityId === 'all'
+                ? (Number(obj[ABILITY_KEYS.find((k) => obj[k] != null) || ABILITY_KEYS[0]]) || 0)
+                : (Number(obj[selectedAbilityId]) || 0)
+              const base = {}
+              if (nextKey === 'all') ABILITY_KEYS.forEach((k) => { base[k] = currentVal })
+              else base[nextKey] = currentVal
+              setSelectedAbilityId(nextKey)
+              onChange({ ...module, value: base })
+            }}
             className={compactClass + ' w-full min-w-0 h-7'}
           >
             <option value="all">全属性</option>
@@ -447,7 +465,8 @@ function EffectValueEditor({ module, onChange, catData, inline, spellDC, spellAt
             <NumberStepper
               value={(typeof value === 'object' && value && selectedAbilityId !== 'all' && value[selectedAbilityId] != null ? value[selectedAbilityId] : 0) ?? 0}
               onChange={(v) => {
-                const base = typeof value === 'object' && value && !Array.isArray(value) ? { ...value } : {}
+                // 单行单属性：选中单属性时清空其它属性，避免残留导致外层摘要与表单不一致
+                const base = {}
                 if (selectedAbilityId === 'all') {
                   ABILITY_KEYS.forEach((k) => { base[k] = v })
                 } else {
@@ -466,7 +485,19 @@ function EffectValueEditor({ module, onChange, catData, inline, spellDC, spellAt
         <>
           <select
             value={selectedAbilityId}
-            onChange={(e) => setSelectedAbilityId(e.target.value)}
+            onChange={(e) => {
+              const nextKey = e.target.value
+              const obj = (value && typeof value === 'object' && !Array.isArray(value)) ? value : {}
+              const currentVal = selectedAbilityId === 'all'
+                ? (Number(obj[ABILITY_KEYS.find((k) => obj[k] != null) || ABILITY_KEYS[0]]) || 0)
+                : (Number(obj[selectedAbilityId]) || 0)
+              const base = {}
+              if (obj.advantage != null) base.advantage = obj.advantage
+              if (nextKey === 'all') ABILITY_KEYS.forEach((k) => { base[k] = currentVal })
+              else base[nextKey] = currentVal
+              setSelectedAbilityId(nextKey)
+              onChange({ ...module, value: base })
+            }}
             className={compactClass + ' w-full min-w-0 h-7'}
           >
             <option value="all">全属性</option>
@@ -478,7 +509,9 @@ function EffectValueEditor({ module, onChange, catData, inline, spellDC, spellAt
             <NumberStepper
               value={(typeof value === 'object' && value && selectedAbilityId !== 'all' && value[selectedAbilityId] != null ? value[selectedAbilityId] : 0) ?? 0}
               onChange={(v) => {
-                const base = typeof value === 'object' && value && !Array.isArray(value) ? { ...value } : {}
+                // 单行单属性；保留 advantage 字段
+                const base = {}
+                if (typeof value === 'object' && value && !Array.isArray(value) && value.advantage != null) base.advantage = value.advantage
                 if (selectedAbilityId === 'all') {
                   ABILITY_KEYS.forEach((k) => { base[k] = v })
                 } else {
@@ -858,7 +891,19 @@ function EffectValueEditor({ module, onChange, catData, inline, spellDC, spellAt
         <div className="flex items-center gap-2 flex-nowrap">
           <select
             value={selectedAbilityId}
-            onChange={(e) => setSelectedAbilityId(e.target.value)}
+            onChange={(e) => {
+              const nextKey = e.target.value
+              const obj = (value && typeof value === 'object' && !Array.isArray(value)) ? value : {}
+              const currentVal = selectedAbilityId === 'all'
+                ? (Number(obj[ABILITY_KEYS.find((k) => obj[k] != null) || ABILITY_KEYS[0]]) || 0)
+                : (Number(obj[selectedAbilityId]) || 0)
+              const base = {}
+              if (obj.advantage != null) base.advantage = obj.advantage
+              if (nextKey === 'all') ABILITY_KEYS.forEach((k) => { base[k] = currentVal })
+              else base[nextKey] = currentVal
+              setSelectedAbilityId(nextKey)
+              onChange({ ...module, value: base })
+            }}
             className={inputClass + ' h-8 min-w-[6.5rem]'}
           >
             <option value="all">全属性</option>
@@ -1107,7 +1152,11 @@ export default function BuffForm({ initial, onSave, onCancel, spellDC, spellAtta
       const effList = catData?.effects ?? []
       const effectType = effList.some((e) => e.key === mod.effectType) ? mod.effectType : (effList[0]?.key ?? '')
       const currentEffect = effList.find((x) => x.key === effectType)
-      const val = normalizeValueForSave(mod, currentEffect)
+      let val = normalizeValueForSave(mod, currentEffect)
+      // 自由填写类：统一用 customText 写入 value，保证持久化与外层展示
+      if (currentEffect?.key?.startsWith('custom_')) {
+        val = typeof mod.customText === 'string' ? mod.customText : (typeof val === 'string' ? val : '')
+      }
       return { category: mod.category, effectType, value: val }
     }).filter((ef) => ef.effectType)
     if (!effects.length) return

@@ -14,7 +14,7 @@ const ABILITY_KEYS = ['str', 'dex', 'con', 'int', 'wis', 'cha']
 function getProficiencyColor(level) {
   switch (level) {
     case 'expertise':
-      return 'text-[#B8860B] drop-shadow-[0_0_5px_rgba(184,134,11,0.5)]'
+      return 'text-[#A67C2D] drop-shadow-[0_0_5px_rgba(166,124,45,0.42)]'
     case 'prof':
       return 'text-[#E01C2F]'
     case 'half':
@@ -30,7 +30,7 @@ function getProficiencyColor(level) {
 function getSaveProficiencyColor(level) {
   switch (level) {
     case 'prof':
-      return 'text-[#B8860B] drop-shadow-[0_0_5px_rgba(184,134,11,0.5)]'
+      return 'text-[#A67C2D] drop-shadow-[0_0_5px_rgba(166,124,45,0.42)]'
     default:
       return 'text-gray-500'
   }
@@ -40,7 +40,7 @@ function getSaveProficiencyColor(level) {
 function getProficiencyBorderClass(level) {
   switch (level) {
     case 'expertise':
-      return 'border-l-[3px] border-l-[#B8860B]'
+      return 'border-l-[3px] border-l-[#A67C2D]'
     case 'prof':
       return 'border-l-[3px] border-l-[#E01C2F]'
     case 'half':
@@ -166,12 +166,12 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
           return (
             <div
               key={key}
-              className={`rounded-xl overflow-hidden bg-dnd-card border shadow-dnd-card flex flex-col min-w-0 transition-colors ${saveProfLevel === 'prof' ? 'border-[#B8860B]' : 'border-gray-500'}`}
+              className={`rounded-xl overflow-hidden bg-dnd-card border shadow-dnd-card flex flex-col min-w-0 transition-colors ${saveProfLevel === 'prof' ? 'border-[#A67C2D]' : 'border-gray-500'}`}
             >
               {/* A. 顶部栏：属性名 + 熟练按钮在名称右侧 */}
               <div className="flex items-center gap-1.5 px-2 py-1.5 border-b border-gray-700 min-h-[2rem]">
                 <span className="text-base font-bold text-white font-sans">{ABILITY_NAMES_ZH[key]}</span>
-                <span className={`text-[10px] font-medium ${saveProfLevel === 'prof' ? 'text-[#D4AF37]' : 'text-gray-500'}`}>
+                <span className={`text-[10px] font-medium ${saveProfLevel === 'prof' ? 'text-[#C79A42]' : 'text-gray-500'}`}>
                   熟练
                 </span>
                 {canEdit ? (
@@ -190,7 +190,7 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
 
               {/* B. 核心区：调整值 + 豁免值 */}
               <div className="px-2 py-1.5">
-                <div className={`rounded-lg py-2 px-3 flex justify-around items-center gap-2 bg-gray-800/50 border ${saveProfLevel === 'prof' ? 'border-[#B8860B]' : 'border-gray-500'}`}>
+                <div className={`rounded-lg py-2 px-3 flex justify-around items-center gap-2 bg-gray-800/50 border ${saveProfLevel === 'prof' ? 'border-[#A67C2D]' : 'border-gray-500'}`}>
                   <div className="flex flex-col items-center">
                     <span className="text-[10px] text-gray-400">调整值</span>
                     <span className="text-2xl font-bold text-white font-mono tabular-nums leading-none">
@@ -217,7 +217,7 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
                   <div className="flex flex-col items-center gap-0.5">
                     <span className="text-[10px] text-dnd-gold-light font-semibold">豁免</span>
                     <div className="flex items-center gap-1.5">
-                      <span className={`text-2xl font-bold font-mono tabular-nums leading-none ${saveProfLevel === 'prof' ? 'text-[#D4AF37]' : 'text-white'}`}>
+                      <span className={`text-2xl font-bold font-mono tabular-nums leading-none ${saveProfLevel === 'prof' ? 'text-[#C79A42]' : 'text-white'}`}>
                         {saveBonus >= 0 ? '+' : ''}{saveBonus}
                       </span>
                       <button

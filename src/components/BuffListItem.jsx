@@ -6,7 +6,11 @@ import { SAVE_NAMES, SKILLS } from '../data/dndSkills'
 function getEffectSummaryShort(buff) {
   const info = getEffectInfo(buff.effectType)
   if (!info) return buff.value != null ? String(buff.value) : ''
-  if (buff.effectType.startsWith('custom_')) return buff.value ? String(buff.value) : ''
+  // 自由填写：优先 value（与保存一致），兼容 customText；空时显示占位便于记录“仅描述”类效果
+  if (buff.effectType.startsWith('custom_')) {
+    const text = (buff.value != null && buff.value !== '' ? String(buff.value) : '') || (buff.customText != null && buff.customText !== '' ? String(buff.customText) : '')
+    return text || '（自由填写）'
+  }
   const effectLabel = info.effect.label ?? buff.effectType
   const v = buff.value
 
@@ -106,7 +110,7 @@ function getBuffSummaryLine(buff, baseAbilities = {}) {
   const effectParts = []
   if (Array.isArray(buff.effects) && buff.effects.length) {
     buff.effects.forEach((e) => {
-      const s = getEffectSummaryShort({ effectType: e.effectType, value: e.value })
+      const s = getEffectSummaryShort({ effectType: e.effectType, value: e.value, customText: e.customText })
       if (s) effectParts.push(s)
     })
   } else {
@@ -121,7 +125,10 @@ function getBuffSummaryLine(buff, baseAbilities = {}) {
 function getEffectDisplay(buff, baseAbilities = {}) {
   const info = getEffectInfo(buff.effectType)
   if (!info) return { label: '—', value: buff.value != null ? String(buff.value) : null }
-  if (buff.effectType.startsWith('custom_')) return { label: buff.value ? String(buff.value) : '—', value: null }
+  if (buff.effectType.startsWith('custom_')) {
+    const text = (buff.value != null && buff.value !== '' ? String(buff.value) : '') || (buff.customText != null && buff.customText !== '' ? String(buff.customText) : '')
+    return { label: text || '（自由填写）', value: null }
+  }
   const effectLabel = info.effect.label ?? buff.effectType
 
   if (info.effect.dataType === 'boolean') {
@@ -242,7 +249,7 @@ const GRID_COLS = {
 /** 多效果时渲染为多组 (label, value) 胶囊（供 isDebuff 等内部用） */
 function getEffectDisplays(buff, baseAbilities) {
   if (Array.isArray(buff.effects) && buff.effects.length) {
-    return buff.effects.map((e) => getEffectDisplay({ effectType: e.effectType, value: e.value }, baseAbilities))
+    return buff.effects.map((e) => getEffectDisplay({ effectType: e.effectType, value: e.value, customText: e.customText }, baseAbilities))
   }
   return [getEffectDisplay(buff, baseAbilities)]
 }
@@ -255,12 +262,12 @@ export default function BuffListItem({ buff, baseAbilities, onEdit, onDelete, ca
 
   return (
     <div
-      className={`grid ${canEdit && !buff.fromItem ? GRID_COLS.withActions : GRID_COLS.noActions} items-center gap-x-2 px-1.5 min-h-[32px] py-0.5 h-full bg-gray-800/30 ${standalone ? '' : 'border-b border-gray-800 last:border-b-0'} ${!buff.enabled ? 'opacity-50' : ''}`}
+      className={`grid ${canEdit && !buff.fromItem ? GRID_COLS.withActions : GRID_COLS.noActions} items-center gap-x-2 px-1.5 min-h-[32px] py-0.5 h-full bg-[#202838]/36 ${standalone ? '' : 'border-b border-white/10 last:border-b-0'} ${!buff.enabled ? 'opacity-50' : ''}`}
       role="row"
     >
       {/* 名字：约 7 字宽，过长截断；来自装备时显示标签 */}
       <div className="min-w-0 shrink-0 w-[7em] overflow-hidden flex items-center gap-1">
-        <span className="text-amber-400/95 text-sm truncate block" title={sourceName}>
+        <span className="text-dnd-gold-light/95 text-sm truncate block" title={sourceName}>
           {sourceName}
         </span>
         {buff.fromItem && <span className="text-gray-500 text-[10px] shrink-0" title="来自装备/背包附魔">装备</span>}

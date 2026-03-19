@@ -184,25 +184,26 @@ export default function CharacterSpells({ char, canEdit, onSave }) {
   const addAllClassSpells = () => {
     if (!prepareAllClass) return
     const classSpells = getSpellsByClass(prepareAllClass)
-    const toAdd = classSpells.filter((s) => !spellIds.has(s.id))
+    // 戏法不参与“全部学会”，需通过法术大全手动添加
+    const toAdd = classSpells.filter((s) => !spellIds.has(s.id) && (s.level ?? 0) >= 1)
     const next = [...spells, ...toAdd.map((s) => ({ spellId: s.id, prepared: (s.level ?? 0) === 0 }))]
     onSave({ spells: next })
   }
 
   return (
-    <div className="rounded-lg border border-gray-600 bg-gray-800/50 p-4">
+    <div className="rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/24 to-[#222f45]/20 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
       <div className="space-y-2">
         {spellAbility != null && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 py-4 px-5 rounded-xl bg-gray-900/70 border-l-4 border-dnd-gold border border-gray-600/60 shadow-sm">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 py-4 px-5 rounded-xl bg-[#1b2536]/72 border-l-4 border-dnd-gold border border-white/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
             <div className="text-center min-w-0">
               <p className="text-dnd-text-muted text-xs font-bold uppercase tracking-wider mb-1.5">施法属性</p>
               <p className="text-dnd-gold-light text-lg font-bold truncate">{ABILITY_NAMES_ZH[spellAbility] ?? spellAbility}</p>
             </div>
-            <div className="text-center min-w-0 border-r border-gray-600/60">
+            <div className="text-center min-w-0 border-r border-white/10">
               <p className="text-dnd-text-muted text-xs font-bold uppercase tracking-wider mb-1.5">法术攻击加值</p>
               <p className="text-white text-xl font-mono font-bold">{spellAttackBonus >= 0 ? '+' : ''}{spellAttackBonus}</p>
             </div>
-            <div className="text-center min-w-0 border-r border-gray-600/60">
+            <div className="text-center min-w-0 border-r border-white/10">
               <p className="text-dnd-text-muted text-xs font-bold uppercase tracking-wider mb-1.5">法术DC</p>
               <p className="text-white text-xl font-mono font-bold">{spellDC}</p>
             </div>
@@ -212,7 +213,7 @@ export default function CharacterSpells({ char, canEdit, onSave }) {
             </div>
           </div>
         )}
-        <p className="text-gray-500 text-xs">从法术大全添加法术至角色卡，可标记已准备。</p>
+        <p className="text-gray-500 text-xs">从法术大全添加法术至角色卡，可标记已准备。下方「添加法术」为按角色职业法表可学（且排除已添加），「从法术大全添加」才是全法表。</p>
         {canEdit && (
           <div className="space-y-3">
             <p className="text-dnd-gold-light text-[10px] uppercase tracking-wider font-bold">添加法术</p>
@@ -221,14 +222,14 @@ export default function CharacterSpells({ char, canEdit, onSave }) {
                 <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); setDropdownOpen((v) => !v) }}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-gray-700/60 text-gray-300 hover:bg-gray-600/60 border border-gray-600 text-sm font-medium"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-[#1b2738] text-gray-300 hover:bg-[#24344d] border border-[#3a4e69] text-sm font-medium"
                 >
                   <Plus className="w-4 h-4" />
                   添加法术
                   <ChevronDown className={`w-4 h-4 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
                 </button>
                 {dropdownOpen && (
-                  <div className="absolute left-0 top-full mt-1 z-50 w-64 max-h-72 overflow-y-auto rounded-lg border border-gray-600 bg-gray-800 shadow-xl py-1">
+                  <div className="absolute left-0 top-full mt-1 z-50 w-64 max-h-72 overflow-y-auto rounded-lg border border-white/10 bg-[#1b2738] shadow-xl py-1">
                     {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((level) => {
                       const list = spellsByLevelForDropdown[level] ?? []
                       if (list.length === 0) return null
@@ -258,7 +259,7 @@ export default function CharacterSpells({ char, canEdit, onSave }) {
               </div>
               <Link
                 to={char?.id ? `/spells?char=${char.id}` : '/spells'}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-gray-700/60 text-gray-300 hover:bg-gray-600/60 border border-gray-600 text-sm font-medium shrink-0"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-[#1b2738] text-gray-300 hover:bg-[#24344d] border border-[#3a4e69] text-sm font-medium shrink-0"
               >
                 <BookOpen className="w-4 h-4" />
                 从法术大全添加
@@ -273,7 +274,7 @@ export default function CharacterSpells({ char, canEdit, onSave }) {
                   className={inputClass + ' pl-9 w-full'}
                 />
                 {searchQuery.trim() && (
-                  <div className="absolute left-0 right-0 top-full mt-1 z-50 max-h-48 overflow-y-auto rounded-lg border border-gray-600 bg-gray-800 shadow-xl py-1">
+                  <div className="absolute left-0 right-0 top-full mt-1 z-50 max-h-48 overflow-y-auto rounded-lg border border-white/10 bg-[#1b2738] shadow-xl py-1">
                     {searchResults.length > 0 ? (
                       searchResults.map((s) => (
                         <button
@@ -364,10 +365,10 @@ export default function CharacterSpells({ char, canEdit, onSave }) {
                         return (
                           <div
                             key={spellId}
-                            className="rounded-lg border border-gray-600 bg-gray-800/50 p-3 min-w-0 overflow-visible flex flex-col h-full"
+                            className="rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/22 to-[#222f45]/18 p-3 min-w-0 overflow-visible flex flex-col h-full shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
                           >
                             <div className="flex flex-col flex-1 min-h-0">
-                              <div className="flex-1 min-h-0 overflow-y-auto space-y-1.5">
+                              <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden space-y-1.5">
                               <div className="flex items-center justify-between gap-2 min-h-[2rem]">
                                 <span className="block text-base font-semibold text-white leading-tight truncate min-w-0 flex-1">
                                   {spell.name}
@@ -419,27 +420,29 @@ export default function CharacterSpells({ char, canEdit, onSave }) {
                                 </div>
                               )}
                               {spell.description && (
-                                <div className="pt-1 border-t border-gray-600/60">
+                                <div className="pt-1 border-t border-white/10">
                                   <span className="text-dnd-gold-light text-xs font-bold block mb-0.5">法术描述</span>
                                   <p className="text-gray-300 text-sm whitespace-pre-line leading-snug text-justify">{spell.description}</p>
                                 </div>
                               )}
                               </div>
-                              {spell.level >= 1 && (
-                                <div className="pt-2 border-t border-gray-600/60 mt-auto shrink-0">
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setCastModal({ open: true, spell, spellId, spellLevel: spell.level })
-                                      setCastRing(spell.level)
-                                      setCastSource('normal')
-                                    }}
-                                    className="w-full py-2 rounded-lg bg-dnd-red/80 hover:bg-dnd-red border border-dnd-red text-white text-sm font-medium transition-colors"
-                                  >
-                                    释放魔法
-                                  </button>
-                                </div>
-                              )}
+                              <div className="pt-2 border-t border-white/10 mt-auto shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if ((spell.level ?? 0) === 0) {
+                                      // 戏法不消耗环位，直接视为施放
+                                      return
+                                    }
+                                    setCastModal({ open: true, spell, spellId, spellLevel: spell.level })
+                                    setCastRing(spell.level)
+                                    setCastSource('normal')
+                                  }}
+                                  className="w-full py-2 rounded-lg bg-dnd-red/80 hover:bg-dnd-red border border-dnd-red text-white text-sm font-medium transition-colors"
+                                >
+                                  释放魔法
+                                </button>
+                              </div>
                             </div>
                           </div>
                         )
@@ -457,7 +460,7 @@ export default function CharacterSpells({ char, canEdit, onSave }) {
 
       {castModal.open && castModal.spell && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60" onClick={() => setCastModal((m) => ({ ...m, open: false }))}>
-          <div className="rounded-xl border border-gray-600 bg-gray-800 shadow-xl max-w-sm w-full p-4 space-y-4" onClick={(e) => e.stopPropagation()}>
+          <div className="rounded-xl border border-white/10 bg-[#1b2738] shadow-xl max-w-sm w-full p-4 space-y-4" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-dnd-gold-light font-semibold text-sm uppercase tracking-wider">释放魔法 · {castModal.spell.name}</h3>
             <div>
               <label className="block text-dnd-text-muted text-xs font-medium mb-1.5">用几环施法（升环施法）</label>

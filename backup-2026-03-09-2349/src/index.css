@@ -5,7 +5,19 @@
 /* 全站统一思源体：中文、英文、数字 */
 :root {
   --font-siyuan: 'Noto Sans SC', 'Source Han Sans SC', 'Source Han Sans', sans-serif;
+  --accent-gold: #a67c2d;
+  --accent-gold-light: #c79a42;
+  --accent-gold-rgb: 166, 124, 45;
 }
+
+[class*="text-amber-"] { color: var(--accent-gold) !important; }
+[class*="border-amber-"] { border-color: var(--accent-gold) !important; }
+[class*="ring-amber-"] { --tw-ring-color: rgba(var(--accent-gold-rgb), 0.45) !important; }
+[class*="fill-amber-"] { fill: var(--accent-gold) !important; }
+[class*="stroke-amber-"] { stroke: var(--accent-gold) !important; }
+[class*="text-dnd-gold-light"], [class*="text-dnd-gold"] { color: var(--accent-gold-light) !important; }
+[class*="border-dnd-gold"] { border-color: var(--accent-gold) !important; }
+[class*="bg-dnd-gold"] { background-color: var(--accent-gold) !important; }
 html {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;

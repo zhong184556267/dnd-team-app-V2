@@ -125,9 +125,14 @@ function getACFromLayers(character, getLayerSlotData) {
 
   let bodyBase = 0
   let bodyDexCap = 0
+  const bodyType = String(body.entry?.类型 ?? '').trim()
   if (bodyParsed && !bodyParsed.isShield) {
-    bodyBase = bodyParsed.baseAC ?? 0
-    bodyDexCap = bodyParsed.addDex ? (bodyParsed.dexCap != null ? bodyParsed.dexCap : 99) : 0
+    // Project rule: clothing itself provides no base AC and no dex mode changes.
+    // Any AC from clothing should come from enchantment (magicBonus/effects) only.
+    if (bodyType !== '衣服') {
+      bodyBase = bodyParsed.baseAC ?? 0
+      bodyDexCap = bodyParsed.addDex ? (bodyParsed.dexCap != null ? bodyParsed.dexCap : 99) : 0
+    }
   }
 
   const effectiveBase = Math.max(innerBase, bodyBase) || 10
@@ -135,17 +140,22 @@ function getACFromLayers(character, getLayerSlotData) {
   const dexContrib = dexCap === null ? dexMod : (dexCap >= 99 ? dexMod : Math.min(dexMod, dexCap))
 
   const armorMagic = Number(body.entry?.magicBonus) || 0
+  const shieldEnabled = equipment.useShield !== false
   let shieldBase = 0
-  if (shieldParsed && shieldParsed.isShield) shieldBase = shieldParsed.bonus || 2
-  else if (equipment.useShield) shieldBase = Number(equipment.shieldBonus) || 2
-  const shieldMagic = Number(shieldData.entry?.magicBonus) || 0
+  if (shieldEnabled) {
+    if (shieldParsed && shieldParsed.isShield) shieldBase = shieldParsed.bonus || 2
+    else if (equipment.useShield) shieldBase = Number(equipment.shieldBonus) || 2
+  }
+  const shieldMagic = shieldEnabled ? (Number(shieldData.entry?.magicBonus) || 0) : 0
 
   let outerMagic = Number(equipment.outerRobe?.magicACBonus) || 0
   if (!outerMagic && outerParsed && !outerParsed.isShield && outerParsed.baseAC != null && outerParsed.baseAC > 0) {
     outerMagic = outerParsed.baseAC
   }
   const other = Number(equipment.otherAC) || 0
-  const buffSum = (character?.buffs ?? []).reduce((s, b) => s + (Number(b.ac) || 0), 0)
+  const buffSum = (character?.buffs ?? [])
+    .filter((b) => b?.enabled !== false)
+    .reduce((s, b) => s + (Number(b?.ac) || 0), 0)
 
   const total = effectiveBase + dexContrib + shieldBase + shieldMagic + armorMagic + outerMagic + other + buffSum
   return {
@@ -210,7 +220,9 @@ export function getAC(character) {
   const shieldMagic = Number(equipment.shieldMagicBonus) || 0
   const armorMagic = Number(equipment.armorMagicBonus) || 0
   const other = Number(equipment.otherAC) || 0
-  const buffSum = (character?.buffs ?? []).reduce((s, b) => s + (Number(b.ac) || 0), 0)
+  const buffSum = (character?.buffs ?? [])
+    .filter((b) => b?.enabled !== false)
+    .reduce((s, b) => s + (Number(b?.ac) || 0), 0)
   const total = base + dexContrib + shieldBase + shieldMagic + armorMagic + other + buffSum
   return {
     total,

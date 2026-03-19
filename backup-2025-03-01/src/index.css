@@ -11,9 +11,11 @@
   --card-bg: rgba(30, 38, 50, 0.7);
   --card-border: #2a3545;
   --border-color: #2a3545;
-  --text-title: #d4a017;
-  --accent: #d4a017;
-  --accent-gold: #d4a017;
+  --text-title: #b88a34;
+  --accent: #a67c2d;
+  --accent-gold: #a67c2d;
+  --accent-gold-light: #c79a42;
+  --accent-gold-rgb: 166, 124, 45;
   --text-main: #ffffff;
   --text-muted: #a0a8b5;
   --btn-primary: #e63946;
@@ -26,6 +28,14 @@
   --panel-radius: 10px;
   --panel-padding: 8px 16px;
 }
+[class*="text-amber-"] { color: var(--accent-gold) !important; }
+[class*="border-amber-"] { border-color: var(--accent-gold) !important; }
+[class*="ring-amber-"] { --tw-ring-color: rgba(var(--accent-gold-rgb), 0.45) !important; }
+[class*="fill-amber-"] { fill: var(--accent-gold) !important; }
+[class*="stroke-amber-"] { stroke: var(--accent-gold) !important; }
+[class*="text-dnd-gold-light"], [class*="text-dnd-gold"] { color: var(--accent-gold-light) !important; }
+[class*="border-dnd-gold"] { border-color: var(--accent-gold) !important; }
+[class*="bg-dnd-gold"] { background-color: var(--accent-gold) !important; }
 html {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;

@@ -131,6 +131,8 @@ export function getBuffsFromEquipmentAndInventory(character) {
   const inv = character?.inventory ?? []
   const held = character?.equippedHeld ?? []
   const worn = character?.equippedWorn ?? []
+  const bodyInventoryId = (worn.find((s) => s?.id === 'body' || s?.slotId === 'body')?.inventoryId) || null
+  const shieldInventoryId = (held[1]?.inventoryId) || null
   const equippedIds = new Set()
   for (const slot of held) {
     if (slot?.inventoryId) equippedIds.add(slot.inventoryId)
@@ -142,7 +144,12 @@ export function getBuffsFromEquipmentAndInventory(character) {
   const out = []
   for (const entry of inv) {
     if (!equippedIds.has(entry?.id)) continue
-    const effects = getEffectsFromItem(entry)
+    let effects = getEffectsFromItem(entry)
+    // Defensive body/shield slots already contribute AC via formulas.getAC (magicBonus etc).
+    // Avoid counting the same AC enchantment again through item effect mapping.
+    if (entry?.id === bodyInventoryId || entry?.id === shieldInventoryId) {
+      effects = effects.filter((e) => e.effectType !== 'ac_bonus')
+    }
     if (effects.length === 0) continue
     const proto = entry?.itemId ? getItemById(entry.itemId) : null
     const displayName = (entry.name && String(entry.name).trim()) ? String(entry.name).trim() : (getItemDisplayName(proto) || '未命名物品')

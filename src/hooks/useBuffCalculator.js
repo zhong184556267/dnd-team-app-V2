@@ -9,10 +9,14 @@ import { getFlatEffectEntries } from '../lib/effects/effectMapping'
  * 输出：finalStats (AC、攻击加值、豁免、优势/劣势等)
  * 支持单条 buff 与多效果 buff（buff.effects 数组）
  */
+/** 自由填写类效果仅作展示，不参与 AC/攻击/豁免等数值计算 */
+const DISPLAY_ONLY_EFFECT_TYPES = ['custom_condition']
+
 export function useBuffCalculator(character, activeBuffs) {
   return useMemo(() => {
     const buffs = (activeBuffs || []).filter((b) => b.enabled !== false)
-    const entries = getFlatEffectEntries(buffs)
+    const rawEntries = getFlatEffectEntries(buffs)
+    const entries = rawEntries.filter((e) => !DISPLAY_ONLY_EFFECT_TYPES.includes(e.effectType))
     const baseAbilities = character?.abilities ?? { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 }
 
     // 1. 属性：override 优先，否则 base + ability_score
@@ -141,7 +145,11 @@ export function useBuffCalculator(character, activeBuffs) {
     }
 
     // 4. AC（使用增益后的属性，使敏捷等加成正确）、速度、先攻、DC、熟练
-    const charWithBuffedAbilities = character ? { ...character, abilities: finalAbilities } : { abilities: finalAbilities }
+    // Base AC should be computed from equipment + buffed abilities only.
+    // Do not re-read character.buffs here, otherwise legacy buff fields can be double-counted.
+    const charWithBuffedAbilities = character
+      ? { ...character, abilities: finalAbilities, buffs: [] }
+      : { abilities: finalAbilities, buffs: [] }
     const baseAC = getAC(charWithBuffedAbilities)
 
     let acBonus = 0

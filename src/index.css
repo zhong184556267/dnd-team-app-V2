@@ -5,29 +5,44 @@
 /* 全站统一思源体 + 参考图美术：深海军蓝底、金黄主强调、灰蓝边框、层次分明 */
 :root {
   --font-siyuan: 'Noto Sans SC', 'Source Han Sans SC', 'Source Han Sans', 'Inter', sans-serif;
-  /* 主背景：极深海军蓝 */
-  --page-bg: #12141a;
-  --page-bg-end: #0f1218;
+  /* 主背景：按参考图统一为深蓝黑（#121212） */
+  --page-bg: #141b27;
+  --page-bg-end: #182235;
   /* 容器/卡片：略浅深蓝灰，层次感 */
-  --card-bg: #1e222b;
-  --card-border: #2d323e;
-  --border-color: #2d323e;
+  --card-bg: #1d2737;
+  --card-border: #34455f;
+  --border-color: #34455f;
   /* 主强调：金黄（区块标题、激活态） */
-  --text-title: #e9b343;
-  --accent: #e9b343;
-  --accent-gold: #e9b343;
+  --text-title: #c79a42;
+  --accent: #c79a42;
+  --accent-gold: #c79a42;
+  --accent-gold-rgb: 199, 154, 66;
   --text-main: #ffffff;
   --text-muted: #9ca3af;
   --btn-primary: #e63946;
   --btn-primary-hover: #d42d3a;
   --btn-secondary: #252a33;
   --btn-secondary-border: #2d323e;
-  --input-bg: #252a33;
-  --input-border: #2d323e;
-  --input-focus: #3d4554;
+  --input-bg: #1b2738;
+  --input-border: #3a4e69;
+  --input-focus: #4e6688;
   --panel-radius: 8px;
   --panel-padding: 8px 16px;
 }
+
+/* 全局暗黄色统一：将旧的 amber 文本/边框/背景/渐变统一映射为同一金色 */
+[class*="text-amber-"] { color: rgb(var(--accent-gold-rgb) / var(--tw-text-opacity, 1)) !important; }
+[class*="border-amber-"] { border-color: rgb(var(--accent-gold-rgb) / var(--tw-border-opacity, 1)) !important; }
+[class*="bg-amber-"] { background-color: rgb(var(--accent-gold-rgb) / var(--tw-bg-opacity, 1)) !important; }
+[class*="from-amber-"] {
+  --tw-gradient-from: rgb(var(--accent-gold-rgb) / 0.22) var(--tw-gradient-from-position) !important;
+  --tw-gradient-to: rgb(var(--accent-gold-rgb) / 0) var(--tw-gradient-to-position) !important;
+}
+[class*="via-amber-"] { --tw-gradient-via: rgb(var(--accent-gold-rgb) / 0.16) var(--tw-gradient-via-position) !important; }
+[class*="to-amber-"] { --tw-gradient-to: rgb(var(--accent-gold-rgb) / 0.12) var(--tw-gradient-to-position) !important; }
+[class*="ring-amber-"] { --tw-ring-color: rgba(var(--accent-gold-rgb), 0.45) !important; }
+[class*="fill-amber-"] { fill: rgb(var(--accent-gold-rgb) / 1) !important; }
+[class*="stroke-amber-"] { stroke: rgb(var(--accent-gold-rgb) / 1) !important; }
 html {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -68,7 +83,7 @@ input:focus, textarea:focus, select:focus {
 }
 input:focus, textarea:focus, select:focus {
   border-color: var(--input-focus);
-  box-shadow: 0 0 0 2px rgba(233, 179, 67, 0.12);
+  box-shadow: 0 0 0 2px rgba(199, 154, 66, 0.14);
 }
 
 /* 背包表格：固定行高 48px，文案超出部分隐藏，绝不随内容增高 */
@@ -161,10 +176,25 @@ select option {
 /* 角色卡等页面：区块标题暖金色 */
 .section-title {
   color: var(--text-title);
-  font-size: 0.9375rem;
+  font-size: 0.95rem;
   font-weight: 700;
   margin-bottom: 0.5rem;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.04em;
+}
+
+.section-subtitle {
+  color: #9eacbf;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ui-soft-panel {
+  border: 1px solid rgb(255 255 255 / 0.1);
+  background: linear-gradient(180deg, rgb(42 57 82 / 0.24) 0%, rgb(34 47 69 / 0.2) 100%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.05);
+  border-radius: 0.75rem;
 }
 
 /* 模块面板：参考图层次 — 深蓝灰底 + 细边框 + 轻微内高光 */
@@ -218,7 +248,7 @@ select option {
 .panel-select:focus {
   outline: none;
   border-color: var(--input-focus);
-  box-shadow: 0 0 0 2px rgba(233, 179, 67, 0.15);
+  box-shadow: 0 0 0 2px rgba(199, 154, 66, 0.16);
 }
 /* 剧情等级等紧凑数字框：外框高度贴近数字，减少留白 */
 .panel-input-compact {
@@ -512,7 +542,7 @@ select.panel-class-control-h {
 }
 .xp-progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, var(--accent), #f0c14d);
+  background: linear-gradient(90deg, var(--accent), #c79a42);
   border-radius: 9999px;
   transition: width 0.25s ease;
 }

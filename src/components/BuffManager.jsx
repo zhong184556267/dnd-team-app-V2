@@ -42,7 +42,7 @@ export default function BuffManager({ buffs = [], baseAbilities = {}, onSave, ca
   }
 
   return (
-    <div className="rounded-xl border border-gray-600 bg-gray-800/30 p-2">
+    <div className="rounded-xl border border-white/10 bg-gradient-to-b from-[#243147]/35 to-[#1f2a3d]/30 p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
       <div className="flex items-center justify-end mb-1">
         {canEdit && (
           <button
@@ -62,7 +62,7 @@ export default function BuffManager({ buffs = [], baseAbilities = {}, onSave, ca
         <div className="min-w-0">
           <div className="grid grid-cols-2 gap-1">
             {list.map((buff) => (
-              <div key={buff.id} className="h-full min-h-0 rounded-lg overflow-hidden border border-gray-700 bg-gray-800/50">
+              <div key={buff.id} className="h-full min-h-0 rounded-lg overflow-hidden border border-white/10 bg-gradient-to-b from-[#2a3952]/24 to-[#222f45]/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
                 <BuffListItem
                   buff={buff}
                   baseAbilities={baseAbilities}

@@ -23,6 +23,8 @@ export default function Warehouse() {
   const [depositIndex, setDepositIndex] = useState(null)
   const [depositCharId, setDepositCharId] = useState('')
   const [depositQty, setDepositQty] = useState(1)
+  const [isDepositing, setIsDepositing] = useState(false)
+  const [transferHint, setTransferHint] = useState('')
   const [editingIndex, setEditingIndex] = useState(null)
 
   const characters = getAllCharacters(currentModuleId)
@@ -119,7 +121,7 @@ export default function Warehouse() {
   }
 
   const confirmDeposit = () => {
-    if (depositIndex == null || !depositCharId) return
+    if (depositIndex == null || !depositCharId || isDepositing) return
     const entry = list[depositIndex]
     if (!entry) { setDepositIndex(null); return }
     const char = characters.find((c) => c.id === depositCharId)
@@ -132,23 +134,36 @@ export default function Warehouse() {
       name: (entry.name && entry.name.trim()) || (proto ? getItemDisplayName(proto) : '—'),
       攻击: entry.攻击 ?? '',
       伤害: entry.伤害 ?? '',
-      详细介绍: entry.详细介绍 ?? '',
-      ...(entry.附注 ? { 附注: entry.附注 } : {}),
-      ...(entry.攻击距离 != null && entry.攻击距离 !== '' ? { 攻击距离: entry.攻击距离 } : {}),
-      ...(entry.精通 ? { 精通: entry.精通 } : {}),
-      重量: proto?.重量,
+      详细介绍: entry.详细介绍 != null ? String(entry.详细介绍) : '',
+      附注: entry.附注 != null ? String(entry.附注) : '',
+      攻击距离: entry.攻击距离 ?? undefined,
+      攻击范围: entry.攻击范围 ?? undefined,
+      精通: entry.精通 ?? undefined,
+      重量: entry.重量 ?? proto?.重量,
+      rarity: entry.rarity ?? undefined,
       qty: q,
       isAttuned: false,
       magicBonus: Number(entry.magicBonus) || 0,
       charge: Number(entry.charge) || 0,
-      ...(Array.isArray(entry.effects) && entry.effects.length > 0 ? { effects: entry.effects } : {}),
+      spellDC: entry.spellDC != null ? Number(entry.spellDC) : undefined,
+      effects: Array.isArray(entry.effects) ? entry.effects : undefined,
+      爆炸半径: entry.爆炸半径 != null ? Number(entry.爆炸半径) : undefined,
     }
     const inv = char.inventory ?? []
+    const prevList = list
+    const nextQty = (Number(entry.qty) ?? 1) - q
+    const optimisticList = nextQty <= 0
+      ? list.filter((_, i) => i !== depositIndex)
+      : list.map((x, i) => (i === depositIndex ? { ...x, qty: nextQty } : x))
+    setList(optimisticList)
+    setIsDepositing(true)
+    setTransferHint('物品存入中，请耐心等待；若长时间未完成请尝试刷新页面。')
+
     const removePromise = q >= (Number(entry.qty) ?? 1)
-      ? removeFromWarehouse(currentModuleId, depositIndex)
-      : removeFromWarehouse(currentModuleId, depositIndex, q)
-    Promise.resolve(updateCharacter(depositCharId, { inventory: [...inv, invEntry] }))
-      .then(() => Promise.resolve(removePromise))
+      ? Promise.resolve(removeFromWarehouse(currentModuleId, depositIndex))
+      : Promise.resolve(removeFromWarehouse(currentModuleId, depositIndex, q))
+    const saveInventoryPromise = Promise.resolve(updateCharacter(depositCharId, { inventory: [...inv, invEntry] }))
+    Promise.all([saveInventoryPromise, removePromise])
       .then(() => {
         if (user?.name) {
           logTeamActivity({
@@ -158,6 +173,15 @@ export default function Warehouse() {
           })
         }
         refreshList()
+      })
+      .catch((err) => {
+        console.error('[Warehouse] 存入角色失败，已回滚列表', err)
+        setList(prevList)
+        alert('存入失败，已回滚，请重试')
+      })
+      .finally(() => {
+        setIsDepositing(false)
+        setTransferHint('')
       })
     setDepositIndex(null)
     setDepositCharId('')
@@ -190,7 +214,7 @@ export default function Warehouse() {
   }
 
   return (
-    <div className="p-4 pb-40 min-h-screen bg-dnd-bg">
+    <div className="p-4 pb-40 min-h-screen" style={{ backgroundColor: 'var(--page-bg)' }}>
       <h1 className="font-display text-xl font-semibold text-white mb-4">
         团队仓库
       </h1>
@@ -201,11 +225,11 @@ export default function Warehouse() {
         <CurrencyPanel />
       </section>
 
-      <div className="rounded-xl bg-dnd-card border border-white/10 shadow-dnd-card p-4 space-y-4">
-        <div className="px-1.5 py-1 border-b border-gray-600 flex items-center justify-between flex-wrap gap-1">
+      <div className="rounded-xl bg-gradient-to-b from-[#2a3952]/24 to-[#222f45]/20 border border-white/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] p-4 space-y-4">
+        <div className="px-1.5 py-1 border-b border-white/10 flex items-center justify-between flex-wrap gap-1">
           <h3 className={subTitleClass + ' mb-0'}>团队仓库</h3>
           <>
-            <button type="button" onClick={() => setAddFormOpen(true)} className="h-7 px-2 rounded-lg bg-dnd-red hover:bg-dnd-red-hover text-white font-bold text-xs">
+            <button type="button" onClick={() => setAddFormOpen(true)} className="h-7 px-2 rounded-lg border border-dnd-red text-dnd-red hover:bg-dnd-red hover:text-white text-xs font-medium transition-colors">
               添加物品
             </button>
             <ItemAddForm
@@ -243,14 +267,14 @@ export default function Warehouse() {
               <col style={{ width: '7.14%' }} />
             </colgroup>
             <thead>
-              <tr className="bg-gray-800/80 text-dnd-text-muted text-[10px] uppercase tracking-wider" style={{ height: 48, minHeight: 48, maxHeight: 48 }}>
+              <tr className="bg-[#1b2738]/85 text-dnd-text-muted text-[10px] uppercase tracking-wider" style={{ height: 48, minHeight: 48, maxHeight: 48 }}>
                 <th className="py-0 px-4 align-middle text-center" style={{ height: 48, maxHeight: 48 }} title="拖拽排序" />
                 <th className="py-0 px-4 font-semibold min-w-0 align-middle text-left" style={{ height: 48, maxHeight: 48 }}>名称</th>
-                <th className="py-0 px-4 border-l border-gray-600 align-middle text-center" style={{ height: 48, maxHeight: 48 }}>充能</th>
-                <th className="py-0 px-4 font-semibold min-w-0 border-l border-gray-600 align-middle text-left" style={{ height: 48, maxHeight: 48 }}>简要介绍</th>
-                <th className="py-0 px-4 border-l border-gray-600 align-middle text-center" style={{ height: 48, maxHeight: 48 }}>数量</th>
-                <th className="py-0 px-4 border-l border-gray-600 align-middle text-center" style={{ height: 48, maxHeight: 48 }}>总重</th>
-                <th className="py-0 px-4 border-l border-gray-600 align-middle text-center" style={{ height: 48, maxHeight: 48 }} />
+                <th className="py-0 px-4 border-l border-white/10 align-middle text-center" style={{ height: 48, maxHeight: 48 }}>充能</th>
+                <th className="py-0 px-4 font-semibold min-w-0 border-l border-white/10 align-middle text-left" style={{ height: 48, maxHeight: 48 }}>简要介绍</th>
+                <th className="py-0 px-4 border-l border-white/10 align-middle text-center" style={{ height: 48, maxHeight: 48 }}>数量</th>
+                <th className="py-0 px-4 border-l border-white/10 align-middle text-center" style={{ height: 48, maxHeight: 48 }}>总重</th>
+                <th className="py-0 px-4 border-l border-white/10 align-middle text-center" style={{ height: 48, maxHeight: 48 }} />
               </tr>
             </thead>
             <tbody>
@@ -261,7 +285,7 @@ export default function Warehouse() {
                 return (
                   <Fragment key={i}>
                     <tr
-                      className="border-t border-gray-700/80 hover:bg-gray-800/40 cursor-grab active:cursor-grabbing"
+                      className="border-t border-white/10 hover:bg-[#24344d]/35 cursor-grab active:cursor-grabbing"
                       style={{ height: 48, minHeight: 48, maxHeight: 48 }}
                       draggable
                       onDragStart={(e) => handleDragStart(e, i)}
@@ -276,17 +300,17 @@ export default function Warehouse() {
                         <span className="inline-flex items-center gap-0.5 truncate max-w-full">
                           {displayName(entry)}
                           {(Number(entry.magicBonus) || 0) > 0 ? (
-                            <span className="text-amber-200/90 text-xs font-mono tabular-nums shrink-0">+{entry.magicBonus}</span>
+                            <span className="text-dnd-gold-light/90 text-xs font-mono tabular-nums shrink-0">+{entry.magicBonus}</span>
                           ) : null}
                           {(() => {
                             const stoneEffect = Array.isArray(entry?.effects) ? entry.effects.find((e) => e.effectType === 'ac_cap_stone_layer') : null
                             const stoneVal = stoneEffect != null && stoneEffect.value != null ? Number(stoneEffect.value) : null
                             if (stoneVal == null || Number.isNaN(stoneVal)) return null
-                            return <span className="text-amber-200/90 text-xs font-mono tabular-nums shrink-0" title="瓦石层">{stoneVal}层</span>
+                            return <span className="text-dnd-gold-light/90 text-xs font-mono tabular-nums shrink-0" title="瓦石层">{stoneVal}层</span>
                           })()}
                         </span>
                       </td>
-                      <td className="py-1 px-2 border-l border-gray-600 align-middle text-center overflow-hidden" style={{ height: 48, maxHeight: 48 }}>
+                      <td className="py-1 px-2 border-l border-white/10 align-middle text-center overflow-hidden" style={{ height: 48, maxHeight: 48 }}>
                         <div className="flex justify-center">
                           <NumberStepper
                             value={Number(entry.charge) || 0}
@@ -297,12 +321,12 @@ export default function Warehouse() {
                           />
                         </div>
                       </td>
-                      <td className="inventory-table-cell-brief py-1 px-4 text-dnd-text-body text-xs min-w-0 overflow-hidden border-l border-gray-600 align-middle text-left" style={{ height: 48, maxHeight: 48, overflow: 'hidden' }} title={getEntryBriefFull(entry) || undefined}>
+                      <td className="inventory-table-cell-brief py-1 px-4 text-dnd-text-body text-xs min-w-0 overflow-hidden border-l border-white/10 align-middle text-left" style={{ height: 48, maxHeight: 48, overflow: 'hidden' }} title={getEntryBriefFull(entry) || undefined}>
                         <div className="min-h-0 overflow-hidden" style={{ maxHeight: 40 }}>
                           <span className="line-clamp-2 text-left inline-block w-full break-words">{getEntryBriefFull(entry) || '—'}</span>
                         </div>
                       </td>
-                      <td className="py-1 px-2 border-l border-gray-600 align-middle text-center overflow-hidden" style={{ height: 48, maxHeight: 48 }}>
+                      <td className="py-1 px-2 border-l border-white/10 align-middle text-center overflow-hidden" style={{ height: 48, maxHeight: 48 }}>
                         <div className="flex justify-center">
                           <NumberStepper
                             value={qty}
@@ -313,13 +337,13 @@ export default function Warehouse() {
                           />
                         </div>
                       </td>
-                      <td className="py-1 px-2 tabular-nums text-dnd-text-body border-l border-gray-600 align-middle text-center overflow-hidden whitespace-nowrap" style={{ height: 48, maxHeight: 48 }}>{totalLb ? `${totalLb} lb` : ''}</td>
-                      <td className="py-1 px-1 border-l border-gray-600 align-middle text-center overflow-hidden" style={{ height: 48, maxHeight: 48 }}>
+                      <td className="py-1 px-2 tabular-nums text-dnd-text-body border-l border-white/10 align-middle text-center overflow-hidden whitespace-nowrap" style={{ height: 48, maxHeight: 48 }}>{totalLb ? `${totalLb} lb` : ''}</td>
+                      <td className="py-1 px-1 border-l border-white/10 align-middle text-center overflow-hidden" style={{ height: 48, maxHeight: 48 }}>
                         <div className="flex items-center justify-center gap-0.5 min-w-0 max-w-full">
                           <button type="button" onClick={() => openDeposit(i)} title="存入角色" className="p-1 rounded text-emerald-400 hover:bg-emerald-400/20 shrink-0">
                             <Package size={14} />
                           </button>
-                          <button type="button" onClick={() => startEdit(i)} title="编辑" className="p-1 rounded text-amber-400 hover:bg-amber-400/20 shrink-0">
+                          <button type="button" onClick={() => startEdit(i)} title="编辑" className="p-1 rounded text-dnd-gold-light hover:bg-dnd-gold/20 shrink-0">
                             <Pencil size={14} />
                           </button>
                           <button type="button" onClick={() => handleRemove(i)} title="移除" className="p-1 rounded text-dnd-red hover:text-dnd-red/20 shrink-0">
@@ -380,8 +404,15 @@ export default function Warehouse() {
             </div>
             <div className="flex gap-2 justify-end">
               <button type="button" onClick={() => setDepositIndex(null)} className="h-10 px-4 rounded-lg bg-gray-600 hover:bg-gray-500 text-white font-bold text-sm">取消</button>
-              <button type="button" onClick={confirmDeposit} disabled={!depositCharId} className="h-10 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm disabled:opacity-50 disabled:cursor-not-allowed">确认存入</button>
+              <button type="button" onClick={confirmDeposit} disabled={!depositCharId || isDepositing} className="h-10 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm disabled:opacity-50 disabled:cursor-not-allowed">{isDepositing ? '存入中...' : '确认存入'}</button>
             </div>
+          </div>
+        </div>
+      )}
+      {transferHint && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 pointer-events-none">
+          <div className="pointer-events-auto rounded-lg border border-dnd-gold/40 bg-gray-900/95 px-4 py-3 shadow-xl max-w-sm mx-4">
+            <p className="text-dnd-gold-light text-sm font-medium">{transferHint}</p>
           </div>
         </div>
       )}

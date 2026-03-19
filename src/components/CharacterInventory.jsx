@@ -324,7 +324,7 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
           <h3 className={labelClass}>物品栏</h3>
           {canEdit && (
             <div className="mb-3">
-              <button type="button" onClick={() => setAddFormOpen(true)} className="h-10 px-4 rounded-lg bg-dnd-red hover:bg-dnd-red-hover text-white font-bold text-sm">
+              <button type="button" onClick={() => setAddFormOpen(true)} className="h-10 px-4 rounded-lg border border-dnd-red text-dnd-red hover:bg-dnd-red hover:text-white text-sm font-medium transition-colors">
                 添加物品
               </button>
               <ItemAddForm open={addFormOpen} onClose={() => setAddFormOpen(false)} onSave={(entry) => { onSave({ inventory: [...inv, entry] }); setAddFormOpen(false); }} submitLabel="确认加入" />
@@ -377,9 +377,16 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
                         <td className="py-1 px-4 text-white font-medium align-middle text-left overflow-hidden" style={{ height: 48, maxHeight: 48 }}>
                           <span className="inline-flex items-center gap-0.5 truncate max-w-full">
                             {invDisplayName(entry)}
-                            {(Number(entry.magicBonus) || 0) > 0 ? (
-                              <span className="text-amber-200/90 text-xs font-mono tabular-nums shrink-0">+{entry.magicBonus}</span>
-                            ) : null}
+                            {(() => {
+                              const stoneEffect = Array.isArray(entry?.effects) ? entry.effects.find((e) => e.effectType === 'ac_cap_stone_layer') : null
+                              const stoneVal = stoneEffect != null && stoneEffect.value != null ? Number(stoneEffect.value) : null
+                              if (stoneVal != null && !Number.isNaN(stoneVal) && stoneVal > 0) {
+                                return <span className="text-dnd-gold-light/90 text-xs font-mono tabular-nums shrink-0" title="瓦石层">{stoneVal}层</span>
+                              }
+                              return (Number(entry.magicBonus) || 0) > 0
+                                ? <span className="text-dnd-gold-light/90 text-xs font-mono tabular-nums shrink-0">+{entry.magicBonus}</span>
+                                : null
+                            })()}
                           </span>
                         </td>
                         <td className="py-1 px-2 align-middle border-l border-gray-600 text-center overflow-hidden" style={{ height: 48, maxHeight: 48 }}>
@@ -427,13 +434,13 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
                                           const { total, rolls } = rollDice(diceExpr)
                                           setLastExplosiveRoll({ index: i, total, rolls, diceExpr })
                                         }}
-                                        className="w-6 h-6 flex items-center justify-center rounded bg-amber-600 hover:bg-amber-500 text-white shrink-0"
+                                        className="w-6 h-6 flex items-center justify-center rounded bg-dnd-gold hover:bg-dnd-gold-light text-white shrink-0"
                                         title="投掷"
                                       >
                                         <Dices className="w-3.5 h-3.5" />
                                       </button>
                                     ) : null}
-                                    {roll ? <span className="text-amber-300 font-medium tabular-nums">= {roll.total}{roll.rolls?.length ? ` (${roll.rolls.join('+')})` : ''}</span> : null}
+                                    {roll ? <span className="text-dnd-gold-light font-medium tabular-nums">= {roll.total}{roll.rolls?.length ? ` (${roll.rolls.join('+')})` : ''}</span> : null}
                                   </span>
                                 </div>
                               )
@@ -464,7 +471,7 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
                               <button type="button" onClick={() => openStoreToVault(i)} title="存到团队仓库" className="p-1 rounded text-emerald-400 hover:bg-emerald-400/20 shrink-0">
                                 <Package size={14} />
                               </button>
-                              <button type="button" onClick={() => startEdit(i)} title="编辑" className="p-1 rounded text-amber-400 hover:bg-amber-400/20 shrink-0">
+                              <button type="button" onClick={() => startEdit(i)} title="编辑" className="p-1 rounded text-dnd-gold-light hover:bg-dnd-gold/20 shrink-0">
                                 <Pencil size={14} />
                               </button>
                               <button type="button" onClick={() => removeItem(i)} title="移除" className="p-1 rounded text-dnd-red hover:bg-dnd-red/20 shrink-0">
@@ -722,7 +729,7 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
               <button
                 type="button"
                 onClick={() => { setTransferDirection('toVault'); setTransferOpen(true); }}
-                className="flex-1 h-10 inline-flex items-center justify-center gap-1.5 rounded-lg bg-amber-600/80 hover:bg-amber-600 text-white text-sm font-medium"
+                className="flex-1 h-10 inline-flex items-center justify-center gap-1.5 rounded-lg bg-dnd-gold/80 hover:bg-dnd-gold text-white text-sm font-medium"
               >
                 <ArrowDownToLine size={16} /> 存入金库
               </button>

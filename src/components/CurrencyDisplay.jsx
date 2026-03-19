@@ -24,13 +24,13 @@ function CoreCurrencyCard({ currencyId, amount, compact }) {
   let valueClass = 'font-bold tabular-nums '
   valueClass += compact ? 'text-sm ' : 'text-base sm:text-lg '
   if (isGold) {
-    cardClass += 'bg-gradient-to-br from-amber-950/60 to-amber-950/40 border-amber-500/60 shadow-[0_0_12px_rgba(245,158,11,0.15),inset_0_1px_0_rgba(255,255,255,0.06)]'
-    valueClass += 'text-amber-200 drop-shadow-[0_0_8px_rgba(251,191,36,0.4)]'
+    cardClass += 'bg-[#2b1f17]/60 border-dnd-gold/55'
+    valueClass += 'text-dnd-gold-light'
   } else if (isAurum) {
-    cardClass += 'bg-orange-950/40 border-orange-400/50 shadow-[0_0_10px_rgba(251,146,60,0.12)]'
-    valueClass += 'text-orange-200'
+    cardClass += 'bg-[#1b2230]/60 border-dnd-gold/45'
+    valueClass += 'text-dnd-gold-light'
   } else if (isCrystal) {
-    cardClass += 'bg-cyan-950/40 border-cyan-400/50 shadow-[0_0_10px_rgba(34,211,238,0.12)]'
+    cardClass += 'bg-[#0d2a3a]/60 border-cyan-400/45'
     valueClass += 'text-cyan-200'
   } else {
     cardClass += 'bg-gray-800/60 border-white/10'
@@ -71,8 +71,8 @@ export function CurrencyGrid({ balances, title, extraClass = '', titleClass, fil
     ? 'px-1.5 pt-0 pb-0 h-full flex flex-col min-h-0'
     : 'p-2 pt-0 space-y-2'
   const coreWrapClass = fillHeight
-    ? 'rounded bg-gradient-to-b from-amber-950/20 to-transparent border border-amber-500/20 p-1 flex-1 min-h-0 flex flex-col justify-center'
-    : 'rounded-lg bg-gradient-to-b from-amber-950/20 to-transparent border border-amber-500/20 p-1.5'
+    ? 'rounded border border-white/10 bg-gray-900/15 p-1 flex-1 min-h-0 flex flex-col justify-center'
+    : 'rounded-lg border border-white/10 bg-gray-900/15 p-1.5'
   const coreGridGap = fillHeight ? 'gap-1' : 'gap-1.5'
   const pettyGap = fillHeight ? 'gap-1' : 'gap-2'
   return (
@@ -114,11 +114,11 @@ export function CurrencyBlock({ currencyId, amount, label }) {
 
   let blockClass = 'rounded-lg border px-3 py-2 text-right '
   if (isGold) {
-    blockClass += 'bg-gradient-to-br from-amber-900/40 to-amber-950/40 border-amber-500/50 text-amber-200 font-bold text-lg shadow-[0_0_12px_rgba(245,158,11,0.25)]'
+    blockClass += 'bg-[#2b1f17]/60 border-dnd-gold/55 text-dnd-gold-light font-bold text-lg'
   } else if (isAurum) {
-    blockClass += 'bg-orange-950/30 border-orange-400/50 text-orange-200 font-semibold border-2 shadow-[0_0_8px_rgba(251,146,60,0.2)]'
+    blockClass += 'bg-[#1b2230]/60 border-dnd-gold/45 text-dnd-gold-light font-semibold'
   } else if (isCrystal) {
-    blockClass += 'bg-cyan-950/30 border-cyan-400/50 text-cyan-200 font-semibold border-2 shadow-[0_0_8px_rgba(34,211,238,0.2)]'
+    blockClass += 'bg-[#0d2a3a]/60 border-cyan-400/50 text-cyan-200 font-semibold'
   } else if (isMuted) {
     blockClass += 'bg-gray-800/60 border-white/5 text-gray-400 text-sm'
   } else {

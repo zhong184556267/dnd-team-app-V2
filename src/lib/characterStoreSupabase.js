@@ -41,12 +41,24 @@ export async function fetchAllCharacters(ownerName, isAdmin) {
   return (rows || []).map(rowToCharacter)
 }
 
-/** 拉取并填入缓存，返回角色列表 */
+/** 拉取并填入缓存，返回角色列表（仅自己的，或管理员全部） */
 export async function fetchCharacters(ownerName, isAdmin, moduleId) {
   const mod = moduleId ?? 'default'
   let query = supabase.from(TABLE).select('*').eq('module_id', mod).order('updated_at', { ascending: false })
   if (!isAdmin && ownerName) query = query.eq('owner', ownerName)
   const { data: rows, error } = await query
+  if (error) throw error
+  return (rows || []).map(rowToCharacter)
+}
+
+/** 拉取指定模组内全部角色（供非 DM 查看模组内所有角色；需 RLS 允许读同模组） */
+export async function fetchCharactersInModule(moduleId) {
+  const mod = moduleId ?? 'default'
+  const { data: rows, error } = await supabase
+    .from(TABLE)
+    .select('*')
+    .eq('module_id', mod)
+    .order('updated_at', { ascending: false })
   if (error) throw error
   return (rows || []).map(rowToCharacter)
 }

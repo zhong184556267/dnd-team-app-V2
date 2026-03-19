@@ -58,34 +58,62 @@ function saveWarehouse(moduleId, list) {
   } catch (_) {}
 }
 
-/** 往仓库添加：{ itemId, name?, 攻击?, 伤害?, 详细介绍?, 附注?, qty?, magicBonus?, charge?, effects? } 或 { name, qty }。带 攻击/伤害/详细介绍/附注 时视为不同实例不合并。 */
+/** 往仓库添加：完整条目（含 详细介绍、附注、属性上限、效果等）或简写 { name, qty }。同质无自定义时合并数量。 */
 export function addToWarehouse(moduleId, entry) {
   const list = getWarehouse(moduleId)
-  const { itemId, name, 攻击, 伤害, 攻击距离, 攻击范围, 详细介绍, 附注, 精通, qty = 1, magicBonus, charge, effects } = entry
-  const nameTrim = name != null ? String(name).trim() : ''
-  const hasOverrides = 攻击 != null || 伤害 != null || 攻击距离 != null || 详细介绍 != null || 附注 != null || magicBonus != null || charge != null
+  const itemId = entry?.itemId
+  const nameTrim = entry?.name != null ? String(entry.name).trim() : ''
+  const qty = Math.max(1, Number(entry?.qty) ?? 1)
+  const hasOverrides = entry && (
+    (entry.攻击 != null && String(entry.攻击).trim() !== '') ||
+    (entry.伤害 != null && String(entry.伤害).trim() !== '') ||
+    (entry.攻击距离 != null && String(entry.攻击距离).trim() !== '') ||
+    (entry.详细介绍 != null && String(entry.详细介绍).trim() !== '') ||
+    (entry.附注 != null && String(entry.附注).trim() !== '') ||
+    (entry.magicBonus != null && Number(entry.magicBonus) !== 0) ||
+    (entry.charge != null && Number(entry.charge) !== 0) ||
+    (Array.isArray(entry.effects) && entry.effects.length > 0)
+  )
   if (itemId) {
     const existing = list.find((x) => x.itemId === itemId && (x.name || '').trim() === nameTrim)
-    const existingHasOverrides = existing && (existing.攻击 != null || existing.伤害 != null || existing.攻击距离 != null || existing.详细介绍 != null || existing.附注 != null || existing.magicBonus != null || existing.charge != null)
+    const existingHasOverrides = existing && (
+      (existing.攻击 != null && String(existing.攻击).trim() !== '') ||
+      (existing.伤害 != null && String(existing.伤害).trim() !== '') ||
+      (existing.攻击距离 != null && String(existing.攻击距离).trim() !== '') ||
+      (existing.详细介绍 != null && String(existing.详细介绍).trim() !== '') ||
+      (existing.附注 != null && String(existing.附注).trim() !== '') ||
+      (existing.magicBonus != null && Number(existing.magicBonus) !== 0) ||
+      (existing.charge != null && Number(existing.charge) !== 0) ||
+      (Array.isArray(existing.effects) && existing.effects.length > 0)
+    )
     if (existing && !hasOverrides && !existingHasOverrides) {
-      existing.qty = (existing.qty || 0) + (qty || 1)
+      existing.qty = (existing.qty || 0) + qty
     } else {
-      const newEntry = { itemId, qty: qty || 1 }
-      if (nameTrim) newEntry.name = nameTrim
-      if (攻击 != null && String(攻击).trim() !== '') newEntry.攻击 = String(攻击).trim()
-      if (伤害 != null && String(伤害).trim() !== '') newEntry.伤害 = String(伤害).trim()
-      if (攻击距离 != null && String(攻击距离).trim() !== '') newEntry.攻击距离 = String(攻击距离).trim()
-      if (攻击范围 != null && String(攻击范围).trim() !== '') newEntry.攻击范围 = String(攻击范围).trim()
-      if (详细介绍 != null && String(详细介绍).trim() !== '') newEntry.详细介绍 = String(详细介绍).trim()
-      if (附注 != null && String(附注).trim() !== '') newEntry.附注 = String(附注).trim()
-      if (精通 != null && String(精通).trim() !== '') newEntry.精通 = String(精通).trim()
-      if (magicBonus != null && Number(magicBonus) !== 0) newEntry.magicBonus = Number(magicBonus) || 0
-      if (charge != null && Number(charge) !== 0) newEntry.charge = Number(charge) || 0
-      if (Array.isArray(effects) && effects.length > 0) newEntry.effects = effects
+      const newEntry = {
+        id: entry.id ?? 'wh_' + Date.now() + '_' + Math.random().toString(36).slice(2),
+        itemId,
+        name: nameTrim || (entry.name ?? ''),
+        qty,
+        详细介绍: entry.详细介绍 != null ? String(entry.详细介绍) : '',
+        附注: entry.附注 != null ? String(entry.附注) : '',
+        攻击: entry.攻击 ?? undefined,
+        伤害: entry.伤害 ?? undefined,
+        攻击距离: entry.攻击距离 ?? undefined,
+        攻击范围: entry.攻击范围 ?? undefined,
+        精通: entry.精通 ?? undefined,
+        重量: entry.重量 ?? undefined,
+        rarity: entry.rarity ?? undefined,
+        magicBonus: entry.magicBonus != null ? Number(entry.magicBonus) : 0,
+        charge: entry.charge != null ? Number(entry.charge) : 0,
+        spellDC: entry.spellDC != null ? Number(entry.spellDC) : undefined,
+        isAttuned: !!entry.isAttuned,
+        effects: Array.isArray(entry.effects) ? entry.effects : undefined,
+        爆炸半径: entry.爆炸半径 != null ? Number(entry.爆炸半径) : undefined,
+      }
       list.push(newEntry)
     }
   } else if (nameTrim) {
-    list.push({ name: nameTrim, qty: qty || 1 })
+    list.push({ name: nameTrim, qty })
   } else {
     return Promise.resolve(list)
   }

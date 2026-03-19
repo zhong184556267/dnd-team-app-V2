@@ -1118,7 +1118,22 @@ export function getSpellsByLevel(level) {
 /** 按职业法表筛选（source 数组包含该职业名即入选） */
 export function getSpellsByClass(className) {
   if (!className) return []
-  return getMergedSpells().filter((s) => s.source?.includes(className))
+  const SPELL_CLASS_ALIASES = {
+    圣骑士: '圣武士',
+    邪术师: '魔契师',
+    魂灵术士: '魂灵学者',
+    雷鸟法师: '蓝御法师',
+  }
+  const candidates = new Set([className])
+  const forward = SPELL_CLASS_ALIASES[className]
+  if (forward) candidates.add(forward)
+  Object.entries(SPELL_CLASS_ALIASES).forEach(([k, v]) => {
+    if (v === className) candidates.add(k)
+  })
+  return getMergedSpells().filter((s) => {
+    const src = Array.isArray(s.source) ? s.source : []
+    return [...candidates].some((c) => src.includes(c))
+  })
 }
 
 /** 按学派筛选 */

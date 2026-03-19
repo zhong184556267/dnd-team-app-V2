@@ -3,7 +3,7 @@
  * 显示：HP、AC、先攻、死亡豁免、状态效果、力竭、其它职业资源、战斗手段
  */
 import React, { useState, useEffect, useMemo } from 'react'
-import { Plus, Minus, Trash2, Dices } from 'lucide-react'
+import { Plus, Minus, Trash2, Dices, Pencil } from 'lucide-react'
 import { useRoll } from '../contexts/RollContext'
 import { abilityModifier, proficiencyBonus, getAC, calcMaxHP, getHPBuffSum } from '../lib/formulas'
 import { useBuffCalculator } from '../hooks/useBuffCalculator'
@@ -166,9 +166,14 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   const buffStats = useBuffCalculator(char, mergedBuffs)
   const acResult = getAC(char)
   const acTotal = buffStats?.ac != null ? buffStats.ac : (acResult.total + (buffStats?.acBonus ?? 0))
+  const isCreatureTemplate = char?.subordinateTemplate === 'creature'
   const maxHpBase = calcMaxHP(char) + getHPBuffSum(char) + (buffStats?.maxHpBonus ?? 0)
   const maxHpMult = buffStats?.maxHpMultiplier ?? 1
-  const maxHp = Math.max(1, Math.floor(maxHpBase * maxHpMult))
+  const maxHpCalculated = Math.max(1, Math.floor(maxHpBase * maxHpMult))
+  /** 生物卡可手动输入生命上限，使用 char.hp.max；否则用公式计算值 */
+  const maxHp = isCreatureTemplate && (char?.hp?.max != null && Number(char.hp.max) > 0)
+    ? Math.max(1, Number(char.hp.max))
+    : maxHpCalculated
 
   const [hpCurrent, setHpCurrent] = useState(hp?.current ?? 0)
   const [hpTemp, setHpTemp] = useState(hp?.temp ?? 0)
@@ -205,6 +210,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     }))
   })
   const [showAddCombatMeanModal, setShowAddCombatMeanModal] = useState(false)
+  const [editingCombatMeanId, setEditingCombatMeanId] = useState(null) // 编辑法术攻击时设为该条 id
   const [addMeanStep, setAddMeanStep] = useState('type') // 'type' | 'weapon' | 'item' | 'spell_attack'
   const [addSpellAttackName, setAddSpellAttackName] = useState('')
   const [addSpellAttackSpellId, setAddSpellAttackSpellId] = useState('')
@@ -295,6 +301,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     })
   }
   const openAddCombatMeanModal = () => {
+    setEditingCombatMeanId(null)
     setAddMeanStep('type')
     const first = weaponsFromInv[0]
     if (first) {
@@ -343,28 +350,46 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   }
   const confirmAddSpellAttackMean = () => {
     const name = (addSpellAttackSpellId ? (getSpellById(addSpellAttackSpellId)?.name ?? addSpellAttackName) : addSpellAttackName).trim() || '法术攻击'
-    const newMean = {
-      id: 'cm_' + Date.now(),
+    const patch = {
       type: 'spell_attack',
-      weaponInventoryIndex: null,
-      itemInventoryIndex: null,
-      spellId: null,
       spellName: name,
       hitResolution: addSpellAttackHitResolution || 'spell_attack',
       damageDice: (addSpellAttackDice || '').trim(),
       damageTypeSpell: (addSpellAttackDamageType || '').trim(),
-      extraDamageDice: [],
-      abilityForAttack: null,
-      damageType: null,
-      weaponProficient: true,
     }
-    saveCombatMeans([...combatMeans, newMean])
+    if (editingCombatMeanId) {
+      updateCombatMean(editingCombatMeanId, patch)
+      setEditingCombatMeanId(null)
+    } else {
+      const newMean = {
+        id: 'cm_' + Date.now(),
+        ...patch,
+        weaponInventoryIndex: null,
+        itemInventoryIndex: null,
+        spellId: null,
+        extraDamageDice: [],
+        abilityForAttack: null,
+        damageType: null,
+        weaponProficient: true,
+      }
+      saveCombatMeans([...combatMeans, newMean])
+    }
     setShowAddCombatMeanModal(false)
     setAddSpellAttackName('')
     setAddSpellAttackSpellId('')
     setAddSpellAttackHitResolution('spell_attack')
     setAddSpellAttackDice('')
     setAddSpellAttackDamageType('')
+  }
+  const openEditSpellAttack = (cm) => {
+    setEditingCombatMeanId(cm.id)
+    setAddSpellAttackName(cm.spellName || '')
+    setAddSpellAttackSpellId(cm.spellId || '')
+    setAddSpellAttackHitResolution(cm.hitResolution || 'spell_attack')
+    setAddSpellAttackDice(cm.damageDice || '')
+    setAddSpellAttackDamageType(cm.damageTypeSpell || '')
+    setAddMeanStep('spell_attack')
+    setShowAddCombatMeanModal(true)
   }
   const consumeExplosiveAndRoll = (inventoryIndex, diceExpr, label, damageType) => {
     const inv = [...(char?.inventory ?? [])]
@@ -695,8 +720,8 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   }, [exhaustion, conditions])
 
   return (
-    <div className="rounded-xl border border-gray-600 bg-gray-800/30 p-3 space-y-3">
-      <div className="rounded-lg border border-gray-600 bg-gray-800/50 p-3">
+    <div className="rounded-xl border border-white/10 bg-gradient-to-b from-[#243147]/35 to-[#1f2a3d]/30 p-3 space-y-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
+      <div className="rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/28 to-[#222f45]/22 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
         <h3 className="text-dnd-gold-light text-xs font-bold uppercase tracking-wider mb-1.5">生命值</h3>
         <div className="flex items-center gap-2 mb-1.5">
           <span className="text-white font-bold text-xl font-mono">
@@ -707,6 +732,29 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
         <div className="h-3 rounded bg-gray-900 overflow-hidden">
           <div className={`h-full rounded transition-all ${barColor}`} style={{ width: `${barWidth}%` }} />
         </div>
+        {canEdit && isCreatureTemplate && (
+          <div className="mt-2 flex items-center gap-2">
+            <label className="text-gray-400 text-sm whitespace-nowrap">生命上限</label>
+            <input
+              type="number"
+              min={1}
+              value={char?.hp?.max ?? ''}
+              onChange={(e) => {
+                const v = parseInt(e.target.value, 10)
+                if (!isNaN(v) && v >= 1) {
+                  onSave({ hp: { current: hpCurrent, max: v, temp: hpTemp } })
+                }
+              }}
+              onBlur={(e) => {
+                const v = parseInt(e.target.value, 10)
+                const safe = (isNaN(v) || v < 1) ? maxHpCalculated : v
+                onSave({ hp: { current: hpCurrent, max: safe, temp: hpTemp } })
+              }}
+              placeholder={String(maxHpCalculated)}
+              className={inputClass + ' h-8 w-24 font-mono'}
+            />
+          </div>
+        )}
         {canEdit && (
           <div className="grid grid-cols-3 gap-2 mt-2">
             <div>
@@ -766,7 +814,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <div
-          className="rounded-lg border border-gray-600 bg-gray-800/50 p-3 min-h-[4rem] flex items-center justify-center gap-2"
+          className="rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 p-3 min-h-[4rem] flex items-center justify-center gap-2"
           title={buffStats?.ac != null
             ? `由 Buff 计算器得出: ${acTotal}`
             : [
@@ -785,7 +833,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
           <span className="text-gray-600 text-2xl">|</span>
           <span className="text-white font-bold text-4xl font-mono">{acTotal}</span>
         </div>
-        <div className="rounded-lg border border-gray-600 bg-gray-800/50 p-3 min-h-[4rem] flex items-center justify-center gap-2">
+        <div className="rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 p-3 min-h-[4rem] flex items-center justify-center gap-2">
           <span className="text-gray-400 text-2xl font-medium">先攻</span>
           <span className="text-gray-600 text-2xl">|</span>
           <span className="text-white font-bold text-4xl font-mono">{init}</span>
@@ -793,40 +841,42 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
             <Dices className="w-3.5 h-3.5" aria-hidden />
           </button>
         </div>
-        <div className="rounded-lg border border-gray-600 bg-gray-800/50 p-3 min-h-[4rem] flex items-center justify-center gap-2">
+        <div className="rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 p-3 min-h-[4rem] flex items-center justify-center gap-2">
           <span className="text-gray-400 text-2xl font-medium">被动察觉</span>
           <span className="text-gray-600 text-2xl">|</span>
           <span className="text-white font-bold text-4xl font-mono">{perception}</span>
         </div>
-        <div className="rounded-lg border border-gray-600 bg-gray-800/50 p-3 min-h-[4rem] flex items-center justify-center gap-2">
+        <div className="rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 p-3 min-h-[4rem] flex items-center justify-center gap-2">
           <span className="text-gray-400 text-2xl font-medium">速度</span>
           <span className="text-gray-600 text-2xl">|</span>
           <span className="text-white font-bold text-4xl font-mono">{speed} 尺</span>
         </div>
         <div className="col-span-2 sm:col-span-4 flex gap-2 min-w-0">
-          <div className="flex-[3] min-w-0 rounded-lg border border-gray-600 bg-gray-800/50 px-2 py-1.5 flex flex-col gap-0">
-            <div className="flex items-start gap-1 min-h-8 overflow-hidden min-w-0">
-              <h3 className="text-dnd-gold-light text-xs font-bold uppercase tracking-wider leading-tight shrink-0">状态效果</h3>
-              {canEdit ? (
-                <div className="flex items-center gap-1 shrink-0">
-                  <span className="text-gray-500 text-xs whitespace-nowrap">力竭</span>
-                  <select
-                    value={exhaustion}
-                    onChange={(e) => setExhaustionLevel(Number(e.target.value))}
-                    className={`h-5 min-h-0 px-1 rounded border border-gray-600 bg-gray-700 text-xs font-medium focus:border-dnd-red focus:ring-1 focus:ring-dnd-red shrink-0 ${getExhaustionColor(exhaustion)}`}
-                  >
-                    <option value={0}>无</option>
-                    {[1, 2, 3, 4, 5, 6].map((n) => (
-                      <option key={n} value={n}>等级{n}</option>
-                    ))}
-                  </select>
-                </div>
-              ) : (
-                <span className={`inline-flex items-center px-1 py-0.5 rounded text-xs font-medium whitespace-nowrap shrink-0 ${exhaustion > 0 ? 'bg-red-900/20 ' + getExhaustionColor(exhaustion) : 'text-gray-400'}`}>
-                  力竭 {exhaustion > 0 ? exhaustion : '无'}
-                </span>
-              )}
-              <div className="flex-1 flex flex-wrap items-center justify-evenly gap-1 min-w-0">
+          <div className="flex-[3] min-w-0 rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 px-2 py-2 flex flex-col gap-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+            <h3 className="text-dnd-gold-light text-xs font-bold uppercase tracking-wider leading-tight shrink-0">状态效果</h3>
+            <div className="flex flex-col gap-2 min-h-8 overflow-hidden min-w-0">
+              <div className="flex items-center gap-1 shrink-0">
+                {canEdit ? (
+                  <>
+                    <span className="text-gray-500 text-xs whitespace-nowrap">力竭</span>
+                    <select
+                      value={exhaustion}
+                      onChange={(e) => setExhaustionLevel(Number(e.target.value))}
+                      className={`h-5 min-h-0 px-1 rounded border border-gray-600 bg-gray-700 text-xs font-medium focus:border-dnd-red focus:ring-1 focus:ring-dnd-red shrink-0 ${getExhaustionColor(exhaustion)}`}
+                    >
+                      <option value={0}>无</option>
+                      {[1, 2, 3, 4, 5, 6].map((n) => (
+                        <option key={n} value={n}>等级{n}</option>
+                      ))}
+                    </select>
+                  </>
+                ) : (
+                  <span className={`inline-flex items-center px-1 py-0.5 rounded text-xs font-medium whitespace-nowrap shrink-0 ${exhaustion > 0 ? 'bg-red-900/20 ' + getExhaustionColor(exhaustion) : 'text-gray-400'}`}>
+                    力竭 {exhaustion > 0 ? exhaustion : '无'}
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-1 min-w-0">
                 {conditions.map((c) => (
                   <span
                     key={c}
@@ -852,12 +902,12 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                 ))}
               </div>
             </div>
-            <div className="min-h-[1.125rem] px-0.5 pt-1 text-xs text-gray-400 truncate border-t border-gray-600/50 leading-tight" title={statusEffectDescription || undefined}>
+            <div className="min-h-[1.125rem] px-0.5 pt-2 text-xs text-gray-400 truncate border-t border-white/10 leading-tight" title={statusEffectDescription || undefined}>
               {statusEffectDescription || '\u00A0'}
             </div>
           </div>
 
-          <div className="flex-[2] min-w-0 rounded-lg border border-gray-600 bg-gray-800/50 px-2 py-1.5 flex flex-nowrap items-start justify-evenly gap-1 min-h-8">
+          <div className="flex-[2] min-w-0 rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 px-2 py-2 flex flex-nowrap items-start justify-evenly gap-1 min-h-8 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
             <h3 className="text-dnd-gold-light text-xs font-bold uppercase tracking-wider leading-tight shrink-0">死亡豁免</h3>
             {dsResults.map((r, i) => (
               <span
@@ -883,11 +933,11 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       </div>
 
       {showSpellModule ? (
-        <div className="w-full mt-2 rounded-lg border border-gray-600 bg-gray-800/50 p-2 flex flex-col gap-2">
+        <div className="w-full mt-2 rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 p-2 flex flex-col gap-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
           {/* 第一行：施法能力整行均分平铺，保持一行内，字号统一 */}
           <div className="flex flex-nowrap items-center justify-evenly gap-x-2 gap-y-1 min-w-0 overflow-x-auto text-sm">
             <span className="text-dnd-gold-light font-bold uppercase tracking-wider shrink-0">施法能力</span>
-            <span className="border-r border-gray-600 h-5 self-center shrink-0" aria-hidden />
+            <span className="border-r border-white/10 h-5 self-center shrink-0" aria-hidden />
             <span className="text-dnd-text-muted shrink-0">法术攻击加值</span>
             <span className="text-white font-mono tabular-nums shrink-0">{spellAttackBonus != null ? (spellAttackBonus >= 0 ? '+' : '') + spellAttackBonus : '—'}</span>
             {spellAttackBonus != null && (
@@ -895,13 +945,13 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                 <Dices className="w-3.5 h-3.5" />
               </button>
             )}
-            <span className="border-r border-gray-600 h-5 self-center shrink-0" aria-hidden />
+            <span className="border-r border-white/10 h-5 self-center shrink-0" aria-hidden />
             <span className="text-dnd-text-muted shrink-0">DC</span>
             <span className="text-white font-mono tabular-nums shrink-0">{spellDC != null ? spellDC : '—'}</span>
-            <span className="border-r border-gray-600 h-5 self-center shrink-0" aria-hidden />
+            <span className="border-r border-white/10 h-5 self-center shrink-0" aria-hidden />
             <span className="text-dnd-text-muted shrink-0">施法属性</span>
             <span className="text-white shrink-0">{spellAbility != null ? (ABILITY_NAMES_ZH[spellAbility] ?? spellAbility) : '—'}</span>
-            <span className="border-r border-gray-600 h-5 self-center shrink-0" aria-hidden />
+            <span className="border-r border-white/10 h-5 self-center shrink-0" aria-hidden />
             <span className="text-dnd-text-muted shrink-0">施法者等级</span>
             <span className="text-white font-mono tabular-nums shrink-0">{spellcastingLevel}</span>
             {canEdit && (
@@ -912,7 +962,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
           </div>
           {/* 第二行：法术环位+额外环位占整行全宽，均分平铺；额外环位在法术环位层级下 */}
           <div className="w-full">
-            <div className="w-full min-w-0 flex flex-wrap items-center gap-x-2 gap-y-1.5 rounded border border-gray-600/80 bg-gray-800/30 p-1.5 text-sm">
+            <div className="w-full min-w-0 flex flex-wrap items-center gap-x-2 gap-y-1.5 rounded border border-white/10 bg-[#233148]/25 p-1.5 text-sm">
               <span className="text-dnd-gold-light font-bold uppercase tracking-wider shrink-0">法术环位</span>
               <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                 {[1, 2, 3, 4, 5, 6, 7, 8, 9].filter((ring) => (effectiveMaxByRing[ring] ?? 0) > 0).map((ring) => {
@@ -935,7 +985,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                                   else setSpellSlotCurrent(ring, remainingIfClick)
                                 }}
                                 className={`w-3.5 h-3.5 rounded-full border shrink-0 ${
-                                  isFilled ? 'bg-amber-500/80 border-amber-400' : 'bg-transparent border-gray-500'
+                                  isFilled ? 'bg-dnd-gold/80 border-dnd-gold-light' : 'bg-transparent border-gray-500'
                                 }`}
                                 title={remainingIfClick === 1 && cur === 1 ? '点击后剩余 0（实心=剩余，空心=已用）' : `点击后剩余 ${remainingIfClick}/${max}（实心=剩余，空心=已用）`}
                               />
@@ -952,7 +1002,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                   <span className="text-gray-500">—</span>
                 )}
               </span>
-              <span className="border-r border-gray-600/60 h-4 self-center shrink-0" aria-hidden />
+              <span className="border-r border-white/10 h-4 self-center shrink-0" aria-hidden />
               <span className="text-dnd-text-muted shrink-0">额外环位</span>
               <span className="flex flex-wrap items-center justify-start gap-x-1.5 gap-y-1 min-w-0">
                 {extraSpellSlotsMode === 'points' && extraSpellSlotsPoints.max > 0 && (
@@ -999,10 +1049,10 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                         const total = (rolls?.reduce((a, b) => a + b, 0) || 0) + (modifier || 0)
                         const expr = (rolls?.length ? rolls.join('+') : '') + (modifier != null && modifier !== 0 ? (modifier >= 0 ? '+' : '') + modifier : '')
                         return (
-                          <span key={type} className="text-amber-400/90">
-                            <span className="text-amber-400/70">{expr}=</span>
-                            <span className="text-amber-300 font-bold">{total}</span>
-                            <span className="text-amber-400/70">{type}</span>
+                          <span key={type} className="text-dnd-gold-light/90">
+                            <span className="text-dnd-gold-light/70">{expr}=</span>
+                            <span className="text-dnd-gold-light font-bold">{total}</span>
+                            <span className="text-dnd-gold-light/70">{type}</span>
                             {' '}
                           </span>
                         )
@@ -1010,9 +1060,9 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                     </>
                   ) : (
                     <>
-                      <span className="text-amber-300 font-bold text-sm">{lastDamageRoll.total}</span>
+                      <span className="text-dnd-gold-light font-bold text-sm">{lastDamageRoll.total}</span>
                       {lastDamageRoll.rolls?.length ? (
-                        <span className="text-amber-400/70">({lastDamageRoll.rolls.join('+')}{lastDamageRoll.modifier != null && lastDamageRoll.modifier !== 0 ? (lastDamageRoll.modifier >= 0 ? '+' : '') + lastDamageRoll.modifier : ''})</span>
+                        <span className="text-dnd-gold-light/70">({lastDamageRoll.rolls.join('+')}{lastDamageRoll.modifier != null && lastDamageRoll.modifier !== 0 ? (lastDamageRoll.modifier >= 0 ? '+' : '') + lastDamageRoll.modifier : ''})</span>
                       ) : null}
                     </>
                   )
@@ -1069,7 +1119,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                             <div className={c + ' justify-center'}><span className="text-dnd-text-muted text-sm shrink-0">数量</span><span className="text-white text-sm tabular-nums">{currentQty}</span></div>
                             <div className="pl-2 border-l border-gray-600 flex items-center justify-end gap-1 shrink-0 min-w-0">
                               {itemMeanOpt.dice && currentQty > 0 && (
-                                <button type="button" onClick={() => setExplosiveUsePending({ inventoryIndex: itemMeanOpt.index, name: itemMeanOpt.name, diceExpr: itemMeanOpt.dice, damageType: itemMeanOpt.damageType })} className="w-7 h-7 flex items-center justify-center rounded bg-amber-600 hover:bg-amber-500 text-white shrink-0" title="投掷伤害（使用后扣 1 数量）">
+                                <button type="button" onClick={() => setExplosiveUsePending({ inventoryIndex: itemMeanOpt.index, name: itemMeanOpt.name, diceExpr: itemMeanOpt.dice, damageType: itemMeanOpt.damageType })} className="w-7 h-7 flex items-center justify-center rounded bg-dnd-gold hover:bg-dnd-gold-light text-white shrink-0" title="投掷伤害（使用后扣 1 数量）">
                                   <Dices className="w-3.5 h-3.5" />
                                 </button>
                               )}
@@ -1159,27 +1209,45 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                     const hitRes = cm.hitResolution && HIT_RESOLUTION_LABELS[cm.hitResolution] ? cm.hitResolution : 'spell_attack'
                     const hitLabel = HIT_RESOLUTION_LABELS[hitRes]
                     const hitValue = hitRes === 'spell_attack' ? (spellAttackBonus != null ? (spellAttackBonus >= 0 ? '+' : '') + spellAttackBonus : null) : (spellDC != null ? spellDC : null)
-                    const hitText = hitRes === 'spell_attack' ? (hitValue != null ? `${hitLabel} ${hitValue}` : '—') : (hitValue != null ? `${hitLabel} DC ${hitValue}` : '—')
+                    /** 战斗手段行内空间有限，法术攻击用简称「法攻」避免截断 */
+                    const hitLabelShort = hitRes === 'spell_attack' ? '法攻' : hitLabel
+                    const hitText = hitRes === 'spell_attack' ? (hitValue != null ? `${hitLabelShort} ${hitValue}` : '—') : (hitValue != null ? `${hitLabel} DC ${hitValue}` : '—')
                     const damageText = (cm.damageDice || '').trim() ? ((cm.damageDice || '').toUpperCase() + (cm.damageTypeSpell ? ' ' + getDamageTypeLabel(cm.damageTypeSpell) : '')) : '—'
                     const cell = 'pl-2 border-l border-gray-600 flex items-center gap-x-1 min-w-0 overflow-hidden'
                     const empty = 'pl-2 border-l border-gray-600 min-w-0 overflow-hidden'
                     return (
                       <div className="grid grid-cols-[repeat(7,minmax(0,1fr))] items-center gap-x-1 w-full min-w-0 overflow-hidden">
-                        <span className="text-white font-medium text-sm truncate pr-2 min-w-0">{cm.spellName || '法术攻击'}</span>
+                        <div className="flex items-center gap-1 min-w-0 pr-2">
+                          <span className="text-white font-medium text-sm truncate min-w-0">{cm.spellName || '法术攻击'}</span>
+                          {canEdit && (
+                            <button type="button" onClick={() => openEditSpellAttack(cm)} className="w-6 h-6 flex items-center justify-center rounded hover:bg-gray-600 text-gray-400 hover:text-dnd-gold-light shrink-0" title="编辑法术">
+                              <Pencil size={12} />
+                            </button>
+                          )}
+                        </div>
                         <div className={empty}><span className="text-dnd-text-muted text-sm shrink-0">距离</span><span className="text-white text-sm truncate">—</span></div>
-                        <div className={cell}><span className="text-white text-sm truncate">{hitText}</span></div>
-                        <div className={cell + ' col-span-2'}><span className="text-dnd-text-muted text-sm shrink-0">伤害</span><span className="text-white font-mono text-sm truncate whitespace-nowrap">{damageText}</span></div>
-                        <div className={empty} />
-                        <div className="pl-2 border-l border-gray-600 flex items-center justify-end gap-1 shrink-0 min-w-0">
+                        <div className={cell + ' flex items-center gap-x-1.5 min-w-0'}>
+                          <span className="text-white text-sm truncate min-w-0">{hitText}</span>
                           {hitRes === 'spell_attack' && spellAttackBonus != null && (
                             <button type="button" onClick={() => openForCheck((cm.spellName || '法术攻击') + ' 法术攻击', spellAttackBonus)} className="w-7 h-7 flex items-center justify-center rounded bg-dnd-red hover:bg-dnd-red-hover text-white shrink-0" title="投掷法术攻击">
                               <Dices className="w-3.5 h-3.5" />
                             </button>
                           )}
+                        </div>
+                        <div className={cell + ' col-span-2'}><span className="text-dnd-text-muted text-sm shrink-0">伤害</span><span className="text-white font-mono text-sm truncate whitespace-nowrap">{damageText}</span></div>
+                        <div className={empty} />
+                        <div className="pl-2 border-l border-gray-600 flex items-center justify-end gap-1 shrink-0 min-w-0">
                           {(cm.damageDice || '').trim() && (
-                            <button type="button" onClick={() => rollDamageDice((cm.damageDice || '').trim(), (cm.spellName || '法术') + ' ' + (getDamageTypeLabel(cm.damageTypeSpell) || ''), 'spell_attack-' + cm.id)} className="w-7 h-7 flex items-center justify-center rounded bg-amber-600 hover:bg-amber-500 text-white shrink-0" title="投掷伤害">
-                              <Dices className="w-3.5 h-3.5" />
-                            </button>
+                            <>
+                              <button type="button" onClick={() => rollDamageDice((cm.damageDice || '').trim(), (cm.spellName || '法术') + ' ' + (getDamageTypeLabel(cm.damageTypeSpell) || ''), 'spell_attack-' + cm.id)} className="w-7 h-7 flex items-center justify-center rounded bg-dnd-gold hover:bg-dnd-gold-light text-white shrink-0" title="投掷伤害">
+                                <Dices className="w-3.5 h-3.5" />
+                              </button>
+                              {hitRes === 'spell_attack' && (
+                                <button type="button" onClick={() => rollDamageDice((cm.damageDice || '').trim(), (cm.spellName || '法术') + ' ' + (getDamageTypeLabel(cm.damageTypeSpell) || ''), 'spell_attack-' + cm.id, 0, true)} className="w-7 h-7 flex items-center justify-center rounded bg-red-700 hover:bg-red-600 text-white text-sm font-bold shrink-0 leading-none" title="投掷伤害（重击）">
+                                  重
+                                </button>
+                              )}
+                            </>
                           )}
                           {canEdit && (
                             <button type="button" onClick={() => removeCombatMean(cm.id)} className="w-6 h-6 flex items-center justify-center rounded hover:bg-red-900/50 text-gray-400 hover:text-dnd-red shrink-0" title="移除">
@@ -1238,7 +1306,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                         <div className="pl-2 border-l border-gray-600 flex items-center justify-end gap-1 shrink-0 min-w-0">
                           {(attackParsed.dice || (cm.extraDamageDice?.length ?? 0) > 0) && (
                             <>
-                              <button type="button" onClick={() => rollAllWeaponDamage(cm, weaponOpt, attackParsed, damageMod, displayDamageType, false)} className="w-7 h-7 flex items-center justify-center rounded bg-amber-600 hover:bg-amber-500 text-white shrink-0" title="投掷伤害">
+                              <button type="button" onClick={() => rollAllWeaponDamage(cm, weaponOpt, attackParsed, damageMod, displayDamageType, false)} className="w-7 h-7 flex items-center justify-center rounded bg-dnd-gold hover:bg-dnd-gold-light text-white shrink-0" title="投掷伤害">
                                 <Dices className="w-3.5 h-3.5" />
                               </button>
                               <button type="button" onClick={() => rollAllWeaponDamage(cm, weaponOpt, attackParsed, damageMod, displayDamageType, true)} className="w-7 h-7 flex items-center justify-center rounded bg-red-700 hover:bg-red-600 text-white shrink-0" title="投掷伤害（重击）">
@@ -1312,12 +1380,14 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                             {spellDamageList.map((d, i) => (
                               <span key={i} className="inline-flex items-center gap-0.5">
                                 <span className="text-white font-mono text-sm">{d.dice} {d.type}</span>
-                                <button type="button" onClick={() => rollDamageDice(d.dice, spell.name + ' ' + d.type, 'spell-' + cm.id + '-' + i)} className="w-7 h-7 flex items-center justify-center rounded bg-amber-600 hover:bg-amber-500 text-white" title="投掷伤害">
+                                <button type="button" onClick={() => rollDamageDice(d.dice, spell.name + ' ' + d.type, 'spell-' + cm.id + '-' + i)} className="w-7 h-7 flex items-center justify-center rounded bg-dnd-gold hover:bg-dnd-gold-light text-white" title="投掷伤害">
                                   <Dices className="w-3.5 h-3.5" />
                                 </button>
-                                <button type="button" onClick={() => rollDamageDice(d.dice, spell.name + ' ' + d.type, 'spell-' + cm.id + '-' + i, 0, true)} className="w-7 h-7 flex items-center justify-center rounded bg-red-700 hover:bg-red-600 text-white text-[10px] font-medium shrink-0 leading-none" title="投掷伤害（重击）">
-                                  重击
-                                </button>
+                                {spellIsAttack && (
+                                  <button type="button" onClick={() => rollDamageDice(d.dice, spell.name + ' ' + d.type, 'spell-' + cm.id + '-' + i, 0, true)} className="w-7 h-7 flex items-center justify-center rounded bg-red-700 hover:bg-red-600 text-white text-sm font-bold shrink-0 leading-none" title="投掷伤害（重击）">
+                                    重
+                                  </button>
+                                )}
                               </span>
                             ))}
                           </div>
@@ -1416,7 +1486,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
             </div>
           )}
           {showAddCombatMeanModal && (
-            <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50" onClick={() => setShowAddCombatMeanModal(false)}>
+            <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50" onClick={() => { setEditingCombatMeanId(null); setShowAddCombatMeanModal(false); }}>
               <div className="rounded-lg border border-gray-600 bg-gray-800 p-4 shadow-xl max-w-sm w-full mx-2" onClick={(e) => e.stopPropagation()}>
                 {addMeanStep === 'type' ? (
                   <>
@@ -1437,7 +1507,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                   </>
                 ) : addMeanStep === 'spell_attack' ? (
                   <>
-                    <h3 className="text-dnd-gold-light text-sm font-bold mb-3">法术攻击</h3>
+                    <h3 className="text-dnd-gold-light text-sm font-bold mb-3">{editingCombatMeanId ? '编辑法术' : '法术攻击'}</h3>
                     <p className="text-dnd-text-muted text-xs mb-2">输入法术名查找并选择，设置命中判定与伤害。</p>
                     <div className="space-y-2.5 text-sm">
                       <div>
@@ -1501,8 +1571,8 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                       </div>
                     </div>
                     <div className="flex gap-2 mt-3">
-                      <button type="button" onClick={() => setAddMeanStep('type')} className="flex-1 py-1.5 rounded border border-gray-500 text-gray-400 text-xs">上一步</button>
-                      <button type="button" onClick={confirmAddSpellAttackMean} className="flex-1 py-1.5 rounded bg-dnd-red hover:bg-dnd-red-hover text-white text-xs">保存</button>
+                      <button type="button" onClick={() => { setEditingCombatMeanId(null); setAddMeanStep('type'); }} className="flex-1 py-1.5 rounded border border-gray-500 text-gray-400 text-xs">上一步</button>
+                      <button type="button" onClick={confirmAddSpellAttackMean} className="flex-1 py-1.5 rounded bg-dnd-red hover:bg-dnd-red-hover text-white text-xs">{editingCombatMeanId ? '保存' : '保存'}</button>
                     </div>
                   </>
                 ) : addMeanStep === 'item' ? (

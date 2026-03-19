@@ -308,14 +308,14 @@ export default function Spells() {
   const allClasses = Array.from(new Set(spellsList.flatMap((s) => s.source ?? []))).sort()
 
   return (
-    <div className="p-4 pb-32 min-h-screen bg-dnd-bg">
+    <div className="p-4 pb-32 min-h-screen" style={{ backgroundColor: 'var(--page-bg)' }}>
       {char && (
-        <div className="mb-4 rounded-lg border border-dnd-gold/50 bg-dnd-gold/10 px-4 py-2 text-dnd-gold text-sm">
+        <div className="mb-4 rounded-lg border border-dnd-gold/45 bg-dnd-gold/10 px-4 py-2 text-dnd-gold-light text-sm">
           正在为角色 <span className="font-semibold">{char.name || '未命名'}</span> 添加法术，点击「添加至角色」将法术加入角色法术卡
         </div>
       )}
       <div className="flex items-center justify-between gap-4 mb-4">
-        <h1 className="font-display text-xl font-semibold text-white">
+        <h1 className="font-display text-xl font-semibold text-white section-title">
           法术大全
         </h1>
         <button
@@ -338,7 +338,7 @@ export default function Spells() {
       )}
 
       {spellsList.length === 0 ? (
-        <div className="rounded-xl bg-dnd-card border border-white/10 p-6">
+        <div className="rounded-xl bg-gradient-to-b from-[#2a3952]/24 to-[#222f45]/20 border border-white/10 p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
           <p className="text-dnd-text-muted text-sm mb-2">
             法术数据尚未录入。录入后此处将按环阶分栏展示，并支持按职业、学派、仪式与关键词筛选。
           </p>
@@ -348,7 +348,7 @@ export default function Spells() {
         </div>
       ) : (
         <>
-          <div className="rounded-xl bg-dnd-card border border-white/10 p-4 mb-4">
+          <div className="rounded-xl bg-gradient-to-b from-[#2a3952]/24 to-[#222f45]/20 border border-white/10 p-4 mb-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
             <div className="flex flex-wrap gap-3 items-center">
               <div className="relative flex-1 min-w-[140px]">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-dnd-text-muted" />
@@ -357,13 +357,13 @@ export default function Spells() {
                   placeholder="搜索法术名或描述"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="h-10 w-full pl-9 pr-3 rounded-lg bg-gray-800 text-white border border-white/10 focus:border-dnd-red focus:ring-1 focus:ring-dnd-red text-sm"
+                  className="h-10 w-full pl-9 pr-3 rounded-lg bg-[#1b2738] text-white border border-[#3a4e69] focus:border-dnd-red focus:ring-1 focus:ring-dnd-red text-sm"
                 />
               </div>
               <select
                 value={filterLevel}
                 onChange={(e) => setFilterLevel(e.target.value)}
-                className="h-10 px-3 rounded-lg bg-gray-800 text-white border border-white/10 text-sm min-w-[100px]"
+                className="h-10 px-3 rounded-lg bg-[#1b2738] text-white border border-[#3a4e69] text-sm min-w-[100px]"
               >
                 <option value="">全部环阶</option>
                 {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((lv) => (
@@ -375,7 +375,7 @@ export default function Spells() {
               <select
                 value={filterSchool}
                 onChange={(e) => setFilterSchool(e.target.value)}
-                className="h-10 px-3 rounded-lg bg-gray-800 text-white border border-white/10 text-sm min-w-[100px]"
+                className="h-10 px-3 rounded-lg bg-[#1b2738] text-white border border-[#3a4e69] text-sm min-w-[100px]"
               >
                 <option value="">全部学派</option>
                 {SPELL_SCHOOLS.map((s) => (
@@ -387,7 +387,7 @@ export default function Spells() {
               <select
                 value={filterClass}
                 onChange={(e) => setFilterClass(e.target.value)}
-                className="h-10 px-3 rounded-lg bg-gray-800 text-white border border-white/10 text-sm min-w-[100px]"
+                className="h-10 px-3 rounded-lg bg-[#1b2738] text-white border border-[#3a4e69] text-sm min-w-[100px]"
               >
                 <option value="">全部法表</option>
                 {allClasses.map((c) => (

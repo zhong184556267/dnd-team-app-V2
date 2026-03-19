@@ -4,9 +4,63 @@ import { useRoll } from '../contexts/RollContext'
 import { abilityModifier, proficiencyBonus } from '../lib/characterStore'
 import { SAVE_NAMES, SKILLS, SKILL_PROF_OPTIONS, skillProfFactor } from '../data/dndSkills'
 import { NumberStepper } from './BuffForm'
+import { ITEM_DATABASE } from '../data/itemDatabase'
 
 const ABILITY_NAMES_ZH = { str: '力量', dex: '敏捷', con: '体质', int: '智力', wis: '感知', cha: '魅力' }
 const ABILITY_KEYS = ['str', 'dex', 'con', 'int', 'wis', 'cha']
+const ARMOR_PROF_OPTIONS = ['轻甲', '中甲', '重甲', '盾牌']
+const LANGUAGE_OPTIONS = [
+  { name: '深渊语', users: '恶魔、魔鬼', script: '地狱语' },
+  { name: '天界语', users: '天使', script: '天界语' },
+  { name: '通用语', users: '人类', script: '通用语' },
+  { name: '龙语', users: '龙', script: '龙语' },
+  { name: '精灵语', users: '精灵', script: '精灵语' },
+  { name: '巨人语', users: '食人魔、巨人', script: '牛头人语' },
+  { name: '地精语', users: '地精', script: '通用语' },
+  { name: '刻洛语', users: '刻洛', script: '刻洛语' },
+  { name: '象族语', users: '象族', script: '精灵语' },
+  { name: '人鱼语', users: '人鱼', script: '人鱼语' },
+  { name: '牛头人语', users: '牛头人', script: '牛头人语' },
+  { name: '斯芬克斯语', users: '斯芬克斯', script: '—' },
+  { name: '木族语', users: '人马、树精', script: '精灵语' },
+  { name: '维多肯语', users: '维多肯', script: '维多肯语' },
+]
+const SIMPLE_WEAPON_IDS = [
+  'club', 'dagger', 'greatclub', 'handaxe', 'javelin', 'light_hammer', 'mace', 'quarterstaff', 'sickle', 'spear',
+  'dart', 'light_crossbow', 'shortbow', 'sling',
+]
+const MARTIAL_WEAPON_IDS = [
+  'battleaxe', 'flail', 'glaive', 'greataxe', 'greatsword', 'halberd', 'lance', 'longsword', 'maul',
+  'morningstar', 'pike', 'rapier', 'scimitar', 'shortsword', 'trident', 'war_pick', 'warhammer', 'whip',
+  'blowgun', 'hand_crossbow', 'heavy_crossbow', 'longbow',
+]
+const FIREARM_WEAPON_IDS = ['gun_blunderbuss', 'gun_musket', 'gun_pistol']
+
+function normalizeProfState(profState) {
+  const src = (profState && typeof profState === 'object' && !Array.isArray(profState)) ? profState : {}
+  const rawWeapons = Array.isArray(src.weapons) ? src.weapons : []
+  const hasLegacyFirearm = rawWeapons.some((id) => FIREARM_WEAPON_IDS.includes(id))
+  const weapons = Array.from(new Set([
+    ...rawWeapons.filter((id) => !FIREARM_WEAPON_IDS.includes(id) && id !== 'smart_weapon'),
+    ...(hasLegacyFirearm ? ['firearms'] : []),
+  ]))
+  return {
+    weapons,
+    tools: Array.isArray(src.tools) ? src.tools : [],
+    armors: Array.isArray(src.armors) ? src.armors : [],
+    languages: Array.isArray(src.languages) ? src.languages : [],
+  }
+}
+
+function toggleInList(list, value) {
+  return list.includes(value) ? list.filter((v) => v !== value) : [...list, value]
+}
+
+function summarizeLabels(labels, max = 6) {
+  if (!Array.isArray(labels) || labels.length === 0) return '无'
+  if (labels.length <= max) return labels.join('、')
+  return `${labels.slice(0, max).join('、')} 等${labels.length}项`
+}
 
 /**
  * 根据熟练度等级返回文字颜色类名（写死完整类名，避免 Tailwind  purge 掉）
@@ -15,7 +69,7 @@ const ABILITY_KEYS = ['str', 'dex', 'con', 'int', 'wis', 'cha']
 function getProficiencyColor(level) {
   switch (level) {
     case 'expertise':
-      return 'text-[#B8860B] drop-shadow-[0_0_5px_rgba(184,134,11,0.5)]'
+      return 'text-[#C79A42] drop-shadow-[0_0_5px_rgba(199,154,66,0.42)]'
     case 'prof':
       return 'text-[#E01C2F]'
     case 'half':
@@ -31,7 +85,7 @@ function getProficiencyColor(level) {
 function getSaveProficiencyColor(level) {
   switch (level) {
     case 'prof':
-      return 'text-[#B8860B] drop-shadow-[0_0_5px_rgba(184,134,11,0.5)]'
+      return 'text-[#C79A42] drop-shadow-[0_0_5px_rgba(199,154,66,0.42)]'
     default:
       return 'text-gray-500'
   }
@@ -43,7 +97,7 @@ function getSkillRowLabelClass(level) {
     case 'expertise':
       return 'text-[#E01C2F]'
     case 'prof':
-      return 'text-[#D4AF37]'
+      return 'text-[#C79A42]'
     case 'half':
       return 'text-sky-400'
     default:
@@ -51,22 +105,23 @@ function getSkillRowLabelClass(level) {
   }
 }
 
-/** 技能行左侧标识：熟练=金条；精通=金线+红条（参考图2）；半熟练=蓝；无=灰 */
-function getSkillRowLeftBorderClass(level) {
+/** 技能行左侧长条：熟练=金色，精通=红色；其余不显示 */
+function getSkillRowMarkerClass(level) {
   switch (level) {
     case 'prof':
-      return 'border-l-[3px] border-l-[#D4AF37]'
-    case 'half':
-      return 'border-l-[3px] border-l-[#38BDF8]'
+      return 'bg-[#C79A42]'
+    case 'expertise':
+      return 'bg-[#E01C2F]'
     default:
-      return 'border-l-[3px] border-l-gray-500'
+      return ''
   }
 }
 
+/** 骰子按钮颜色：普通=灰，熟练=金，精通=红，半熟练=天蓝（与熟练度一致） */
 function getSkillDiceButtonClass(level, isRolling) {
   if (isRolling) {
-    if (level === 'prof') return 'bg-white text-[#B8860B] scale-110'
     if (level === 'expertise') return 'bg-white text-[#E01C2F] scale-110'
+    if (level === 'prof') return 'bg-white text-[#C79A42] scale-110'
     if (level === 'half') return 'bg-white text-sky-600 scale-110'
     return 'bg-white text-gray-600 scale-110'
   }
@@ -74,12 +129,22 @@ function getSkillDiceButtonClass(level, isRolling) {
     case 'expertise':
       return 'bg-[#E01C2F] hover:bg-[#C41828] text-white'
     case 'prof':
-      return 'bg-[#B8860B] hover:bg-[#9A7209] text-white'
+      return 'bg-[#C79A42] hover:bg-[#C79A42]/92 text-white'
     case 'half':
       return 'bg-sky-600 hover:bg-sky-500 text-white'
     default:
       return 'bg-gray-600 hover:bg-gray-500 text-white'
   }
+}
+
+/** 豁免骰子按钮：熟练=金，普通=灰（与技能骰子颜色体系一致） */
+function getSaveDiceButtonClass(level, isRolling) {
+  if (isRolling) {
+    return level === 'prof' ? 'bg-white/95 text-[#C79A42] scale-110' : 'bg-white/95 text-gray-600 scale-110'
+  }
+  return level === 'prof'
+    ? 'bg-[#C79A42]/88 hover:bg-[#C79A42]/96 text-white'
+    : 'bg-gray-600/88 hover:bg-gray-500/92 text-white'
 }
 
 /** 熟练度图标：无=灰圈, 半=天蓝半盾, 熟练=红实心盾, 精通=金实心盾+光晕；className 用 getProficiencyColor 写死颜色 */
@@ -127,9 +192,59 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
   const { openForCheck } = useRoll()
   const effectiveAbilities = buffStats?.abilities ?? abilities
   const [rollingId, setRollingId] = useState(null) // 正在播放投掷动画的 skill/save id
+  const [showProfModal, setShowProfModal] = useState(false)
   const prof = buffStats?.proficiencyOverride != null ? buffStats.proficiencyOverride : proficiencyBonus(level ?? 1)
   const saves = char?.savingThrows ?? { str: false, dex: false, con: false, int: false, wis: false, cha: false }
   const skillsState = char?.skills ?? {}
+  const proficiencies = useMemo(() => normalizeProfState(char?.proficiencies), [char?.proficiencies])
+  const toolOptions = useMemo(() => {
+    const labels = ITEM_DATABASE
+      .filter((it) => it?.类型 === '工具' && it?.类别)
+      .map((it) => String(it.类别).trim())
+      .filter(Boolean)
+    return Array.from(new Set(labels)).sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'))
+  }, [])
+  const weaponOptions = useMemo(() => {
+    const list = ITEM_DATABASE
+      .filter((it) => (it?.类型 === '近战武器' || it?.类型 === '远程武器') && it?.类别 && it?.id && it.id !== 'smart_weapon')
+      .map((it) => ({ id: it.id, label: String(it.类别).trim() }))
+      .filter((x) => x.id && x.label)
+    const seen = new Set()
+    const base = list.filter((x) => {
+      if (seen.has(x.id)) return false
+      seen.add(x.id)
+      return true
+    })
+    return [...base, { id: 'firearms', label: '枪械' }]
+  }, [])
+  const weaponOptionIds = useMemo(() => weaponOptions.map((x) => x.id), [weaponOptions])
+  const simpleWeaponIds = useMemo(() => SIMPLE_WEAPON_IDS.filter((id) => weaponOptionIds.includes(id)), [weaponOptionIds])
+  const martialWeaponIds = useMemo(() => MARTIAL_WEAPON_IDS.filter((id) => weaponOptionIds.includes(id)), [weaponOptionIds])
+  const weaponLabelById = useMemo(() => Object.fromEntries(weaponOptions.map((w) => [w.id, w.label])), [weaponOptions])
+  const selectedWeaponLabels = useMemo(() => {
+    const selected = new Set(proficiencies.weapons)
+    const simpleAll = simpleWeaponIds.length > 0 && simpleWeaponIds.every((id) => selected.has(id))
+    const martialAll = martialWeaponIds.length > 0 && martialWeaponIds.every((id) => selected.has(id))
+    const labels = []
+    if (martialAll) labels.push('军用武器')
+    if (simpleAll) labels.push('简易武器')
+    if (!martialAll) {
+      martialWeaponIds.forEach((id) => {
+        if (selected.has(id) && weaponLabelById[id]) labels.push(weaponLabelById[id])
+      })
+    }
+    if (!simpleAll) {
+      simpleWeaponIds.forEach((id) => {
+        if (selected.has(id) && weaponLabelById[id]) labels.push(weaponLabelById[id])
+      })
+    }
+    if (selected.has('firearms')) labels.push('枪械')
+    const covered = new Set([...simpleWeaponIds, ...martialWeaponIds, 'firearms'])
+    selected.forEach((id) => {
+      if (!covered.has(id) && weaponLabelById[id]) labels.push(weaponLabelById[id])
+    })
+    return Array.from(new Set(labels))
+  }, [proficiencies.weapons, simpleWeaponIds, martialWeaponIds, weaponLabelById])
 
   const updateAbility = useCallback((key, value) => {
     const next = { ...abilities, [key]: Math.max(1, Math.min(30, Number(value) || 10)) }
@@ -143,6 +258,38 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
   const setSkill = useCallback((skillId, value) => {
     onSave({ skills: { ...skillsState, [skillId]: value } })
   }, [skillsState, onSave])
+
+  const saveProficiencies = useCallback((next) => {
+    onSave({ proficiencies: normalizeProfState(next) })
+  }, [onSave])
+
+  const toggleWeapon = useCallback((id) => {
+    const next = { ...proficiencies, weapons: toggleInList(proficiencies.weapons, id) }
+    saveProficiencies(next)
+  }, [proficiencies, saveProficiencies])
+
+  const toggleArmor = useCallback((name) => {
+    const next = { ...proficiencies, armors: toggleInList(proficiencies.armors, name) }
+    saveProficiencies(next)
+  }, [proficiencies, saveProficiencies])
+
+  const toggleTool = useCallback((name) => {
+    const next = { ...proficiencies, tools: toggleInList(proficiencies.tools, name) }
+    saveProficiencies(next)
+  }, [proficiencies, saveProficiencies])
+
+  const toggleLanguage = useCallback((name) => {
+    const next = { ...proficiencies, languages: toggleInList(proficiencies.languages, name) }
+    saveProficiencies(next)
+  }, [proficiencies, saveProficiencies])
+
+  const toggleWeaponGroup = useCallback((groupIds) => {
+    const allSelected = groupIds.length > 0 && groupIds.every((id) => proficiencies.weapons.includes(id))
+    const nextWeapons = allSelected
+      ? proficiencies.weapons.filter((id) => !groupIds.includes(id))
+      : Array.from(new Set([...proficiencies.weapons, ...groupIds]))
+    saveProficiencies({ ...proficiencies, weapons: nextWeapons })
+  }, [proficiencies, saveProficiencies])
 
   const saveMod = useCallback((key) => {
     const mod = abilityModifier(effectiveAbilities[key] ?? 10)
@@ -178,14 +325,41 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
   }, [openForCheck, buffStats?.advantage?.skill, exhaustionPenalty])
 
   return (
-    <div className="space-y-1.5">
-      <div className="flex items-center">
-        <span className="inline-flex items-center gap-2 px-3 py-1 rounded-lg bg-gray-800 border border-dnd-gold/50 text-dnd-gold-light font-mono font-bold text-base">
+    <div className="space-y-2.5">
+      <div className="flex items-center gap-2">
+        <span className="inline-flex items-center gap-2 px-3 py-1 rounded-md border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] text-dnd-gold-light font-semibold text-sm backdrop-blur-[1px]">
           熟练值 +{prof}
         </span>
+        {canEdit && (
+          <button
+            type="button"
+            onClick={() => setShowProfModal(true)}
+            className="px-2.5 py-1 rounded-md border border-white/10 bg-gradient-to-b from-[#2a3952]/22 to-[#222f45]/18 text-gray-100 text-xs hover:bg-[#2b3a54]/38 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition-colors backdrop-blur-[1px]"
+          >
+            熟练项
+          </button>
+        )}
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-[7px]">
+        <div className="rounded-md border border-white/10 bg-gradient-to-b from-[#2a3952]/24 to-[#222f45]/20 px-2.5 py-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
+          <div className="text-[10px] text-gray-500 uppercase tracking-wide">武器熟练</div>
+          <div className="text-xs text-gray-50 break-words">{summarizeLabels(selectedWeaponLabels)}</div>
+        </div>
+        <div className="rounded-md border border-white/10 bg-gradient-to-b from-[#2a3952]/24 to-[#222f45]/20 px-2.5 py-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
+          <div className="text-[10px] text-gray-500 uppercase tracking-wide">工具熟练</div>
+          <div className="text-xs text-gray-50 break-words">{summarizeLabels(proficiencies.tools)}</div>
+        </div>
+        <div className="rounded-md border border-white/10 bg-gradient-to-b from-[#2a3952]/24 to-[#222f45]/20 px-2.5 py-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
+          <div className="text-[10px] text-gray-500 uppercase tracking-wide">护甲熟练</div>
+          <div className="text-xs text-gray-50 break-words">{summarizeLabels(proficiencies.armors, 4)}</div>
+        </div>
+        <div className="rounded-md border border-white/10 bg-gradient-to-b from-[#2a3952]/24 to-[#222f45]/20 px-2.5 py-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
+          <div className="text-[10px] text-gray-500 uppercase tracking-wide">语言</div>
+          <div className="text-xs text-gray-50 break-words">{summarizeLabels(proficiencies.languages)}</div>
+        </div>
       </div>
 
-      <div className="grid grid-cols-3 max-[500px]:grid-cols-2 gap-1.5">
+      <div className="grid grid-cols-3 max-[500px]:grid-cols-2 gap-[7px]">
         {ABILITY_KEYS.map((key) => {
           const baseScore = abilities[key] ?? 10
           const effectiveScore = effectiveAbilities[key] ?? 10
@@ -198,12 +372,12 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
           return (
             <div
               key={key}
-              className={`rounded-xl overflow-hidden bg-dnd-card border shadow-dnd-card flex flex-col min-w-0 transition-colors ${saveProfLevel === 'prof' ? 'border-[#B8860B]' : 'border-gray-500'}`}
+              className={`rounded-xl overflow-hidden bg-gradient-to-b from-[#232c3a]/70 to-[#1e2735]/68 border shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] flex flex-col min-w-0 transition-colors ${saveProfLevel === 'prof' ? 'border-[#C79A42]/75' : 'border-white/[0.10]'}`}
             >
               {/* A. 顶部栏：属性名 + 熟练按钮在名称右侧 */}
               <div className="flex items-center gap-1.5 px-1.5 py-1 border-b border-gray-700 min-h-[1.75rem]">
                 <span className="text-base font-bold text-white font-sans">{ABILITY_NAMES_ZH[key]}</span>
-                <span className={`text-[10px] font-medium ${saveProfLevel === 'prof' ? 'text-[#D4AF37]' : 'text-gray-500'}`}>
+                <span className={`text-[10px] font-medium ${saveProfLevel === 'prof' ? 'text-[#C79A42]/90' : 'text-gray-500'}`}>
                   熟练
                 </span>
                 {canEdit ? (
@@ -222,10 +396,10 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
 
               {/* B. 核心区：3 列网格，紧凑排版 */}
               <div className="px-1.5 py-0.5">
-                <div className={`rounded-lg py-1 px-1.5 grid grid-cols-[1fr_1fr_1fr] grid-rows-[auto_auto] gap-x-1.5 gap-y-1 min-w-0 border ${saveProfLevel === 'prof' ? 'border-[#B8860B]' : 'border-gray-500'}`} style={{ background: 'linear-gradient(180deg, rgba(55,65,81,0.5) 0%, rgba(45,55,72,0.6) 100%)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)' }}>
+                <div className={`rounded-lg py-1 px-1.5 grid grid-cols-[1fr_1fr_1fr] grid-rows-[auto_auto] gap-x-1.5 gap-y-1 min-w-0 border ${saveProfLevel === 'prof' ? 'border-[#C79A42]/75' : 'border-white/[0.10]'}`} style={{ background: 'linear-gradient(180deg, rgba(67,78,98,0.28) 0%, rgba(35,44,58,0.22) 100%)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05)' }}>
                   {/* 第一行：调整值文案 | 基础值输入 | 豁免文案 */}
-                  <div className="col-start-1 row-start-1 flex items-center justify-center min-w-0 border-r border-gray-500 pr-1.5">
-                    <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide leading-tight">调整值</span>
+                  <div className="col-start-1 row-start-1 flex items-center justify-center min-w-0 border-r border-white/[0.10] pr-1.5">
+                    <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide leading-tight">调整值</span>
                   </div>
                   <div className="col-start-2 row-start-1 flex items-center justify-center min-w-0">
                     {canEdit ? (
@@ -240,31 +414,27 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
                       <span className="text-sm font-medium font-mono text-white tabular-nums">{baseScore}</span>
                     )}
                   </div>
-                  <div className="col-start-3 row-start-1 flex items-center justify-center min-w-0 border-l border-gray-500 pl-1.5">
-                    <span className="text-[10px] font-semibold text-dnd-gold-light uppercase tracking-wide leading-tight">豁免</span>
+                  <div className="col-start-3 row-start-1 flex items-center justify-center min-w-0 border-l border-white/[0.10] pl-1.5">
+                    <span className="text-[10px] font-semibold text-[#C79A42] uppercase tracking-wide leading-tight">豁免</span>
                   </div>
                   {/* 第二行：调整值数字 | 总值（与基础值之间无分割线） | 豁免加值+投掷 */}
-                  <div className="col-start-1 row-start-2 flex flex-col items-center justify-center min-w-0 border-r border-gray-500 pr-1.5">
+                  <div className="col-start-1 row-start-2 flex flex-col items-center justify-center min-w-0 border-r border-white/[0.10] pr-1.5">
                     <span className="text-[1.75rem] font-bold text-white font-mono tabular-nums leading-none tracking-tight">
                       {mod >= 0 ? '+' : ''}{mod}
                     </span>
                   </div>
                   <div className="col-start-2 row-start-2 flex flex-col items-center justify-center gap-0.5 min-w-0">
-                    <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide leading-tight">总值</span>
+                    <span className="text-[10px] font-semibold text-gray-500/90 uppercase tracking-wide leading-tight">总值</span>
                     <span className="text-sm font-medium font-mono text-white tabular-nums">{effectiveScore}</span>
                   </div>
-                  <div className="col-start-3 row-start-2 flex items-center justify-center gap-2.5 min-w-0 pl-1.5 border-l border-gray-500">
-                    <span className={`text-[1.75rem] font-bold font-mono tabular-nums leading-none tracking-tight ${saveProfLevel === 'prof' ? 'text-[#D4AF37]' : 'text-white'}`}>
+                  <div className="col-start-3 row-start-2 flex items-center justify-center gap-2.5 min-w-0 pl-1.5 border-l border-white/[0.10]">
+                    <span className={`text-[1.75rem] font-bold font-mono tabular-nums leading-none tracking-tight ${saveProfLevel === 'prof' ? 'text-[#C79A42]/95' : 'text-white'}`}>
                       {saveBonus >= 0 ? '+' : ''}{saveBonus}
                     </span>
                     <button
                       type="button"
                       onClick={() => handleSaveRoll(key)}
-                      className={`w-7 h-7 rounded flex items-center justify-center flex-shrink-0 transition-all duration-200 ${
-                        rollingId === `save-${key}`
-                          ? 'bg-white text-[#E01C2F]'
-                          : 'bg-[#E01C2F] hover:bg-[#C41828] text-white'
-                      }`}
+                      className={`w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 transition-all duration-200 ${getSaveDiceButtonClass(saveProfLevel, rollingId === `save-${key}`)}`}
                       title={`投掷 ${SAVE_NAMES[key]}`}
                     >
                       <Dices className="w-3.5 h-3.5" aria-hidden />
@@ -278,7 +448,7 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
                 {skillList.length === 0 ? (
                   <div className="px-2 py-1 text-dnd-text-muted text-[10px]">无关联技能</div>
                 ) : (
-                  <ul className="divide-y divide-gray-700/80">
+                  <ul className="divide-y divide-white/[0.06]">
                     {skillList.map((skill) => {
                       const total = skillMod(skill)
                       const current = skillsState[skill.id] || 'none'
@@ -287,17 +457,14 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
                       return (
                         <li
                           key={skill.id}
-                          className={`relative flex items-center gap-2 py-1.5 pr-2 bg-gray-800/50 hover:bg-gray-800/70 transition-colors ${
-                            current === 'expertise'
+                          className={`relative flex items-center gap-2 py-1.5 pr-2 bg-[#202838]/38 hover:bg-[#202838]/55 transition-colors ${
+                            (current === 'expertise' || current === 'prof')
                               ? 'pl-[7px]'
-                              : `pl-2 ${getSkillRowLeftBorderClass(current)}`
+                              : 'pl-2'
                           }`}
                         >
-                          {current === 'expertise' && (
-                            <>
-                              <span className="pointer-events-none absolute left-0 top-0 bottom-0 w-px bg-[#D4AF37]" aria-hidden />
-                              <span className="pointer-events-none absolute left-px top-0 bottom-0 w-[3px] bg-[#E01C2F]" aria-hidden />
-                            </>
+                          {getSkillRowMarkerClass(current) && (
+                            <span className={`pointer-events-none absolute left-0 top-0 bottom-0 w-[3px] ${getSkillRowMarkerClass(current)}`} aria-hidden />
                           )}
                           {/* 熟练度：下拉或图标，留足宽度避免与箭头重叠 */}
                           {canEdit ? (
@@ -340,6 +507,117 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
           )
         })}
       </div>
+      {showProfModal && canEdit && (
+        <div className="fixed inset-0 z-[210] flex items-center justify-center p-4 bg-black/60" onClick={() => setShowProfModal(false)}>
+          <div className="w-full max-w-5xl max-h-[85vh] overflow-hidden rounded-xl border border-gray-600 bg-gray-800 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700">
+              <h4 className="text-[#C79A42] font-bold">熟练项设置</h4>
+              <button type="button" onClick={() => setShowProfModal(false)} className="px-2 py-1 text-sm rounded border border-gray-600 text-gray-300 hover:bg-gray-700">关闭</button>
+            </div>
+            <div className="p-4 space-y-4 overflow-y-auto max-h-[calc(85vh-62px)]">
+              <div className="rounded-lg border border-gray-600 bg-gray-700/30 p-3 space-y-2">
+                <div className="text-sm font-semibold text-[#C79A42]">武器熟练</div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => toggleWeaponGroup(simpleWeaponIds)}
+                    className={`px-2 py-1 rounded border text-xs ${simpleWeaponIds.every((id) => proficiencies.weapons.includes(id)) ? 'border-[#C79A42] bg-[#C79A42]/20 text-[#C79A42]' : 'border-gray-600 text-gray-300 hover:bg-gray-700'}`}
+                  >
+                    简易武器
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => toggleWeaponGroup(martialWeaponIds)}
+                    className={`px-2 py-1 rounded border text-xs ${martialWeaponIds.every((id) => proficiencies.weapons.includes(id)) ? 'border-[#C79A42] bg-[#C79A42]/20 text-[#C79A42]' : 'border-gray-600 text-gray-300 hover:bg-gray-700'}`}
+                  >
+                    军用武器
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                  {weaponOptions.map((w) => {
+                    const checked = proficiencies.weapons.includes(w.id)
+                    return (
+                      <label key={w.id} className={`flex items-center gap-2 rounded border px-2 py-1.5 text-xs cursor-pointer ${checked ? 'border-[#C79A42] bg-[#C79A42]/15 text-[#C79A42]' : 'border-gray-600 text-gray-300 hover:bg-gray-700/60'}`}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleWeapon(w.id)}
+                          className="rounded border-gray-600 bg-gray-800 text-dnd-red"
+                        />
+                        <span className="truncate">{w.label}</span>
+                      </label>
+                    )
+                  })}
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-gray-600 bg-gray-700/30 p-3 space-y-2">
+                <div className="text-sm font-semibold text-[#C79A42]">工具熟练</div>
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                  {toolOptions.map((name) => {
+                    const checked = proficiencies.tools.includes(name)
+                    return (
+                      <label key={name} className={`flex items-center gap-2 rounded border px-2 py-1.5 text-xs cursor-pointer ${checked ? 'border-[#C79A42] bg-[#C79A42]/15 text-[#C79A42]' : 'border-gray-600 text-gray-300 hover:bg-gray-700/60'}`}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleTool(name)}
+                          className="rounded border-gray-600 bg-gray-800 text-dnd-red"
+                        />
+                        <span className="truncate">{name}</span>
+                      </label>
+                    )
+                  })}
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-gray-600 bg-gray-700/30 p-3 space-y-2">
+                <div className="text-sm font-semibold text-[#C79A42]">护甲熟练</div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                  {ARMOR_PROF_OPTIONS.map((name) => {
+                    const checked = proficiencies.armors.includes(name)
+                    return (
+                      <label key={name} className={`flex items-center gap-2 rounded border px-2 py-1.5 text-xs cursor-pointer ${checked ? 'border-[#C79A42] bg-[#C79A42]/15 text-[#C79A42]' : 'border-gray-600 text-gray-300 hover:bg-gray-700/60'}`}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleArmor(name)}
+                          className="rounded border-gray-600 bg-gray-800 text-dnd-red"
+                        />
+                        <span>{name}</span>
+                      </label>
+                    )
+                  })}
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-gray-600 bg-gray-700/30 p-3 space-y-2">
+                <div className="text-sm font-semibold text-[#C79A42]">语言</div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {LANGUAGE_OPTIONS.map((lang) => {
+                    const checked = proficiencies.languages.includes(lang.name)
+                    return (
+                      <label key={lang.name} className={`flex items-start gap-2 rounded border px-2 py-1.5 text-xs cursor-pointer ${checked ? 'border-[#C79A42] bg-[#C79A42]/15 text-[#C79A42]' : 'border-gray-600 text-gray-300 hover:bg-gray-700/60'}`}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleLanguage(lang.name)}
+                          className="mt-0.5 rounded border-gray-600 bg-gray-800 text-dnd-red"
+                        />
+                        <span className="min-w-0">
+                          <span className="block text-sm font-semibold text-gray-100">{lang.name}</span>
+                          <span className="block text-[11px] text-gray-400">典型使用者：{lang.users}</span>
+                          <span className="block text-[11px] text-gray-500">文字：{lang.script}</span>
+                        </span>
+                      </label>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

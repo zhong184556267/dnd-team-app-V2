@@ -64,16 +64,16 @@ export default function HouseRules() {
   }
 
   return (
-    <div className="p-4 pb-24 min-h-screen bg-dnd-bg">
+    <div className="p-4 pb-24 min-h-screen" style={{ backgroundColor: 'var(--page-bg)' }}>
       <Link to="/more" className="text-dnd-red text-sm mb-4 inline-block font-medium">
         ← 返回更多
       </Link>
-      <h1 className="font-display text-xl font-semibold text-white mb-4">
+      <h1 className="font-display text-xl font-semibold text-white mb-4 section-title">
         繁星特色（房规/模组）
       </h1>
 
       {/* 房规与模组说明 */}
-      <div className="rounded-xl bg-dnd-card border border-white/10 overflow-hidden mb-6">
+      <div className="rounded-xl bg-gradient-to-b from-[#2a3952]/24 to-[#222f45]/20 border border-white/10 overflow-hidden mb-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
         <button
           type="button"
           onClick={() => toggleSection('房规与模组')}
@@ -94,7 +94,7 @@ export default function HouseRules() {
       </div>
 
       {/* 职业库：供角色卡施法等级、生命骰与职业特性调用 */}
-      <div className="rounded-xl bg-dnd-card border border-white/10 overflow-hidden mb-6">
+      <div className="rounded-xl bg-gradient-to-b from-[#2a3952]/24 to-[#222f45]/20 border border-white/10 overflow-hidden mb-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
         <button
           type="button"
           onClick={() => toggleSection('职业库')}
@@ -125,7 +125,7 @@ export default function HouseRules() {
             return (
               <div
                 key={className}
-                className="rounded-xl bg-dnd-card border border-white/10 overflow-hidden"
+                className="rounded-xl bg-[#1b2738]/80 border border-white/10 overflow-hidden shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
               >
                 <button
                   type="button"

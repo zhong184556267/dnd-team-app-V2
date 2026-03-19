@@ -1,9 +1,16 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useModule } from '../contexts/ModuleContext'
-import { addCharacter, loadCharacterById } from '../lib/characterStore'
+import { addCharacter, loadCharacterById, loadCharactersInModule, getMainCharactersInModule } from '../lib/characterStore'
 import { logTeamActivity } from '../lib/activityLog'
+import { isSupabaseEnabled } from '../lib/supabase'
+
+const CARD_KINDS = [
+  { value: 'main', label: '主卡' },
+  { value: 'subordinate_class', label: '附属卡（职业模版）' },
+  { value: 'subordinate_creature', label: '附属卡（生物模版）' },
+]
 
 export default function CharacterNew() {
   const { user } = useAuth()
@@ -12,10 +19,18 @@ export default function CharacterNew() {
   const navigate = useNavigate()
   const [name, setName] = useState('')
   const [classVal, setClassVal] = useState('')
+  const [cardKind, setCardKind] = useState('main')
+  const [parentId, setParentId] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
   const moduleId = String(searchParams.get('moduleId') ?? currentModuleId ?? 'default').trim() || 'default'
+  const isSubordinate = cardKind !== 'main'
+  const mainCards = getMainCharactersInModule(moduleId)
+
+  useEffect(() => {
+    if (isSupabaseEnabled() && user?.name && moduleId) loadCharactersInModule(moduleId).catch(() => {})
+  }, [user?.name, moduleId])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -26,11 +41,23 @@ export default function CharacterNew() {
       setError('未获取到玩家名，请返回登录页重新进入。')
       return
     }
+    if (isSubordinate && !parentId) {
+      setError('请选择所属主卡。')
+      return
+    }
     setSaving(true)
     try {
-      const char = await Promise.resolve(
-        addCharacter(user.name, { name: n, 'class': classVal.trim(), moduleId })
-      )
+      const payload = {
+        name: n,
+        'class': classVal.trim(),
+        moduleId,
+      }
+      if (isSubordinate) {
+        payload.cardType = 'subordinate'
+        payload.parentId = parentId
+        payload.subordinateTemplate = cardKind === 'subordinate_creature' ? 'creature' : 'class'
+      }
+      const char = await Promise.resolve(addCharacter(user.name, payload))
       if (!char?.id) {
         throw new Error('创建未成功：未返回角色 ID。请检查 Supabase 中是否已执行 supabase-schema-v2.sql（characters 表）。')
       }
@@ -42,7 +69,7 @@ export default function CharacterNew() {
       logTeamActivity({
         actor: user.name,
         moduleId,
-        summary: `玩家 ${user.name} 创建了角色「${n}」`,
+        summary: isSubordinate ? `玩家 ${user.name} 创建了附属卡「${n}」` : `玩家 ${user.name} 创建了角色「${n}」`,
       })
       navigate(`/characters/${char.id}`, { replace: true })
     } catch (err) {
@@ -73,6 +100,41 @@ export default function CharacterNew() {
             {error}
           </div>
         ) : null}
+        <div>
+          <label className="block text-xs text-dnd-text-label uppercase tracking-label mb-1">
+            类型
+          </label>
+          <select
+            value={cardKind}
+            onChange={(e) => setCardKind(e.target.value)}
+            className="w-full rounded-xl border border-white/20 bg-dnd-card px-4 py-3 text-white focus:border-dnd-red focus:ring-2 focus:ring-dnd-red/30 focus:outline-none"
+          >
+            {CARD_KINDS.map((opt) => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+        </div>
+        {isSubordinate && (
+          <div>
+            <label className="block text-xs text-dnd-text-label uppercase tracking-label mb-1">
+              所属主卡 <span className="text-dnd-red">*</span>
+            </label>
+            <select
+              value={parentId}
+              onChange={(e) => setParentId(e.target.value)}
+              required={isSubordinate}
+              className="w-full rounded-xl border border-white/20 bg-dnd-card px-4 py-3 text-white focus:border-dnd-red focus:ring-2 focus:ring-dnd-red/30 focus:outline-none"
+            >
+              <option value="">请选择主卡</option>
+              {mainCards.map((c) => (
+                <option key={c.id} value={c.id}>{c.name || c.codename || '未命名'}</option>
+              ))}
+            </select>
+            {mainCards.length === 0 && (
+              <p className="text-dnd-text-muted text-xs mt-1">当前模组下暂无主卡，请先创建主卡。</p>
+            )}
+          </div>
+        )}
         <div>
           <label className="block text-xs text-dnd-text-label uppercase tracking-label mb-1">
             角色名 <span className="text-dnd-red">*</span>

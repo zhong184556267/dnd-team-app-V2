@@ -612,10 +612,19 @@ const CLASS_DATA = {
       { id: 'headshot', name: '爆头', description: '远程武器对生物造成重击时，可选择爆头：若其生命值不高于 100 则死亡；否则额外受到 10d10 伤害（武器伤害类型）。使用后直至短休或长休无法再次使用。', level: 20 },
     ],
   },
+  奇械师: {
+    hitDice: 8,
+    spellcasting: { type: 'half', ability: 'int' },
+    saveProficiencies: ['con', 'int'],
+    flavor: '运用魔法与工艺制造魔法物品、施展法术的半施法者。施法者等级为奇械师等级的一半（向下取整）。',
+    features: [
+      { id: 'spellcasting_artificer_5e', name: '施法', description: '奇械师为半施法者，法术位按施法者等级（奇械师等级的一半，向下取整）查表。施法属性为智力。', level: 1 },
+    ],
+  },
   // 繁星特色 · 基础职业
   器魂术士: {
     hitDice: 6,
-    spellcasting: { type: 'full', ability: 'int' },
+    spellcasting: { type: 'half', ability: 'int' },
     saveProficiencies: ['int', 'wis'],
     isFanxing: true,
     flavor: '以晶石石板为法器，学习并准备法术；擅长制造与拆解魔法物品，使用制造经验与学院材料。熟练轻甲、简易武器；工具为盗贼工具、工匠工具、木匠工具。',
@@ -762,9 +771,9 @@ export const ELDRITCH_INVOCATIONS = [
   { id: 'witch_sight', name: '巫术视界', description: '你具有 30 尺真实视觉。', prerequisite: '魔契师等级 15+', repeatable: false },
 ]
 
-/** 子职与三分之一施法（仅影响施法等级，不单独建完整职业条） */
+/** 子职与三分之一施法（仅影响施法等级，不单独建完整职业条）；奥法战士与奥法骑士同义 */
 const SUBCLASS_SPELLCASTING = {
-  战士: { 奥法骑士: 'third' },
+  战士: { 奥法骑士: 'third', 奥法战士: 'third' },
   游荡者: { 诡术师: 'third' },
 }
 
@@ -772,8 +781,8 @@ const SUBCLASS_SPELLCASTING = {
 export const CLASS_LIST = Object.keys(CLASS_DATA)
 export const ALL_CLASS_NAMES = CLASS_LIST
 
-/** 职业别名（雷鸟法师即蓝御法师；邪术师→魔契师 兼容旧数据） */
-const CLASS_ALIASES = { 雷鸟法师: '蓝御法师', 魂灵术士: '魂灵学者', 邪术师: '魔契师' }
+/** 职业别名（雷鸟法师即蓝御法师；邪术师→魔契师 兼容旧数据；圣骑士即圣武士） */
+const CLASS_ALIASES = { 雷鸟法师: '蓝御法师', 魂灵术士: '魂灵学者', 邪术师: '魔契师', 圣骑士: '圣武士' }
 
 export function getClassData(className) {
   const key = CLASS_ALIASES[className] ?? className

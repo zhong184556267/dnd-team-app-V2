@@ -192,9 +192,10 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
   const weightDisplay = selectedPrototype?.重量 ?? '—'
   const isEdit = !!editEntry
   const isArmorOrClothing = selectedPrototype && (selectedPrototype.类型 === '盔甲' || selectedPrototype.类型 === '衣服')
+  const isArmor = selectedPrototype?.类型 === '盔甲'
   const isWeapon = selectedPrototype && (selectedPrototype.类型 === '近战武器' || selectedPrototype.类型 === '远程武器' || selectedPrototype.类型 === '枪械')
   const isExplosive = selectedPrototype && (selectedPrototype.类型 === '爆炸物' || (selectedPrototype.类型 === '消耗品' && selectedPrototype.子类型 === '爆炸品'))
-  const isShield = isArmorOrClothing && selectedPrototype?.子类型 === '盾牌'
+  const isShield = isArmor && selectedPrototype?.子类型 === '盾牌'
   /** 魔杖/卷轴使用固定法强表（按环阶），不沿用角色法术DC/攻击加值 */
   const useWandScrollTable = (() => {
     const p = isEdit ? getItemById(editEntry?.itemId) : selectedPrototype
@@ -221,9 +222,8 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
       setQty(Math.max(1, Number(editEntry.qty) ?? 1))
       setEffectModules(entryToEffectModules(editEntry, proto))
       const note = (editEntry.附注 != null && editEntry.附注 !== '') ? String(editEntry.附注) : (proto?.附注 ?? '')
-      if (proto && (proto.类型 === '盔甲' || proto.类型 === '衣服')) {
+      if (proto && proto.类型 === '盔甲') {
         let f = parseArmorNoteToFields(note)
-        if (proto.类型 === '衣服' && f.baseAC === '' && !f.isShield) f = { ...f, baseAC: '10', dexMode: 'full' }
         setArmorFields(f)
       } else {
         setArmorFields({ isShield: false, baseAC: '', dexMode: 'full', dexCap: 2, strReq: '', stealth: '—', shieldBonus: '' })
@@ -277,9 +277,8 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
     const proto = getItemById(itemId)
     setName(proto ? getItemDisplayName(proto) : '')
     setIntro(proto?.详细介绍 ?? '')
-    if (proto && (proto.类型 === '盔甲' || proto.类型 === '衣服')) {
+    if (proto && proto.类型 === '盔甲') {
       let f = parseArmorNoteToFields(proto.附注 ?? '')
-      if (proto.类型 === '衣服' && f.baseAC === '' && !f.isShield) f = { ...f, baseAC: '10', dexMode: 'full' }
       setArmorFields(f)
     }
     if (proto && (proto.类型 === '近战武器' || proto.类型 === '远程武器' || proto.类型 === '枪械')) {
@@ -340,7 +339,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
       攻击距离 = (explosiveAttackDistance != null && String(explosiveAttackDistance).trim() !== '') ? String(explosiveAttackDistance).trim() : 攻击距离
     }
     let 附注 = ''
-    if (isArmorOrClothing) 附注 = buildArmorNoteFromFields(armorFields)
+    if (isArmor) 附注 = buildArmorNoteFromFields(armorFields)
     else if (isWeapon) 附注 = buildWeaponNoteFromTraits(weaponTraits, weaponRange, weaponAmmoCategory) || (proto?.附注 ?? '').trim()
     else 附注 = (proto?.附注 ?? '').trim()
     const 精通 = isWeapon && weaponMastery ? weaponMastery : (editEntry?.精通 ?? proto?.精通 ?? undefined)
@@ -357,12 +356,6 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
       let saveVal = mod.value ?? 0
       if (currentEffect.dataType === 'text') saveVal = typeof mod.value === 'string' ? mod.value : (mod.customText ?? '')
       else if (currentEffect.dataType === 'boolean') saveVal = !!(mod.value === true || mod.value === 'true' || mod.value === 1)
-      effectsForSave.push({
-        category: mod.category,
-        effectType: currentEffect.key,
-        value: saveVal,
-        customText: mod.customText ?? '',
-      })
       const parts = effectModuleToEntryParts(mod, currentEffect)
       // 盔甲/衣服：AC 加值写入 magicBonus，用于 AC 计算；不拼进附注
       if (isArmorOrClothing && currentEffect.key === 'ac_bonus') {
@@ -374,6 +367,12 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
         if (val != null) magicBonus = Number(val) || 0
         return
       }
+      effectsForSave.push({
+        category: mod.category,
+        effectType: currentEffect.key,
+        value: saveVal,
+        customText: mod.customText ?? '',
+      })
       if (!isArmorOrClothing && parts.附注Part) 附注 = (附注 ? 附注 + '；' : '') + parts.附注Part
       if (parts.magicBonus != null) magicBonus = parts.magicBonus
       if (parts.charge != null) charge = parts.charge
@@ -394,8 +393,8 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
       伤害: 伤害 || undefined,
       攻击距离: 攻击距离 || undefined,
       攻击范围: 攻击范围 || undefined,
-      详细介绍: intro?.trim() ?? '',
-      ...(附注 ? { 附注 } : {}),
+      详细介绍: intro != null ? String(intro).trim() : '',
+      附注: 附注 != null ? String(附注).trim() : '',
       ...(isWeapon && 精通 ? { 精通 } : {}),
       重量: proto?.重量,
       qty: Math.max(1, qty),
@@ -636,7 +635,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
               <div className="w-full pt-1.5 border-t border-gray-600/80">
                 <div className="flex items-center justify-between mb-0.5">
                   <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider">附魔效果（可多条）</label>
-                  <button type="button" onClick={addModule} className="flex items-center gap-1 px-1.5 py-0.5 rounded border border-amber-500 text-amber-400 hover:bg-amber-500/20 text-[10px] font-medium">
+                  <button type="button" onClick={addModule} className="flex items-center gap-1 px-1.5 py-0.5 rounded border border-dnd-gold text-dnd-gold-light hover:bg-dnd-gold/20 text-[10px] font-medium">
                     <Plus className="w-3 h-3" />
                     添加效果
                   </button>
@@ -727,7 +726,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
           ) : null}
 
           {/* 盔甲/盾牌：基础属性与附魔为同级，先基础（必填）后附魔（魔法物品可选） */}
-          {isArmorOrClothing && (
+          {isArmor && (
             <>
               <div className="rounded border border-gray-600 bg-gray-700/30 px-2 py-1.5 space-y-1.5">
                 <div className="flex items-center justify-between gap-2">
@@ -799,7 +798,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
               <div className="rounded border border-gray-600 bg-gray-700/30 px-2 py-1.5 space-y-1.5">
                 <div className="flex items-center justify-between mb-0.5">
                   <span className="text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider">附魔效果（可多条）</span>
-                  <button type="button" onClick={addModule} className="flex items-center gap-1 px-1.5 py-0.5 rounded border border-amber-500 text-amber-400 hover:bg-amber-500/20 text-[10px] font-medium">
+                  <button type="button" onClick={addModule} className="flex items-center gap-1 px-1.5 py-0.5 rounded border border-dnd-gold text-dnd-gold-light hover:bg-dnd-gold/20 text-[10px] font-medium">
                     <Plus className="w-3 h-3" />
                     添加效果
                   </button>
@@ -890,11 +889,11 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
           )}
 
           {/* 非武器且非盔甲/衣服：仅附魔效果 */}
-          {!isWeapon && !isArmorOrClothing && (
+          {!isWeapon && !isArmor && (
             <div className="w-full rounded border border-gray-600 bg-gray-700/30 px-2 py-1.5 space-y-1.5">
               <div className="flex items-center justify-between mb-0.5">
                 <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider">附魔效果（可多条）</label>
-                <button type="button" onClick={addModule} className="flex items-center gap-1 px-1.5 py-0.5 rounded border border-amber-500 text-amber-400 hover:bg-amber-500/20 text-[10px] font-medium">
+                <button type="button" onClick={addModule} className="flex items-center gap-1 px-1.5 py-0.5 rounded border border-dnd-gold text-dnd-gold-light hover:bg-dnd-gold/20 text-[10px] font-medium">
                   <Plus className="w-3 h-3" />
                   添加效果
                 </button>

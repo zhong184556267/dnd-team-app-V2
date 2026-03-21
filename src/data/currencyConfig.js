@@ -4,10 +4,10 @@
  * 换算公式：目标数量 = (源数量 × 源 baseRate) / 目标 baseRate
  */
 
-/** 1 奥拉 = 多少 gp（可在此修改） */
-export const AURUM_PER_GP = 100
+/** 1 奥拉 = 多少 gp（可在此修改；奥朗/奥拉与金币换算） */
+export const AURUM_PER_GP = 2
 
-/** 1 磅晶石 = 多少 奥拉（推导：1 lb = 5000 au = 500000 gp when AURUM_PER_GP=100） */
+/** 1 磅晶石 = 多少 奥拉（推导：1 lb = 5000 au；gp 价值 = 5000 × AURUM_PER_GP） */
 export const GEM_LB_PER_AURUM = 5000
 
 const gp = 1

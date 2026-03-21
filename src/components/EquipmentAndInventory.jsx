@@ -3,13 +3,14 @@
  * 上方：手持与身穿（左右分栏）
  * 下方：背包
  */
-import { useState, useEffect, Fragment } from 'react'
+import { useState, useEffect, Fragment, useMemo } from 'react'
 import { Plus, Trash2, ArrowDownToLine, ArrowUpFromLine, Pencil, Package, GripVertical } from 'lucide-react'
 import { getItemById, getItemDisplayName } from '../data/itemDatabase'
+import { getCurrencyById, getCurrencyDisplayName } from '../data/currencyConfig'
 import { getCharacterWallet } from '../lib/currencyStore'
 import { addToWarehouse } from '../lib/warehouseStore'
 import { CurrencyGrid } from './CurrencyDisplay'
-import { getItemWeightLb, parseWeightString } from '../lib/encumbrance'
+import { getItemWeightLb, parseWeightString, getWalletCurrencyStackWeightLb } from '../lib/encumbrance'
 import { getMaxAttunementSlots, getAttunedCountFromInventory } from '../lib/combatState'
 import ItemAddForm from './ItemAddForm'
 import EncumbranceBar from './EncumbranceBar'
@@ -21,6 +22,21 @@ import { getPrimarySpellcastingAbility } from '../data/classDatabase'
 import { inputClass } from '../lib/inputStyles'
 import { logTeamActivity } from '../lib/activityLog'
 import { NumberStepper } from './BuffForm'
+import { appendContainedSpellsBrief } from '../lib/containedSpellBrief'
+import BagOfHoldingPanel from './BagOfHoldingPanel'
+import {
+  getNormalizedBagModules,
+  createInitialBagModule,
+  removeBagModuleAt,
+  updateModuleBagCount,
+  mergeWalletDelta,
+} from '../lib/bagOfHoldingModules'
+import { buildCurrencyRowsForInventory } from '../lib/currencyInventoryRows'
+import {
+  normalizeBackpackLayoutOrder,
+  resolveInvIndexFromItemToken,
+  reorderLayoutTokens,
+} from '../lib/backpackLayoutOrder'
 
 const HELD_LABELS = ['主手', '副手']
 const WORN_SLOT_OPTIONS = [
@@ -45,6 +61,7 @@ function getEntryDisplayName(entry) {
 /** 手持：主手 武器+法器+枪械, 副手 盾牌+武器+枪械+法器（权杖/法杖等）, 备用 法器+武器 */
 function getHeldOptions(inv, slotIndex) {
   return inv.filter((e) => {
+    if (e?.inBagOfHolding) return false
     const proto = e.itemId ? getItemById(e.itemId) : null
     const t = proto?.类型 ?? ''
     const sub = proto?.子类型 ?? ''
@@ -58,6 +75,7 @@ function getHeldOptions(inv, slotIndex) {
 function getWornOptions(inv, slotId) {
   if (slotId === 'body') {
     return inv.filter((e) => {
+      if (e?.inBagOfHolding) return false
       const proto = e.itemId ? getItemById(e.itemId) : null
       const t = proto?.类型 ?? ''
       const sub = proto?.子类型 ?? ''
@@ -66,7 +84,7 @@ function getWornOptions(inv, slotId) {
       return false
     })
   }
-  return inv
+  return inv.filter((e) => !e?.inBagOfHolding)
 }
 
 /** 迁移旧 equippedSlots 到 equippedHeld；旧身穿 8 槽转为 身体 + 可添加 */
@@ -116,6 +134,16 @@ function buildEquipmentForAC(heldSlots, wornSlots, inv) {
 
 export default function EquipmentAndInventory({ character, canEdit, onSave, onWalletSuccess, activityActor }) {
   const inv = character?.inventory ?? []
+  const bagModules = useMemo(
+    () => getNormalizedBagModules(character),
+    [character?.id, character?.bagOfHoldingModules, character?.bagOfHoldingSlots, character?.bagOfHoldingCount, character?.bagOfHoldingVisibility],
+  )
+  const modulesBagCountTotal = (mods) =>
+    (mods || []).reduce((s, m) => s + (Math.max(0, Number(m.bagCount) || 0)), 0)
+  const personRows = useMemo(
+    () => inv.map((entry, i) => ({ entry, i })).filter(({ entry }) => !entry?.inBagOfHolding),
+    [inv],
+  )
   const migrated = migrateSlots(character)
   const buffStats = useBuffCalculator(character, character?.buffs)
   const level = Math.max(1, Math.min(20, parseInt(character?.level, 10) || 1))
@@ -160,6 +188,23 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
   useEffect(() => {
     if (character?.id) setWallet(getCharacterWallet(character.id))
   }, [character?.id, character?.wallet])
+
+  const currencyRows = useMemo(() => buildCurrencyRowsForInventory(wallet), [wallet])
+
+  const layoutOrder = useMemo(
+    () => normalizeBackpackLayoutOrder(character?.backpackLayoutOrder, wallet, inv),
+    [character?.backpackLayoutOrder, wallet, inv],
+  )
+
+  useEffect(() => {
+    if (!canEdit) return
+    if (!inv.some((e) => !e?.inBagOfHolding && !e?.id)) return
+    onSave({
+      inventory: inv.map((e) =>
+        !e?.inBagOfHolding && !e?.id ? { ...e, id: `inv_${crypto.randomUUID()}` } : e,
+      ),
+    })
+  }, [canEdit, inv, onSave])
 
   const saveWithEquipment = (patch) => {
     const nextHeld = patch.equippedHeld ?? heldSlots
@@ -253,15 +298,6 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
 
   const removeItem = (index) => onSave({ inventory: inv.filter((_, i) => i !== index) })
 
-  const reorderInventory = (fromIndex, toIndex) => {
-    if (fromIndex === toIndex) return
-    setEditingIndex(null)
-    const next = [...inv]
-    const [item] = next.splice(fromIndex, 1)
-    next.splice(toIndex, 0, item)
-    onSave({ inventory: next })
-  }
-
   /** 同名物品（显示名称一致）可合并数量；invDisplayName 在下方定义，此处用内联比较 */
   const getInvMergeKey = (entry) => {
     if (entry?.itemId) {
@@ -272,35 +308,229 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
     }
     return entry?.name ?? '—'
   }
-  const isSameItemForMerge = (a, b) => a && b && getInvMergeKey(a) === getInvMergeKey(b)
+  const isSameItemForMerge = (a, b) => {
+    if (!a || !b) return false
+    if (a.walletCurrencyId || b.walletCurrencyId) return false
+    if (a.inBagOfHolding || b.inBagOfHolding) return false
+    return getInvMergeKey(a) === getInvMergeKey(b)
+  }
 
-  const handleDragStart = (e, index) => {
-    e.dataTransfer.setData('text/plain', String(index))
-    e.dataTransfer.effectAllowed = 'move'
+  const moveEntryToBag = (fromIndex, moduleId) => {
+    const entry = inv[fromIndex]
+    if (!entry || entry.inBagOfHolding) return
+    if (entry.walletCurrencyId) return
+    if (entry.itemId === 'bag_of_holding') return
+    if (!moduleId || !bagModules.some((m) => m.id === moduleId)) return
+    const entryId = entry.id
+    let nextHeld = heldSlots
+    let nextWorn = wornSlots
+    let eqChanged = false
+    if (entryId) {
+      if (nextHeld.some((s) => s.inventoryId === entryId)) {
+        nextHeld = nextHeld.map((s) => (s.inventoryId === entryId ? { ...s, inventoryId: null } : s))
+        eqChanged = true
+      }
+      if (nextWorn.some((s) => s.inventoryId === entryId)) {
+        nextWorn = nextWorn.map((s) => (s.inventoryId === entryId ? { ...s, inventoryId: null } : s))
+        eqChanged = true
+      }
+    }
+    const nextInv = inv.map((e, idx) =>
+      idx === fromIndex ? { ...e, inBagOfHolding: true, bagModuleId: moduleId, bagSlotId: undefined } : e,
+    )
+    setEditingIndex(null)
+    if (eqChanged) saveWithEquipment({ inventory: nextInv, equippedHeld: nextHeld, equippedWorn: nextWorn })
+    else onSave({ inventory: nextInv })
+  }
+
+  const handleAddBagModule = () => {
+    if (bagModules.length >= 1) return
+    const m = createInitialBagModule()
+    onSave({ bagOfHoldingModules: [m], bagOfHoldingCount: m.bagCount })
+  }
+
+  const handleRemoveBagModule = () => {
+    const { modules, inventory: nextInv, walletDelta } = removeBagModuleAt(bagModules, 0, inv)
+    saveWithEquipment({
+      bagOfHoldingModules: modules,
+      bagOfHoldingCount: modulesBagCountTotal(modules),
+      inventory: nextInv,
+      wallet: mergeWalletDelta(wallet, walletDelta),
+      ...(modules.length === 0 ? { bagOfHoldingSlots: [] } : {}),
+    })
+  }
+
+  const handleSetModuleBagCount = (moduleId, n) => {
+    const idx = bagModules.findIndex((m) => m.id === moduleId)
+    if (idx < 0) return
+    const { modules, inventory: nextInv, walletDelta } = updateModuleBagCount(bagModules, idx, n, inv)
+    saveWithEquipment({
+      bagOfHoldingModules: modules,
+      bagOfHoldingCount: modulesBagCountTotal(modules),
+      inventory: nextInv,
+      wallet: mergeWalletDelta(wallet, walletDelta),
+    })
+  }
+
+  const moveWalletCurrencyToBag = (currencyId, moduleId) => {
+    if (!currencyId || !moduleId || !bagModules.some((m) => m.id === moduleId)) return
+    const amt = Number(wallet[currencyId]) || 0
+    if (amt <= 0) return
+    const isGem = currencyId === 'gem_lb'
+    const take = isGem ? amt : Math.floor(amt)
+    if (take <= 0) return
+    setEditingIndex(null)
+    const mergeIdx = inv.findIndex(
+      (e) =>
+        e?.inBagOfHolding &&
+        e?.walletCurrencyId === currencyId &&
+        (e.bagModuleId === moduleId || e.bagSlotId === moduleId),
+    )
+    const nextWallet = { ...wallet }
+    nextWallet[currencyId] = isGem ? Math.max(0, amt - take) : Math.max(0, Math.floor(amt) - take)
+    let nextInv
+    if (mergeIdx >= 0) {
+      const row = inv[mergeIdx]
+      const q = Number(row.qty) || 0
+      nextInv = inv.map((e, idx) => (idx === mergeIdx ? { ...row, qty: q + take } : e))
+    } else {
+      const cfg = getCurrencyById(currencyId)
+      const name = getCurrencyDisplayName(cfg) || currencyId
+      nextInv = [
+        ...inv,
+        {
+          id: `inv_${crypto.randomUUID()}`,
+          name,
+          walletCurrencyId: currencyId,
+          qty: take,
+          inBagOfHolding: true,
+          bagModuleId: moduleId,
+          bagSlotId: undefined,
+        },
+      ]
+    }
+    saveWithEquipment({ inventory: nextInv, wallet: nextWallet })
+  }
+
+  const handleSetModuleVisibility = (moduleId, visibility) => {
+    onSave({
+      bagOfHoldingModules: bagModules.map((m) => (m.id === moduleId ? { ...m, visibility } : m)),
+    })
+  }
+
+  const patchWalletCurrency = (currencyId, qty) => {
+    const n =
+      currencyId === 'gem_lb'
+        ? Math.max(0, Number(qty) || 0)
+        : Math.max(0, Math.floor(Number(qty) || 0))
+    onSave({ wallet: { ...wallet, [currencyId]: n } })
+  }
+
+  const handleBackpackRowDragStart = (e, layoutIdx) => {
+    const tok = layoutOrder[layoutIdx]
+    if (tok?.startsWith('c:')) {
+      const cid = tok.slice(2)
+      e.dataTransfer.setData('text/dnd-wallet-currency', cid)
+      e.dataTransfer.setData('text/plain', `wc:${cid}`)
+    } else if (tok?.startsWith('i:')) {
+      const invIdx = resolveInvIndexFromItemToken(tok, inv)
+      if (invIdx >= 0) {
+        e.dataTransfer.setData('text/dnd-character-inv', String(invIdx))
+        e.dataTransfer.setData('text/plain', `inv:${invIdx}`)
+      }
+    }
+    e.dataTransfer.setData('text/dnd-backpack-layout', String(layoutIdx))
+    e.dataTransfer.effectAllowed = 'copyMove'
     e.currentTarget.classList.add('opacity-50')
   }
   const handleDragEnd = (e) => e.currentTarget.classList.remove('opacity-50')
-  const handleDragOver = (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }
-  const handleDrop = (e, toIndex) => {
+  const handleDragOver = (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copyMove' }
+  const handleBackpackRowDrop = (e, toLayoutIdx) => {
     e.preventDefault()
-    const fromIndex = parseInt(e.dataTransfer.getData('text/plain'), 10)
-    if (Number.isNaN(fromIndex) || fromIndex === toIndex) return
-    const source = inv[fromIndex]
-    const target = inv[toIndex]
-    if (isSameItemForMerge(source, target)) {
+    const fromBag = e.dataTransfer.getData('text/dnd-from-bag') === '1'
+    const invFromBag = parseInt(e.dataTransfer.getData('text/dnd-character-inv'), 10)
+    if (fromBag && !Number.isNaN(invFromBag)) {
+      const entry = inv[invFromBag]
+      if (!entry || !entry.inBagOfHolding) return
       setEditingIndex(null)
-      const qtyT = Math.max(1, Number(target?.qty) ?? 1)
-      const qtyS = Math.max(1, Number(source?.qty) ?? 1)
-      const chargeT = Number(target?.charge) || 0
-      const chargeS = Number(source?.charge) || 0
-      const merged = { ...target, qty: qtyT + qtyS, charge: chargeT + chargeS }
-      const next = inv.filter((_, i) => i !== fromIndex)
-      const newToIndex = fromIndex < toIndex ? toIndex - 1 : toIndex
-      next[newToIndex] = merged
-      onSave({ inventory: next })
-    } else {
-      reorderInventory(fromIndex, toIndex)
+      if (entry.walletCurrencyId) {
+        const cid = entry.walletCurrencyId
+        const add = Number(entry.qty) || 0
+        const nextWallet = mergeWalletDelta(wallet, { [cid]: add })
+        const nextInv = inv.filter((_, i) => i !== invFromBag)
+        saveWithEquipment({ inventory: nextInv, wallet: nextWallet })
+        return
+      }
+      saveWithEquipment({
+        inventory: inv.map((row, idx) =>
+          idx === invFromBag ? { ...row, inBagOfHolding: false, bagModuleId: undefined, bagSlotId: undefined } : row,
+        ),
+      })
+      return
     }
+
+    let fromL = parseInt(e.dataTransfer.getData('text/dnd-backpack-layout'), 10)
+    if (Number.isNaN(fromL)) {
+      const plain = e.dataTransfer.getData('text/plain')
+      const m = /^bl:(\d+)$/.exec(plain)
+      if (m) fromL = parseInt(m[1], 10)
+    }
+    if (Number.isNaN(fromL) || fromL === toLayoutIdx) return
+    const order = [...layoutOrder]
+    if (fromL < 0 || fromL >= order.length || toLayoutIdx < 0 || toLayoutIdx >= order.length) return
+    const fromTok = order[fromL]
+    const toTok = order[toLayoutIdx]
+
+    if (fromTok.startsWith('i:') && toTok.startsWith('i:')) {
+      const fromInv = resolveInvIndexFromItemToken(fromTok, inv)
+      const toInv = resolveInvIndexFromItemToken(toTok, inv)
+      if (fromInv < 0 || toInv < 0) return
+      const source = inv[fromInv]
+      const target = inv[toInv]
+      if (!source || !target) return
+      if (source.inBagOfHolding && !target.inBagOfHolding) {
+        setEditingIndex(null)
+        if (source.walletCurrencyId) {
+          const cid = source.walletCurrencyId
+          const add = Number(source.qty) || 0
+          const nextWallet = mergeWalletDelta(wallet, { [cid]: add })
+          const nextInv = inv.filter((_, i) => i !== fromInv)
+          saveWithEquipment({ inventory: nextInv, wallet: nextWallet })
+          return
+        }
+        saveWithEquipment({
+          inventory: inv.map((e, idx) =>
+            idx === fromInv ? { ...e, inBagOfHolding: false, bagModuleId: undefined, bagSlotId: undefined } : e,
+          ),
+        })
+        return
+      }
+      if (source.inBagOfHolding || target.inBagOfHolding) return
+      if (isSameItemForMerge(source, target)) {
+        setEditingIndex(null)
+        const qtyT = Math.max(1, Number(target?.qty) ?? 1)
+        const qtyS = Math.max(1, Number(source?.qty) ?? 1)
+        const chargeT = Number(target?.charge) || 0
+        const chargeS = Number(source?.charge) || 0
+        const merged = { ...target, qty: qtyT + qtyS, charge: chargeT + chargeS }
+        const nextInv = inv.filter((_, i) => i !== fromInv)
+        const newToIndex = fromInv < toInv ? toInv - 1 : toInv
+        nextInv[newToIndex] = merged
+        const nextLayout = order.filter((_, i) => i !== fromL)
+        saveWithEquipment({ inventory: nextInv, backpackLayoutOrder: nextLayout })
+        return
+      }
+      setEditingIndex(null)
+      const nextInv = [...inv]
+      const [item] = nextInv.splice(fromInv, 1)
+      nextInv.splice(toInv, 0, item)
+      const nextLayout = reorderLayoutTokens(order, fromL, toLayoutIdx)
+      saveWithEquipment({ inventory: nextInv, backpackLayoutOrder: nextLayout })
+      return
+    }
+
+    const nextLayout = reorderLayoutTokens(order, fromL, toLayoutIdx)
+    onSave({ backpackLayoutOrder: nextLayout })
   }
   const setQty = (index, value) => {
     const n = Math.max(1, parseInt(value, 10) || 1)
@@ -316,6 +546,17 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
     const n = Math.max(0, parseInt(value, 10) || 0)
     const next = inv.map((e, i) => (i === index ? { ...e, charge: n } : e))
     onSave({ inventory: next })
+  }
+
+  /** 次元袋面板行内编辑（下标为背包 inventory 全局下标） */
+  const patchBagItem = (globalIndex, patch) => {
+    const e = inv[globalIndex]
+    if (!e?.inBagOfHolding) return
+    const next = { ...e }
+    if ('qty' in patch) next.qty = Math.max(1, Math.floor(Number(patch.qty)) || 1)
+    if ('charge' in patch) next.charge = Math.max(0, Number(patch.charge) || 0)
+    const nextInv = inv.map((row, i) => (i === globalIndex ? next : row))
+    onSave({ inventory: nextInv })
   }
 
   const startEdit = (index) => {
@@ -373,6 +614,10 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
   }
 
   const invDisplayName = (entry) => {
+    if (entry?.walletCurrencyId) {
+      const cfg = getCurrencyById(entry.walletCurrencyId)
+      return getCurrencyDisplayName(cfg) || entry?.name || '—'
+    }
     if (entry?.itemId) {
       const item = getItemById(entry.itemId)
       const customName = entry.name && entry.name.trim()
@@ -382,6 +627,11 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
     return entry?.name ?? '—'
   }
   const getEntryWeight = (entry) => {
+    if (entry?.walletCurrencyId) {
+      const q = Math.max(1, Number(entry.qty) || 1)
+      const tw = getWalletCurrencyStackWeightLb(entry.walletCurrencyId, q)
+      return q > 0 ? tw / q : 0
+    }
     if (entry?.重量 != null && entry?.重量 !== '') return parseWeightString(entry.重量)
     if (!entry?.itemId) return 0
     return getItemWeightLb(getItemById(entry.itemId))
@@ -392,9 +642,11 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
     const parts = []
     if (brief) parts.push(brief)
     if (range) parts.push(`攻击距离 ${range}`)
-    if (parts.length) return parts.join('；')
-    if (entry?.附注?.trim()) return entry.附注.trim()
-    return getItemById(entry?.itemId)?.详细介绍 ?? ''
+    let out = ''
+    if (parts.length) out = parts.join('；')
+    else if (entry?.附注?.trim()) out = entry.附注.trim()
+    else out = getItemById(entry?.itemId)?.详细介绍 ?? ''
+    return appendContainedSpellsBrief(entry?.effects, out)
   }
 
   const selectClass = 'h-8 rounded bg-gray-800 border border-gray-600 focus:border-dnd-red focus:ring-1 focus:ring-dnd-red text-white text-xs px-2 min-w-0'
@@ -741,17 +993,86 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
               </colgroup>
               <thead>
                 <tr className="bg-gray-800/80 text-dnd-text-muted text-[10px] uppercase tracking-wider" style={{ height: 48, minHeight: 48, maxHeight: 48 }}>
-                  {canEdit && <th className="py-0 px-4 align-middle text-center" style={{ height: 48, maxHeight: 48 }} title="拖拽排序" />}
-                  <th className="py-0 px-4 font-semibold min-w-0 align-middle text-left" style={{ height: 48, maxHeight: 48 }}>名称</th>
-                  <th className="py-0 px-4 border-l border-gray-600 align-middle text-center" style={{ height: 48, maxHeight: 48 }}>充能</th>
-                  <th className="py-0 px-4 font-semibold min-w-0 border-l border-gray-600 align-middle text-left" style={{ height: 48, maxHeight: 48 }}>简要介绍</th>
-                  <th className="py-0 px-4 border-l border-gray-600 align-middle text-center" style={{ height: 48, maxHeight: 48 }}>数量</th>
-                  <th className="py-0 px-4 border-l border-gray-600 align-middle text-center" style={{ height: 48, maxHeight: 48 }}>总重</th>
-                  {canEdit && <th className="py-0 px-4 border-l border-gray-600 align-middle text-center" style={{ height: 48, maxHeight: 48 }} />}
+                  {canEdit && <th className="py-0 px-4 align-middle text-center whitespace-nowrap" style={{ height: 48, maxHeight: 48 }} title="拖拽排序" />}
+                  <th className="py-0 px-4 font-semibold min-w-0 align-middle text-left whitespace-nowrap" style={{ height: 48, maxHeight: 48 }}>名称</th>
+                  <th className="py-0 px-4 border-l border-gray-600 align-middle text-center whitespace-nowrap" style={{ height: 48, maxHeight: 48 }}>充能</th>
+                  <th className="py-0 px-4 font-semibold min-w-0 border-l border-gray-600 align-middle text-left whitespace-nowrap" style={{ height: 48, maxHeight: 48 }}>简要介绍</th>
+                  <th className="py-0 px-4 border-l border-gray-600 align-middle text-center whitespace-nowrap" style={{ height: 48, maxHeight: 48 }}>数量</th>
+                  <th className="py-0 px-4 border-l border-gray-600 align-middle text-center whitespace-nowrap" style={{ height: 48, maxHeight: 48 }}>总重</th>
+                  {canEdit && <th className="py-0 px-4 border-l border-gray-600 align-middle text-center whitespace-nowrap" style={{ height: 48, maxHeight: 48 }} />}
                 </tr>
               </thead>
               <tbody>
-                {inv.map((entry, i) => {
+                {layoutOrder.length === 0 ? (
+                  <tr className="border-t border-gray-700/80">
+                    <td
+                      colSpan={canEdit ? 8 : 5}
+                      className={`py-6 px-4 text-dnd-text-muted text-xs text-center align-middle ${canEdit ? 'border-2 border-dashed border-dnd-gold/25 rounded-md bg-[#151c28]/25' : ''}`}
+                      style={{ minHeight: 120 }}
+                      onDragOver={canEdit ? handleDragOver : undefined}
+                      onDrop={canEdit ? (e) => handleBackpackRowDrop(e, 0) : undefined}
+                    >
+                      {personRows.length === 0 && inv.length > 0 ? (
+                        <span>背包表仅显示身上物品。当前全部在次元袋内，可将袋内物品拖放到此处。</span>
+                      ) : canEdit ? (
+                        <span>背包暂无物品行。可从次元袋拖入此处，或使用「添加物品」。</span>
+                      ) : (
+                        <span>—</span>
+                      )}
+                    </td>
+                  </tr>
+                ) : (
+                  layoutOrder.map((token, layoutIdx) => {
+                  if (token.startsWith('c:')) {
+                    const currencyId = token.slice(2)
+                    const cr = currencyRows.find((r) => r.currencyId === currencyId)
+                    if (!cr) return null
+                    return (
+                      <tr
+                        key={token}
+                        className={`border-t border-gray-700/80 bg-[#1e2a3d]/50 hover:bg-gray-800/30 ${canEdit ? 'cursor-grab active:cursor-grabbing' : ''}`}
+                        style={{ height: 48, minHeight: 48, maxHeight: 48 }}
+                        draggable={!!canEdit}
+                        onDragStart={canEdit ? (e) => handleBackpackRowDragStart(e, layoutIdx) : undefined}
+                        onDragEnd={canEdit ? handleDragEnd : undefined}
+                        onDragOver={canEdit ? handleDragOver : undefined}
+                        onDrop={canEdit ? (e) => handleBackpackRowDrop(e, layoutIdx) : undefined}
+                      >
+                        {canEdit && (
+                          <td className="py-1 px-4 align-middle text-center overflow-hidden" title="拖拽调整顺序" style={{ height: 48, maxHeight: 48 }}>
+                            <span className="inline-flex justify-center"><GripVertical className="w-3.5 h-3.5 text-dnd-text-muted" /></span>
+                          </td>
+                        )}
+                        <td className="py-1 px-4 text-dnd-gold-light/95 font-medium align-middle text-left overflow-hidden" style={{ height: 48, maxHeight: 48 }}>
+                          <span className="block text-[10px] text-dnd-text-muted font-normal leading-tight">钱币</span>
+                          <span className="truncate block max-w-full">{cr.label}</span>
+                        </td>
+                        <td className="py-1 px-2 border-l border-gray-600 align-middle text-center text-dnd-text-muted text-xs" style={{ height: 48, maxHeight: 48 }}>
+                          —
+                        </td>
+                        <td className="inventory-table-cell-brief py-1 px-4 text-dnd-text-muted text-xs border-l border-gray-600 align-middle text-left" style={{ height: 48, maxHeight: 48 }}>
+                          个人钱包；与下方「个人持有」同步；数量请在下方修改；可拖入次元袋。
+                        </td>
+                        <td className="py-1 px-2 border-l border-gray-600 align-middle text-center overflow-hidden" style={{ height: 48, maxHeight: 48 }}>
+                          <span className="tabular-nums text-dnd-text-body text-xs" title="在下方「个人持有」中修改数量">
+                            {cr.qty}
+                          </span>
+                        </td>
+                        <td className="py-1 px-2 border-l border-gray-600 align-middle text-center text-dnd-text-muted text-xs" style={{ height: 48, maxHeight: 48 }}>
+                          —
+                        </td>
+                        {canEdit && (
+                          <td className="py-1 px-1 border-l border-gray-600 align-middle text-center text-dnd-text-muted text-[10px]" style={{ height: 48, maxHeight: 48 }}>
+                            —
+                          </td>
+                        )}
+                      </tr>
+                    )
+                  }
+                  const i = resolveInvIndexFromItemToken(token, inv)
+                  if (i < 0) return null
+                  const entry = inv[i]
+                  if (entry?.inBagOfHolding) return null
                   const qty = Math.max(1, Number(entry?.qty) ?? 1)
                   const unitLb = getEntryWeight(entry)
                   const totalLb = Math.round(unitLb * qty * 100) / 100
@@ -761,10 +1082,10 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                         className={`border-t border-gray-700/80 hover:bg-gray-800/40 ${canEdit ? 'cursor-grab active:cursor-grabbing' : ''}`}
                         style={{ height: 48, minHeight: 48, maxHeight: 48 }}
                         draggable={canEdit}
-                        onDragStart={canEdit ? (e) => handleDragStart(e, i) : undefined}
+                        onDragStart={canEdit ? (e) => handleBackpackRowDragStart(e, layoutIdx) : undefined}
                         onDragEnd={canEdit ? handleDragEnd : undefined}
                         onDragOver={canEdit ? handleDragOver : undefined}
-                        onDrop={canEdit ? (e) => handleDrop(e, i) : undefined}
+                        onDrop={canEdit ? (e) => handleBackpackRowDrop(e, layoutIdx) : undefined}
                       >
                         {canEdit && (
                           <td className="py-1 px-4 align-middle text-center overflow-hidden" title="拖拽调整顺序" style={{ height: 48, maxHeight: 48 }}>
@@ -840,19 +1161,47 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                       </tr>
                     </Fragment>
                   )
-                })}
+                })
+                )}
               </tbody>
             </table>
           </div>
-          {inv.length === 0 && <p className="text-gray-500 text-sm py-2 text-center">暂无物品</p>}
+          {inv.length === 0 && currencyRows.length === 0 && (
+            <p className="text-gray-500 text-sm py-2 text-center">暂无物品</p>
+          )}
         </div>
+
+        {/* 次元袋（在背包与个人持有之间） */}
+        <BagOfHoldingPanel
+          bagModules={bagModules}
+          onAddModule={handleAddBagModule}
+          onRemoveModule={handleRemoveBagModule}
+          onSetModuleBagCount={handleSetModuleBagCount}
+          onSetModuleVisibility={handleSetModuleVisibility}
+          inventory={inv}
+          onMoveToBag={moveEntryToBag}
+          onMoveCurrencyToBag={moveWalletCurrencyToBag}
+          canEdit={canEdit}
+          invDisplayName={invDisplayName}
+          getEntryWeight={getEntryWeight}
+          getEntryBriefFull={getEntryBriefFull}
+          onPatchBagItem={patchBagItem}
+          characterId={character?.id}
+        />
 
         {/* 个人持有（紧凑：核心货币略大于零钱，整体省空间） */}
         <div className="rounded-xl border border-gray-600 bg-gray-800/30 overflow-hidden">
           <h3 className={subTitleClass + ' px-1.5 pt-0.5 pb-0.5 border-b border-gray-600/80'}>个人持有</h3>
           <div className="px-1 py-0.5 flex flex-wrap items-stretch gap-1 min-h-0">
             <div className="flex-1 min-w-[160px] min-h-0 flex flex-col">
-              <CurrencyGrid balances={wallet} title={null} fillHeight extraClass="!border-0 !bg-transparent !rounded-none !shadow-none" />
+              <CurrencyGrid
+                balances={wallet}
+                title={null}
+                fillHeight
+                extraClass="!border-0 !bg-transparent !rounded-none !shadow-none"
+                editable={!!canEdit}
+                onCurrencyChange={(currencyId, value) => patchWalletCurrency(currencyId, value)}
+              />
             </div>
             {canEdit && (
               <div className="flex flex-col justify-center shrink-0 w-[7rem] gap-1">
@@ -869,7 +1218,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
       </div>
 
       <div className="px-1.5 pt-0.5 pb-1 border-t border-gray-600">
-        <h3 className={subTitleClass + ' text-dnd-text-muted font-medium'}>负重（含物品与货币）</h3>
+        <h3 className={subTitleClass + ' text-dnd-text-muted font-medium'}>负重（背包物品、货币、次元袋自重；袋内不计）</h3>
         <EncumbranceBar character={character} />
       </div>
 

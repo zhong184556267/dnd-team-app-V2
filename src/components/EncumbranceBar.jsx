@@ -8,23 +8,31 @@ import { ENCUMBRANCE_MULTIPLIER } from '../lib/encumbrance'
 export default function EncumbranceBar({ character, multiplier = ENCUMBRANCE_MULTIPLIER }) {
   const { total, max, percent, statusColor, statusLabel } = useEncumbrance(character, multiplier)
 
-  const barColor =
+  // 使用内联颜色，避免主题/CSS 导致 Tailwind 语义色与轨道同色；NaN 时仍有合法宽度
+  const fillColor =
     statusColor === 'red'
-      ? 'bg-red-500'
+      ? '#ef4444'
       : statusColor === 'yellow'
-        ? 'bg-amber-500'
-        : 'bg-emerald-500'
+        ? 'var(--accent-gold, #c79a42)'
+        : '#22c55e'
+  const pct = Number.isFinite(Number(percent)) ? Math.min(100, Math.max(0, Number(percent))) : 0
+  const displayMax = Number.isFinite(Number(max)) ? max : '—'
 
   return (
     <div className="flex items-center gap-2">
-      <div className="flex-1 min-w-0 h-4 rounded-full bg-gray-800 border border-white/10 overflow-hidden">
+      <div className="flex-1 min-w-0 h-5 rounded-full bg-[#1b2738] border border-white/15 overflow-hidden shadow-[inset_0_1px_2px_rgba(0,0,0,0.35)]">
         <div
-          className={`h-full rounded-full transition-all duration-300 ${barColor}`}
-          style={{ width: `${Math.min(100, percent)}%` }}
+          className="h-full rounded-full transition-[width] duration-300 ease-out"
+          style={{
+            width: `${pct}%`,
+            minWidth: pct > 0 ? '6px' : 0,
+            backgroundColor: fillColor,
+            boxShadow: pct > 0 ? `0 0 10px ${fillColor}66` : undefined,
+          }}
         />
       </div>
       <span className="text-xs font-mono text-dnd-text-body shrink-0 tabular-nums whitespace-nowrap">
-        {total} / {max} lbs
+        {total} / {displayMax} lbs
       </span>
       <span
         className={`shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded ${

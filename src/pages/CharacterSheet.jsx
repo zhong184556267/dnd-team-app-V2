@@ -216,20 +216,36 @@ function AvatarFrame({ char, canEdit, onSave, large }) {
 
 /** 必须定义在模块顶层，避免父组件每次渲染时子组件类型变化导致输入框失焦 */
 function AppearanceField({ label, value, setValue, onBlur, canEdit, inputCls, labelCls }) {
+  const SIZE_OPTIONS = ['微型', '小型', '中型', '大型', '巨型', '超巨型']
+  const isSize = label === '体型'
   return (
-    <div className="form-group-compact">
+    <div className="form-group-compact min-w-0 w-full gap-1">
       <label className={labelCls}>{label}</label>
       {canEdit ? (
-        <input
-          type="text"
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          onBlur={onBlur}
-          className={inputCls}
-          placeholder="—"
-        />
+        isSize ? (
+          <select
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onBlur={onBlur}
+            className={`${inputCls} pl-2.5 pr-2 min-w-0 max-w-full`}
+          >
+            <option value="">—</option>
+            {SIZE_OPTIONS.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+        ) : (
+          <input
+            type="text"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onBlur={onBlur}
+            className={inputCls}
+            placeholder="—"
+          />
+        )
       ) : (
-        <span className="text-[var(--text-main)] text-sm truncate max-w-[7.5rem] block">{value || '—'}</span>
+        <span className="text-[var(--text-main)] text-sm truncate max-w-full block leading-snug">{value || '—'}</span>
       )}
     </div>
   )
@@ -279,6 +295,7 @@ function AppearanceGrid({ char, canEdit, onSave, noBorder, compact }) {
   const [skin, setSkin] = useState(app.skin ?? '')
   const [background, setBackground] = useState(app.background ?? '')
   const [race, setRace] = useState(app.race ?? '')
+  const [size, setSize] = useState(app.size ?? '')
   const [weight, setWeight] = useState(app.weight ?? '')
   const [hair, setHair] = useState(app.hair ?? '')
   useEffect(() => {
@@ -290,11 +307,12 @@ function AppearanceGrid({ char, canEdit, onSave, noBorder, compact }) {
     setSkin(a.skin ?? '')
     setBackground(a.background ?? '')
     setRace(a.race ?? '')
+    setSize(a.size ?? '')
     setWeight(a.weight ?? '')
     setHair(a.hair ?? '')
   }, [char?.id])
 
-  const appearanceData = () => ({ age, race, alignment, height, weight, hair, eyes, skin, background })
+  const appearanceData = () => ({ age, race, size, alignment, height, weight, hair, eyes, skin, background })
   const save = () => onSave({ appearance: appearanceData() })
 
   const cells = [
@@ -307,19 +325,20 @@ function AppearanceGrid({ char, canEdit, onSave, noBorder, compact }) {
     { label: '种族', value: race, set: setRace },
     { label: '体重', value: weight, set: setWeight },
     { label: '发色', value: hair, set: setHair },
+    { label: '体型', value: size, set: setSize },
   ]
 
   const inputCls = compact
-    ? 'input-thin h-7 max-w-[7.5rem]'
-    : 'profile-input h-7 max-w-[7.5rem]'
+    ? 'input-thin h-9 min-h-9 w-full max-w-full'
+    : 'profile-input h-9 min-h-9 w-full max-w-full'
   const labelCls = compact ? 'form-label block' : 'profile-label block'
 
   const frameClass = noBorder ? 'p-0 min-w-0 w-full' : 'profile-section p-3 min-w-0 w-full'
   return (
     <div className={frameClass}>
       <div
-        className={`grid w-full min-w-0 ${compact ? 'gap-x-2 gap-y-1.5' : 'gap-x-3 gap-y-2'}`}
-        style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 9rem), 1fr))' }}
+        className={`grid w-full min-w-0 ${compact ? 'gap-x-2 gap-y-3' : 'gap-x-3 gap-y-3.5'}`}
+        style={{ gridTemplateColumns: 'repeat(5, minmax(0, 1fr))' }}
       >
         {cells.map(({ label, value, set }) => (
           <AppearanceField
@@ -334,7 +353,6 @@ function AppearanceGrid({ char, canEdit, onSave, noBorder, compact }) {
           />
         ))}
       </div>
-      {canEdit && <p className={`save-hint text-right ${compact ? 'mt-0.5' : 'mt-1'}`}>点击他处即保存</p>}
     </div>
   )
 }
@@ -413,7 +431,7 @@ function ExperienceLevelSection({ char, level, canEdit, onSave }) {
                     onSave({ storyLevel: v })
                   }}
                   placeholder="可选"
-                  className="panel-input-compact w-12 font-mono text-center"
+                  className={inputClass + ' h-8 w-16 px-2 font-mono text-center'}
                 />
               </div>
             ) : storyLevel != null ? (

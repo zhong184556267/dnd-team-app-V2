@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Plus, Minus, ArrowRightLeft } from 'lucide-react'
 import { useModule } from '../contexts/ModuleContext'
 import { getTeamVault, adjustVault, convertVaultCurrency, convertCurrency, loadTeamVaultIntoCache } from '../lib/currencyStore'
+import { getEffectiveTeamVaultBalances, deductTeamCurrency } from '../lib/teamCurrencyPublicBags'
 import { CURRENCY_CONFIG, getCurrencyDisplayName } from '../data/currencyConfig'
 import { CurrencyGrid } from './CurrencyDisplay'
 
@@ -19,7 +20,7 @@ export default function CurrencyPanel() {
   const [convertAmount, setConvertAmount] = useState('')
   const [convertError, setConvertError] = useState('')
 
-  const refresh = () => setVault(getTeamVault(currentModuleId))
+  const refresh = () => setVault(getEffectiveTeamVaultBalances(currentModuleId))
 
   useEffect(() => {
     if (!currentModuleId) return
@@ -29,7 +30,11 @@ export default function CurrencyPanel() {
   useEffect(() => {
     const h = () => refresh()
     window.addEventListener('dnd-realtime-team-vault', h)
-    return () => window.removeEventListener('dnd-realtime-team-vault', h)
+    window.addEventListener('dnd-realtime-characters', h)
+    return () => {
+      window.removeEventListener('dnd-realtime-team-vault', h)
+      window.removeEventListener('dnd-realtime-characters', h)
+    }
   }, [currentModuleId])
 
   useEffect(() => {
@@ -46,8 +51,18 @@ export default function CurrencyPanel() {
       setError('请输入有效数量')
       return
     }
-    const delta = sign === '+' ? num : -num
-    Promise.resolve(adjustVault(currentModuleId, currencyId, delta)).then((result) => {
+    if (sign === '+') {
+      Promise.resolve(adjustVault(currentModuleId, currencyId, num)).then((result) => {
+        if (result.success) {
+          refresh()
+          setAmountInput('')
+        } else {
+          setError(result.error || '操作失败')
+        }
+      })
+      return
+    }
+    Promise.resolve(deductTeamCurrency(currentModuleId, currencyId, num)).then((result) => {
       if (result.success) {
         refresh()
         setAmountInput('')
@@ -59,7 +74,8 @@ export default function CurrencyPanel() {
 
   const convertAmountNum = parseFloat(String(convertAmount).replace(/,/g, ''))
   const convertAmountValid = !Number.isNaN(convertAmountNum) && convertAmountNum > 0
-  const convertMaxFrom = vault[convertFrom] ?? 0
+  const vaultBook = getTeamVault(currentModuleId)
+  const convertMaxFrom = vaultBook[convertFrom] ?? 0
   const convertPreview = convertAmountValid
     ? convertCurrency(convertAmountNum, convertFrom, convertTo)
     : convertAmount.trim().toLowerCase() === '全部' && convertMaxFrom > 0
@@ -136,11 +152,19 @@ export default function CurrencyPanel() {
               <p className="text-dnd-text-muted text-[10px]">约 <span className="text-cyan-200 font-medium">{convertPreview}</span> {getCurrencyDisplayName(toCfg)}</p>
             )}
             {convertError && <p className="text-red-400 text-xs">{convertError}</p>}
+            <p className="text-dnd-text-muted text-[10px] leading-snug">
+              兑换仅使用「货币与金库」<strong className="text-dnd-text-body">账面</strong>余额；已放入公家次元袋的货币请先拖回账面再兑换。
+            </p>
           </div>
         </div>
       </div>
 
-      <CurrencyGrid balances={vault} title="团队金库" />
+      <div className="space-y-1">
+        <CurrencyGrid balances={vault} title="团队金库" />
+        <p className="text-dnd-text-muted text-[10px] px-1 leading-relaxed">
+          合计含<strong className="text-dnd-text-body">账面金库</strong>与各角色<strong className="text-dnd-text-body">公家次元袋</strong>内的钱币堆；增加金额只入账面，可将账面货币<strong className="text-dnd-text-body">拖入公家次元袋</strong>（仍计入本合计）。
+        </p>
+      </div>
     </div>
   )
 }

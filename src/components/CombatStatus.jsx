@@ -20,7 +20,8 @@ const DAMAGE_TYPE_SHORT = { 强酸: '酸', 钝击: '钝', 寒冷: '寒', 火焰:
 const HIT_RESOLUTION_LABELS = { dex_save: '敏捷豁免', str_save: '力量豁免', con_save: '体质豁免', wis_save: '感知豁免', int_save: '智力豁免', cha_save: '魅力豁免', spell_attack: '法术攻击' }
 import { getItemById, parseWeaponNoteToTraits } from '../data/itemDatabase'
 import { getSpellById, getWandScrollSpellPower, getMergedSpells } from '../data/spellDatabase'
-import { getPrimarySpellcastingAbility, getSpellcastingLevel, getMaxSpellSlotsByRing } from '../data/classDatabase'
+import { getSpellcastingLevel, getMaxSpellSlotsByRing } from '../data/classDatabase'
+import { getSpellcastingCombatStats } from '../lib/spellcastingStats'
 import { rollDice } from '../data/weaponDatabase'
 
 const EXHAUSTION_LEVELS = [0, 1, 2, 3, 4, 5, 6]
@@ -512,10 +513,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       .filter((x) => x.spell)
   }, [char?.spells])
   const effectiveAbilities = buffStats?.abilities ?? abilities
-  const spellAbility = getPrimarySpellcastingAbility(char)
-  const prof = buffStats?.proficiencyOverride != null ? buffStats.proficiencyOverride : proficiencyBonus(level)
-  const spellAttackBonus = spellAbility != null ? prof + abilityModifier(effectiveAbilities?.[spellAbility] ?? 10) + (buffStats?.spellAttackBonus ?? 0) : null
-  const spellDC = spellAbility != null ? 8 + prof + abilityModifier(effectiveAbilities?.[spellAbility] ?? 10) + (buffStats?.saveDcBonus ?? 0) : null
+  const { spellAbility, spellAttackBonus, spellDC, prof } = getSpellcastingCombatStats(char, buffStats, level, abilities)
   const spellcastingLevel = getSpellcastingLevel(char)
   const maxSlotsByRing = useMemo(() => getMaxSpellSlotsByRing(char), [char])
   const spellSlotsMaxOverride = char?.spellSlotsMax && typeof char.spellSlotsMax === 'object' ? char.spellSlotsMax : {}
@@ -691,6 +689,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
 
   const dsResults = deathSaves.results?.length === DEATH_SAVE_COUNT ? deathSaves.results : getDefaultDeathSaves().results
   const deathFailures = dsResults.filter((r) => r === 'failure').length
+  const deathSuccesses = dsResults.filter((r) => r === 'success').length
   const displayCurrent = hpCurrent + hpTemp
   const pct = maxHp > 0 ? (hpCurrent / maxHp) * 100 : 0
   const hasTempHp = hpTemp > 0
@@ -718,6 +717,15 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     conditions.forEach((c) => { const d = CONDITION_DESCRIPTIONS[c]; if (d) parts.push(`${CONDITION_LABELS[c] ?? c}：${d}`) })
     return parts.length ? parts.join('；') : ''
   }, [exhaustion, conditions])
+
+  const deathSaveSummaryLine = useMemo(() => {
+    const parts = [`成功 ${deathSuccesses}/3 · 失败 ${deathFailures}/3`]
+    if (deathSaves.lastRoll != null) parts.push(`上次 d20=${deathSaves.lastRoll.roll}`)
+    return parts.join(' · ')
+  }, [deathSuccesses, deathFailures, deathSaves.lastRoll])
+
+  const DEATH_SAVE_RULE_HINT =
+    'd20≥10 成功；投出 1 计两次失败；投出 20 恢复 1 HP 并清醒。累计 3 次成功伤势稳定；累计 3 次失败死亡。'
 
   return (
     <div className="rounded-xl border border-white/10 bg-gradient-to-b from-[#243147]/35 to-[#1f2a3d]/30 p-3 space-y-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
@@ -907,27 +915,62 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
             </div>
           </div>
 
-          <div className="flex-[2] min-w-0 rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 px-2 py-2 flex flex-nowrap items-start justify-evenly gap-1 min-h-8 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+          <div className="flex-[2] min-w-0 rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 px-2 py-2 flex flex-col gap-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
             <h3 className="text-dnd-gold-light text-xs font-bold uppercase tracking-wider leading-tight shrink-0">死亡豁免</h3>
-            {dsResults.map((r, i) => (
-              <span
-                key={i}
-                className={`w-5 h-5 rounded-full border flex-shrink-0 ${
-                  r === 'success' ? 'bg-emerald-600 border-emerald-500' : r === 'failure' ? 'bg-red-600 border-red-500' : 'bg-gray-700 border-gray-600'
-                }`}
-              />
-            ))}
-            {deathSaves.lastRoll != null ? (
-              <span className="text-gray-500 text-xs whitespace-nowrap shrink-0">d20={deathSaves.lastRoll.roll}</span>
-            ) : (
-              <span className="w-[4ch] shrink-0" aria-hidden />
-            )}
-            <button type="button" onClick={rollDeathSave} title="投掷死亡豁免" className="w-7 h-7 min-w-7 min-h-7 flex items-center justify-center rounded bg-dnd-red hover:bg-dnd-red-hover text-white shrink-0 box-border">
-              <Dices className="w-3.5 h-3.5" aria-hidden />
-            </button>
-            <button type="button" onClick={resetDeathSaves} className="w-7 h-7 min-w-7 min-h-7 flex items-center justify-center rounded text-xs border border-gray-500 text-gray-400 shrink-0 box-border">
-              重置
-            </button>
+            <div className="flex flex-col gap-2 min-h-8 overflow-hidden min-w-0">
+              <div className="flex items-center gap-2 flex-wrap shrink-0">
+                <span className="text-gray-500 text-xs whitespace-nowrap">记录</span>
+                <span className="text-emerald-400/90 text-xs font-mono tabular-nums">
+                  成功 {deathSuccesses}/3
+                </span>
+                <span className="text-gray-600 text-xs">·</span>
+                <span className="text-red-400/90 text-xs font-mono tabular-nums">
+                  失败 {deathFailures}/3
+                </span>
+                {deathSaves.lastRoll != null && (
+                  <span className="text-gray-500 text-xs whitespace-nowrap tabular-nums">
+                    d20={deathSaves.lastRoll.roll}
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-2 min-w-0">
+                <div className="flex items-center gap-1.5">
+                  {dsResults.map((r, i) => (
+                    <span
+                      key={i}
+                      className={`w-6 h-6 rounded-full border flex-shrink-0 box-border ${
+                        r === 'success' ? 'bg-emerald-600 border-emerald-500' : r === 'failure' ? 'bg-red-600 border-red-500' : 'bg-gray-700 border-gray-600'
+                      }`}
+                      title={r === 'success' ? '成功' : r === 'failure' ? '失败' : '未投'}
+                    />
+                  ))}
+                </div>
+                <div className="flex items-center gap-1.5 ml-auto sm:ml-0">
+                  <button
+                    type="button"
+                    onClick={rollDeathSave}
+                    title="投掷死亡豁免"
+                    className="w-8 h-8 min-w-8 min-h-8 flex items-center justify-center rounded bg-dnd-red hover:bg-dnd-red-hover text-white shrink-0 box-border"
+                  >
+                    <Dices className="w-4 h-4" aria-hidden />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={resetDeathSaves}
+                    title="清空死亡豁免记录"
+                    className="h-8 px-2 min-h-8 flex items-center justify-center rounded text-xs border border-gray-500 text-gray-400 hover:bg-gray-700/50 shrink-0 box-border"
+                  >
+                    重置
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div
+              className="min-h-[1.125rem] px-0.5 pt-2 text-xs text-gray-400 border-t border-white/10 leading-tight truncate"
+              title={`${deathSaveSummaryLine}\n${DEATH_SAVE_RULE_HINT}`}
+            >
+              {deathSaveSummaryLine} · {DEATH_SAVE_RULE_HINT}
+            </div>
           </div>
         </div>
       </div>

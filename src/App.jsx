@@ -5,7 +5,6 @@ import Login from './pages/Login'
 import Layout from './components/Layout'
 import ErrorBoundary from './components/ErrorBoundary'
 import Dashboard from './pages/Dashboard'
-import Characters from './pages/Characters'
 import CharacterNew from './pages/CharacterNew'
 import Warehouse from './pages/Warehouse'
 import Spells from './pages/Spells'
@@ -37,7 +36,7 @@ function AppRoutes() {
     <Routes>
       <Route element={<Layout />}>
         <Route path="/" element={<Dashboard />} />
-        <Route path="/characters" element={<Characters />} />
+        <Route path="/characters" element={<Dashboard />} />
         <Route path="/characters/new" element={<CharacterNew />} />
         <Route path="/characters/:id" element={<Suspense fallback={<div className="min-h-screen flex items-center justify-center bg-dnd-bg text-dnd-text-muted">加载角色卡…</div>}><CharacterSheet /></Suspense>} />
         <Route path="/character-spells" element={<CharacterSpellsPage />} />

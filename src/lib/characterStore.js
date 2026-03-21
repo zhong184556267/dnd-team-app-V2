@@ -204,6 +204,9 @@ export function addCharacter(ownerName, data = {}) {
     avatar: data.avatar ?? null,
     appearance: data.appearance ?? {},
     inventory: data.inventory ?? [],
+    /** 次元袋模块：{ id, bagCount, visibility }[]，默认可空 */
+    bagOfHoldingModules: Array.isArray(data.bagOfHoldingModules) ? data.bagOfHoldingModules : [],
+    bagOfHoldingCount: typeof data.bagOfHoldingCount === 'number' ? data.bagOfHoldingCount : 0,
     wallet: data.wallet ?? {},
     equipment: data.equipment ?? {},
     buffs: data.buffs ?? [],

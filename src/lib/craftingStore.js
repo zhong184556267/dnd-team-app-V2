@@ -71,6 +71,8 @@ export function addCraftingProject(moduleId, project) {
     材料费用: project.材料费用?.trim() ?? '',
     消耗经验: Math.max(0, Number(project.消耗经验) || 0),
     制作需求人: project.制作需求人?.trim() ?? '',
+    /** 委托/需求方角色（用于非 DM 可见性过滤） */
+    委托角色: project.委托角色?.trim() ?? '',
     状态: 'IN_PROGRESS',
     ...(project.所含法术环级 != null ? { 所含法术环级: Number(project.所含法术环级) || 0 } : {}),
     ...(project.充能次数 != null ? { 充能次数: Number(project.充能次数) || 50 } : {}),

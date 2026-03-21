@@ -3,6 +3,16 @@
  * 参考：奥法工坊规则
  */
 
+/** 制作经验：为制作成本（GP）的 4%，向下取整 */
+export const CRAFT_XP_RATE = 0.04
+
+/** @param {number} costGp 制作成本（金币 GP，不含「GP」后缀的数值） */
+export function calcXpFromCraftCostGp(costGp) {
+  const n = Math.max(0, Number(costGp) || 0)
+  if (n <= 0) return 0
+  return Math.floor(n * CRAFT_XP_RATE)
+}
+
 /** 从消耗金额字符串解析数字（如 "500 GP" -> 500） */
 export function parseCostFromString(str) {
   if (!str || typeof str !== 'string') return 0
@@ -37,8 +47,9 @@ export function calcPotionMarketPrice(法术环级) {
 export function calcPotionCraftCost(marketPrice) {
   return Math.floor(marketPrice / 2)
 }
+/** 药水：经验 = 制作成本（市价的一半）× CRAFT_XP_RATE */
 export function calcPotionXpCost(marketPrice) {
-  return Math.floor(marketPrice / 25)
+  return calcXpFromCraftCostGp(calcPotionCraftCost(marketPrice))
 }
 
 // --- 卷轴 (Scroll) ---

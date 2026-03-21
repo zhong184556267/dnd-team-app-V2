@@ -62,6 +62,17 @@ function summarizeLabels(labels, max = 6) {
   return `${labels.slice(0, max).join('、')} 等${labels.length}项`
 }
 
+/** 合并体质豁免与专注豁免上的优势/劣势（如战地施法者专注优势 + 其他来源的豁免劣势） */
+function mergeSaveAndConcentrationAdvantage(saveAdv, concentrationAdv) {
+  const s = saveAdv === 'advantage' ? 'advantage' : saveAdv === 'disadvantage' ? 'disadvantage' : 'normal'
+  const c = concentrationAdv === 'advantage' ? 'advantage' : concentrationAdv === 'disadvantage' ? 'disadvantage' : 'normal'
+  if (s === 'advantage' && c === 'disadvantage') return 'normal'
+  if (s === 'disadvantage' && c === 'advantage') return 'normal'
+  if (s === 'disadvantage' || c === 'disadvantage') return 'disadvantage'
+  if (s === 'advantage' || c === 'advantage') return 'advantage'
+  return 'normal'
+}
+
 /**
  * 根据熟练度等级返回文字颜色类名（写死完整类名，避免 Tailwind  purge 掉）
  * expertise=精通(暗金+光晕), prof=熟练(红), half=半熟练(天蓝), none=无(灰)
@@ -193,7 +204,10 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
   const effectiveAbilities = buffStats?.abilities ?? abilities
   const [rollingId, setRollingId] = useState(null) // 正在播放投掷动画的 skill/save id
   const [showProfModal, setShowProfModal] = useState(false)
+  /** 技能等：可被 Buff 覆盖熟练加值 */
   const prof = buffStats?.proficiencyOverride != null ? buffStats.proficiencyOverride : proficiencyBonus(level ?? 1)
+  /** 豁免检定：仅用角色等级熟练加值 + 是否豁免熟练，不受 proficiency_override 影响（与 PHB 一致） */
+  const profBonusForSaves = proficiencyBonus(level ?? 1)
   const saves = char?.savingThrows ?? { str: false, dex: false, con: false, int: false, wis: false, cha: false }
   const skillsState = char?.skills ?? {}
   const proficiencies = useMemo(() => normalizeProfState(char?.proficiencies), [char?.proficiencies])
@@ -291,16 +305,22 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
     saveProficiencies({ ...proficiencies, weapons: nextWeapons })
   }, [proficiencies, saveProficiencies])
 
+  // 豁免 = 属性调整值 +（若该豁免熟练则 + 熟练加值）+ Buff（含 save_bonus、体质上的专注增强等）
   const saveMod = useCallback((key) => {
     const mod = abilityModifier(effectiveAbilities[key] ?? 10)
-    return mod + (saves[key] ? prof : 0)
-  }, [effectiveAbilities, saves, prof])
+    const profPart = saves[key] ? profBonusForSaves : 0
+    const buffPart = buffStats?.saveBonusPerAbility?.[key] ?? 0
+    const concentrationPart = key === 'con' ? (buffStats?.concentrationBonus ?? 0) : 0
+    return mod + profPart + buffPart + concentrationPart
+  }, [effectiveAbilities, saves, profBonusForSaves, buffStats?.saveBonusPerAbility, buffStats?.concentrationBonus])
 
   const skillMod = useCallback((skill) => {
     const mod = abilityModifier(effectiveAbilities[skill.ab] ?? 10)
     const factor = skillProfFactor(skillsState[skill.id] || 'none')
-    return mod + Math.floor(prof * factor)
-  }, [effectiveAbilities, skillsState, prof])
+    const skillBuff = buffStats?.skillBonusPerSkill?.[skill.id] ?? 0
+    const concentrationPart = skill.id === 'concentration' ? (buffStats?.concentrationBonus ?? 0) : 0
+    return mod + Math.floor(prof * factor) + skillBuff + concentrationPart
+  }, [effectiveAbilities, skillsState, prof, buffStats?.skillBonusPerSkill, buffStats?.concentrationBonus])
 
   const skillsByAb = useMemo(() => {
     const m = { str: [], dex: [], con: [], int: [], wis: [], cha: [] }
@@ -311,18 +331,24 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
   const exhaustionPenalty = buffStats?.d20ExhaustionPenalty ?? 0
   const handleSaveRoll = useCallback((key) => {
     const saveBonus = saveMod(key) + exhaustionPenalty
-    const adv = buffStats?.advantage?.save
+    const adv = mergeSaveAndConcentrationAdvantage(
+      buffStats?.advantage?.save,
+      key === 'con' ? buffStats?.concentrationAdvantage : undefined,
+    )
     openForCheck(SAVE_NAMES[key], saveBonus, adv && adv !== 'normal' ? { advantage: adv } : undefined)
     setRollingId(`save-${key}`)
     setTimeout(() => setRollingId(null), 400)
-  }, [saveMod, openForCheck, buffStats?.advantage?.save, exhaustionPenalty])
+  }, [saveMod, openForCheck, buffStats?.advantage?.save, buffStats?.concentrationAdvantage, exhaustionPenalty])
 
   const handleSkillRoll = useCallback((skill, total) => {
-    const adv = buffStats?.advantage?.skill
+    const adv = mergeSaveAndConcentrationAdvantage(
+      buffStats?.advantage?.skill,
+      skill.id === 'concentration' ? buffStats?.concentrationAdvantage : undefined,
+    )
     openForCheck(skill.name, total + exhaustionPenalty, adv && adv !== 'normal' ? { advantage: adv } : undefined)
     setRollingId(skill.id)
     setTimeout(() => setRollingId(null), 400)
-  }, [openForCheck, buffStats?.advantage?.skill, exhaustionPenalty])
+  }, [openForCheck, buffStats?.advantage?.skill, buffStats?.concentrationAdvantage, exhaustionPenalty])
 
   return (
     <div className="space-y-2.5">
@@ -364,6 +390,7 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
           const baseScore = abilities[key] ?? 10
           const effectiveScore = effectiveAbilities[key] ?? 10
           const mod = abilityModifier(effectiveScore)
+          // 豁免加值显示：调整值 + 熟练加值（若熟练）+ Buff；力竭在投掷时再计入 d20 检定
           const saveBonus = saveMod(key)
           const skillList = skillsByAb[key] || []
 

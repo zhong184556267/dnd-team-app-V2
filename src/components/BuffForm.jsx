@@ -209,14 +209,19 @@ function DamageDiceInlineRow({ value, onChange, module, compact, minusStepper, t
 }
 
 /** 数字输入：统一使用「中间数字 + 上下箭头」设计。narrow 时容器仅够数字与箭头；unifiedColor 时与行内标签同色；pill 为胶囊样式（左减右加） */
-function NumberStepper({ value, onChange, min = -999, max = 999, step = 1, compact, narrow, unifiedColor, pill }) {
+function NumberStepper({ value, onChange, min = -999, max = 999, step = 1, compact, narrow, unifiedColor, pill, disabled }) {
   const rowH = pill ? 'h-7' : 'h-7'
   const textSize = compact || pill ? 'text-xs' : 'text-sm'
-  const colorCls = unifiedColor ? 'text-gray-200 hover:text-gray-100' : 'text-gray-400 hover:text-white'
-  const inputColorCls = unifiedColor ? 'text-gray-200' : 'text-white'
+  const colorCls = disabled
+    ? 'text-gray-600 cursor-not-allowed'
+    : unifiedColor
+      ? 'text-gray-200 hover:text-gray-100'
+      : 'text-gray-400 hover:text-white'
+  const inputColorCls = disabled ? 'text-gray-500' : unifiedColor ? 'text-gray-200' : 'text-white'
   const num = typeof value === 'number' ? value : (parseInt(value, 10) || 0)
   const clamp = (v) => Math.min(max, Math.max(min, v))
   const handleInputChange = (e) => {
+    if (disabled) return
     const s = e.target.value
     if (s === '' || s === '-') onChange(clamp(0))
     else { const v = parseInt(s, 10); if (!Number.isNaN(v)) onChange(clamp(v)) }
@@ -224,14 +229,15 @@ function NumberStepper({ value, onChange, min = -999, max = 999, step = 1, compa
   const padX = pill ? 'pl-1.5 pr-1.5' : (narrow ? 'px-5' : 'px-7')
   const inputWidth = pill ? 'min-w-[1.5rem] w-8 flex-1' : (narrow ? 'min-w-[2rem] w-11' : compact ? 'min-w-[2rem] flex-1' : 'min-w-[3.5rem] w-20')
   const wrapperCls = pill
-    ? `relative flex items-center border border-gray-600 rounded-full bg-gray-700 shadow-sm ${padX} ${rowH} max-w-full`
-    : `relative flex items-center border border-gray-500/60 rounded-md bg-gray-800/90 shadow-sm ${padX} ${rowH} ${compact ? 'w-full min-w-0 max-w-full' : ''}`
+    ? `relative flex items-center border border-gray-600 rounded-full bg-gray-700 shadow-sm ${padX} ${rowH} max-w-full ${disabled ? 'opacity-60' : ''}`
+    : `relative flex items-center border border-gray-500/60 rounded-md bg-gray-800/90 shadow-sm ${padX} ${rowH} ${compact ? 'w-full min-w-0 max-w-full' : ''} ${disabled ? 'opacity-60' : ''}`
   return (
     <div className={wrapperCls}>
       <button
         type="button"
-        onClick={() => onChange(clamp(num - step))}
-        className={`shrink-0 flex items-center justify-center ${colorCls} ${textSize} ${pill ? 'w-6 h-6 rounded-full hover:bg-gray-600/50' : 'absolute left-1'}`}
+        disabled={disabled}
+        onClick={() => !disabled && onChange(clamp(num - step))}
+        className={`shrink-0 flex items-center justify-center ${colorCls} ${textSize} ${pill ? 'w-6 h-6 rounded-full hover:bg-gray-600/50' : 'absolute left-1'} disabled:pointer-events-none`}
         aria-label="减少"
       >
         <ChevronDown className={`w-3.5 h-3.5 ${compact && !pill ? '' : 'w-3.5 h-3.5'}`} />
@@ -240,13 +246,15 @@ function NumberStepper({ value, onChange, min = -999, max = 999, step = 1, compa
         type="text"
         inputMode="numeric"
         value={num}
+        disabled={disabled}
         onChange={handleInputChange}
-        className={`flex-1 min-w-0 ${inputWidth} text-center ${inputColorCls} bg-transparent border-0 focus:outline-none focus:ring-0 ${rowH} ${textSize} tabular-nums ${pill ? 'px-0' : ''}`}
+        className={`flex-1 min-w-0 ${inputWidth} text-center ${inputColorCls} bg-transparent border-0 focus:outline-none focus:ring-0 ${rowH} ${textSize} tabular-nums ${pill ? 'px-0' : ''} disabled:cursor-not-allowed`}
       />
       <button
         type="button"
-        onClick={() => onChange(clamp(num + step))}
-        className={`shrink-0 flex items-center justify-center ${colorCls} ${textSize} ${pill ? 'w-6 h-6 rounded-full hover:bg-gray-600/50' : 'absolute right-1'}`}
+        disabled={disabled}
+        onClick={() => !disabled && onChange(clamp(num + step))}
+        className={`shrink-0 flex items-center justify-center ${colorCls} ${textSize} ${pill ? 'w-6 h-6 rounded-full hover:bg-gray-600/50' : 'absolute right-1'} disabled:pointer-events-none`}
         aria-label="增加"
       >
         <ChevronDown className={`w-3.5 h-3.5 rotate-180 ${compact && !pill ? '' : 'w-3.5 h-3.5'}`} />

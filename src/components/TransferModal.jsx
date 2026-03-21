@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react'
 import { X } from 'lucide-react'
 import { useModule } from '../contexts/ModuleContext'
 import { CURRENCY_CONFIG, getCurrencyDisplayName } from '../data/currencyConfig'
-import { getTeamVault, getCharacterWallet, transferCurrency, loadTeamVaultIntoCache } from '../lib/currencyStore'
+import { getCharacterWallet, transferCurrency, loadTeamVaultIntoCache } from '../lib/currencyStore'
+import { getEffectiveTeamVaultBalances, transferFromTeamToWallet } from '../lib/teamCurrencyPublicBags'
 
 export default function TransferModal({ open, onClose, direction, characterId, characterName, onSuccess }) {
   const { currentModuleId } = useModule()
@@ -17,7 +18,7 @@ export default function TransferModal({ open, onClose, direction, characterId, c
     loadTeamVaultIntoCache(currentModuleId).then(() => setVaultTick((t) => t + 1))
   }, [open, currentModuleId])
 
-  const vault = open ? getTeamVault(currentModuleId) : {}
+  const vault = open ? getEffectiveTeamVaultBalances(currentModuleId) : {}
   const wallet = open && characterId ? getCharacterWallet(characterId) : {}
   const maxSource = direction === 'toVault' ? (wallet[currencyId] ?? 0) : (vault[currencyId] ?? 0)
   const canAll = maxSource > 0
@@ -40,7 +41,11 @@ export default function TransferModal({ open, onClose, direction, characterId, c
       setTimeout(() => setShake(false), 400)
       return
     }
-    Promise.resolve(transferCurrency(currentModuleId, direction, characterId, currencyId, amt)).then((result) => {
+    const p =
+      direction === 'fromVault'
+        ? transferFromTeamToWallet(currentModuleId, characterId, currencyId, amt)
+        : transferCurrency(currentModuleId, direction, characterId, currencyId, amt)
+    Promise.resolve(p).then((result) => {
       if (result.success) {
         onSuccess?.()
         onClose()
@@ -71,6 +76,11 @@ export default function TransferModal({ open, onClose, direction, characterId, c
           </button>
         </div>
         <form onSubmit={handleSubmit} className="p-4 space-y-4">
+          {isWithdraw && (
+            <p className="text-dnd-text-muted text-[10px] leading-relaxed">
+              「金库」余额已含各角色<strong className="text-dnd-text-body">公家次元袋</strong>内钱币堆；取出时优先扣账面，再扣袋内。
+            </p>
+          )}
           {characterName && (
             <p className="text-dnd-text-muted text-sm">角色：<span className="text-white">{characterName}</span></p>
           )}

@@ -1,6 +1,7 @@
 import { Trash2, Pencil } from 'lucide-react'
 import { getEffectInfo, getDamageTypeLabel, getConditionLabel, ABILITY_NAMES_ZH, formatDamagePiercingTraitsValue } from '../data/buffTypes'
 import { SAVE_NAMES, SKILLS } from '../data/dndSkills'
+import { formatContainedSpellBrief } from '../lib/containedSpellBrief'
 
 /** 单条效果的简化文案（用于外层一行展示），如 "心灵抗性"、"智力-2，感知+2"、"生命上限+26" */
 function getEffectSummaryShort(buff) {
@@ -101,6 +102,10 @@ function getEffectSummaryShort(buff) {
       return v.map(getConditionLabel).join('、') + '免疫'
     }
   }
+  if (buff.effectType === 'contained_spell' && v && typeof v === 'object' && !Array.isArray(v)) {
+    const spellLine = formatContainedSpellBrief(v)
+    return spellLine || effectLabel
+  }
   return v != null ? `${effectLabel}${String(v)}` : effectLabel
 }
 
@@ -173,6 +178,10 @@ function getEffectDisplay(buff, baseAbilities = {}) {
         })
       const adv = v.advantage === 'advantage' ? '优势' : v.advantage === 'disadvantage' ? '劣势' : ''
       return { label: effectLabel, value: parts.length ? parts.join('、') + (adv ? ' ' + adv : '') : (adv || null) }
+    }
+    if (buff.effectType === 'contained_spell' && v && typeof v === 'object' && !Array.isArray(v)) {
+      const spellLine = formatContainedSpellBrief(v)
+      return { label: effectLabel, value: spellLine || null }
     }
     if (buff.effectType === 'ability_score' || buff.effectType === 'ability_override') {
       const parts = Object.entries(buff.value)

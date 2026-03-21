@@ -6,8 +6,10 @@ import { useMemo, useState, useRef, useEffect } from 'react'
 import { Trash2, Search, BookOpen, Plus, ChevronDown } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { getSpellById, getSpellsByClass, searchSpells } from '../data/spellDatabase'
-import { getPrimarySpellcastingAbility, getCharacterClasses, getSpellcastingLevel, getMaxSpellSlotsByRing } from '../data/classDatabase'
-import { abilityModifier, proficiencyBonus } from '../lib/formulas'
+import { getCharacterClasses, getMaxSpellSlotsByRing } from '../data/classDatabase'
+import { useBuffCalculator } from '../hooks/useBuffCalculator'
+import { getBuffsFromEquipmentAndInventory } from '../lib/effects/effectMapping'
+import { getSpellcastingCombatStats } from '../lib/spellcastingStats'
 import { levelFromXP } from '../lib/xp5e'
 import { ABILITY_NAMES_ZH } from '../data/buffTypes'
 import { inputClass } from '../lib/inputStyles'
@@ -42,7 +44,7 @@ function getSchoolTagStyle(school) {
   return SCHOOL_TAG_STYLES[school] ?? 'bg-gray-500/20 text-gray-300 border-gray-500/40'
 }
 
-export default function CharacterSpells({ char, canEdit, onSave }) {
+export default function CharacterSpells({ char, canEdit, onSave, buffStats: buffStatsProp, level: levelProp }) {
   const raw = char?.spells ?? []
   const spells = raw.map((s) => ({
     spellId: s.spellId ?? s.id ?? '',
@@ -88,8 +90,23 @@ export default function CharacterSpells({ char, canEdit, onSave }) {
     onSave({ spells: next })
   }
 
+  /** 与战斗页施法能力相同数据源：角色 Buff + 装备效果 → 再算法术攻击 / DC */
+  const mergedBuffs = useMemo(
+    () => [...(char?.buffs ?? []), ...getBuffsFromEquipmentAndInventory(char)],
+    [char?.buffs, char?.inventory, char?.equippedHeld, char?.equippedWorn],
+  )
+  const buffStatsComputed = useBuffCalculator(char, mergedBuffs)
+  const buffStats = buffStatsProp ?? buffStatsComputed
+  const sheetLevel =
+    levelProp != null ? Math.max(1, Math.min(20, Math.floor(Number(levelProp) || 1))) : Math.max(1, levelFromXP(char?.xp ?? 0))
+
+  const { spellAbility, spellAttackBonus, spellDC, spellcastingLevel: spellLevel } = getSpellcastingCombatStats(
+    char,
+    buffStats,
+    sheetLevel,
+  )
+
   /** 施法等级与环位数量（与 CombatStatus 一致：含 spellSlotsMaxOverride + 额外环位） */
-  const spellLevel = getSpellcastingLevel(char)
   const maxSlotsByRing = useMemo(() => getMaxSpellSlotsByRing(char), [char])
   const spellSlotsMaxOverride = char?.spellSlotsMax && typeof char.spellSlotsMax === 'object' ? char.spellSlotsMax : {}
   const spellSlotsCurrent = char?.spellSlots ?? {} // { 1: 2, 2: 1, ... } 当前剩余
@@ -122,13 +139,6 @@ export default function CharacterSpells({ char, canEdit, onSave }) {
     onSave({ spellSlots: next })
   }
 
-  /** 施法属性、法术攻击加值、法术DC（自动计算） */
-  const spellAbility = getPrimarySpellcastingAbility(char)
-  const charLevel = Math.max(1, levelFromXP(char?.xp ?? 0))
-  const prof = proficiencyBonus(charLevel)
-  const abilityMod = spellAbility ? abilityModifier(char?.abilities?.[spellAbility] ?? 10) : 0
-  const spellAttackBonus = spellAbility != null ? prof + abilityMod : null
-  const spellDC = spellAbility != null ? 8 + prof + abilityMod : null
   const preparedCount = useMemo(() => {
     return spells.filter((s) => {
       const spell = getSpellById(s.spellId)
@@ -194,20 +204,24 @@ export default function CharacterSpells({ char, canEdit, onSave }) {
     <div className="rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/24 to-[#222f45]/20 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
       <div className="space-y-2">
         {spellAbility != null && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 py-4 px-5 rounded-xl bg-[#1b2536]/72 border-l-4 border-dnd-gold border border-white/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 py-4 px-5 rounded-xl bg-[#1b2536]/72 border-l-4 border-dnd-gold border border-white/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
             <div className="text-center min-w-0">
               <p className="text-dnd-text-muted text-xs font-bold uppercase tracking-wider mb-1.5">施法属性</p>
               <p className="text-dnd-gold-light text-lg font-bold truncate">{ABILITY_NAMES_ZH[spellAbility] ?? spellAbility}</p>
             </div>
-            <div className="text-center min-w-0 border-r border-white/10">
+            <div className="text-center min-w-0 sm:border-r border-white/10">
               <p className="text-dnd-text-muted text-xs font-bold uppercase tracking-wider mb-1.5">法术攻击加值</p>
               <p className="text-white text-xl font-mono font-bold">{spellAttackBonus >= 0 ? '+' : ''}{spellAttackBonus}</p>
             </div>
-            <div className="text-center min-w-0 border-r border-white/10">
-              <p className="text-dnd-text-muted text-xs font-bold uppercase tracking-wider mb-1.5">法术DC</p>
+            <div className="text-center min-w-0 lg:border-r border-white/10">
+              <p className="text-dnd-text-muted text-xs font-bold uppercase tracking-wider mb-1.5">DC</p>
               <p className="text-white text-xl font-mono font-bold">{spellDC}</p>
             </div>
-            <div className="text-center min-w-0">
+            <div className="text-center min-w-0 lg:border-r border-white/10">
+              <p className="text-dnd-text-muted text-xs font-bold uppercase tracking-wider mb-1.5">施法者等级</p>
+              <p className="text-white text-xl font-mono font-bold">{spellLevel}</p>
+            </div>
+            <div className="text-center min-w-0 col-span-2 sm:col-span-1">
               <p className="text-dnd-text-muted text-xs font-bold uppercase tracking-wider mb-1.5">已准备法术</p>
               <p className="text-white text-xl font-mono font-bold">{preparedCount}</p>
             </div>

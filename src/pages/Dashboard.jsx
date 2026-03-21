@@ -1,50 +1,19 @@
-import { useState, useEffect, useRef, Fragment } from 'react'
-import { Link } from 'react-router-dom'
-import { User, BookOpen, ChevronDown, ChevronRight, Plus, Pencil, Star, GripVertical, Trash2 } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { Link, useLocation } from 'react-router-dom'
+import { BookOpen, ChevronDown, ChevronRight, Plus, Pencil, Star, GripVertical, Trash2 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useModule } from '../contexts/ModuleContext'
 import { getAllCharacters, getDefaultCharacterId } from '../lib/characterStore'
-import { getClassDisplayName } from '../data/classDatabase'
 import { getModules, addModule, updateModule, reorderModules, deleteModule } from '../lib/moduleStore'
 import { loadTeamActivities } from '../lib/activityLog'
 import { isSupabaseEnabled } from '../lib/supabase'
-import { levelFromXP } from '../lib/xp5e'
 import { inputClass } from '../lib/inputStyles'
-
-/** 角色等级：优先经验换算，否则职业等级之和 */
-function displayLevel(c) {
-  const xp = Number(c.xp)
-  if (xp > 0) return levelFromXP(xp)
-  const main = Math.max(1, Math.min(20, Number(c.classLevel) ?? 1))
-  const multi = Array.isArray(c.multiclass) ? c.multiclass.reduce((s, m) => s + (Number(m?.level) || 0), 0) : 0
-  const prestige = Array.isArray(c.prestige) ? c.prestige.reduce((s, p) => s + (Number(p?.level) || 0), 0) : 0
-  return Math.max(1, Math.min(20, main + multi + prestige))
-}
-
-/** 职业与等级简述，与「我的角色」一致（邪术师显示为魔契师） */
-function displayClassLevel(c) {
-  const parts = []
-  if (c.class) {
-    const mainLevel = Math.max(0, Math.min(20, Number(c.classLevel) ?? 1))
-    parts.push(`${getClassDisplayName(c.class)} ${mainLevel}`)
-  }
-  if (Array.isArray(c.multiclass) && c.multiclass.length) {
-    c.multiclass.forEach((m) => {
-      if (m?.['class']) parts.push(`${getClassDisplayName(m['class'])} ${Math.max(0, Number(m.level) || 0)}`)
-    })
-  }
-  if (Array.isArray(c.prestige) && c.prestige.length) {
-    c.prestige.forEach((p) => {
-      if (p?.['class']) parts.push(`${getClassDisplayName(p['class'])} ${Math.max(0, Number(p.level) || 0)}`)
-    })
-  }
-  if (parts.length === 0) return '—'
-  return parts.join(' / ')
-}
+import Characters from './Characters'
 
 export default function Dashboard() {
-  const { user, isAdmin } = useAuth()
+  const { user } = useAuth()
   const { setCurrentModuleId, modules, refreshModules } = useModule()
+  const location = useLocation()
   const [, setRealtimeTick] = useState(0)
   const [activities, setActivities] = useState([])
   const [newModuleName, setNewModuleName] = useState('')
@@ -187,8 +156,6 @@ export default function Dashboard() {
       })
   }
 
-  const canOpen = (c) => isAdmin || c.owner === user?.name
-
   const handleDragStart = (e, index) => {
     e.dataTransfer.effectAllowed = 'move'
     e.dataTransfer.setData('text/plain', String(index))
@@ -211,6 +178,15 @@ export default function Dashboard() {
     const d = new Date(iso)
     return d.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' }) + ' ' + d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
   }
+
+  useEffect(() => {
+    if (location.pathname !== '/characters') return
+    const t = window.setTimeout(() => {
+      const el = document.getElementById('my-characters-section')
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 80)
+    return () => window.clearTimeout(t)
+  }, [location.pathname])
 
   return (
     <div className="p-4 pb-24 min-h-screen" style={{ backgroundColor: 'var(--page-bg)' }}>
@@ -242,6 +218,7 @@ export default function Dashboard() {
         </section>
       )}
 
+      <div id="my-characters-section" className="scroll-mt-4">
       <h2 className="section-subtitle mb-3">
         模组
       </h2>
@@ -266,7 +243,7 @@ export default function Dashboard() {
                 onClick={() => !isEditing && toggleExpand(m.id)}
                 onKeyDown={(e) => e.key === 'Enter' && !isEditing && toggleExpand(m.id)}
                 className={`flex items-center justify-between gap-3 p-4 text-left transition-colors cursor-pointer hover:bg-[#24344d]/55 ${
-                  isExpanded ? 'border-l-4 border-dnd-gold/50 bg-[#1b2536]/70' : ''
+                  isExpanded ? 'border-l border-l-dnd-gold/50 bg-[#1b2536]/70' : ''
                 }`}
               >
                 <div className="flex items-center gap-2 shrink-0">
@@ -384,142 +361,32 @@ export default function Dashboard() {
                       </Link>
                     </div>
                   ) : (
-                    <>
-                    <ul className="p-3 pt-2 space-y-3">
-                      {(() => {
-                        const mains = charList.filter((c) => !c.parentId)
-                        const subs = charList.filter((c) => !!c.parentId)
-                        const subByParent = new Map()
-                        subs.forEach((s) => {
-                          const key = s.parentId
-                          const arr = subByParent.get(key) || []
-                          arr.push(s)
-                          subByParent.set(key, arr)
-                        })
-                        const orphanSubs = subs.filter((s) => !mains.some((m0) => m0.id === s.parentId))
-
-                        const renderMainCard = (c) => {
-                          const hp = c.hp || {}
-                          const max = hp.max || 1
-                          const cur = hp.current ?? 0
-                          const pct = Math.max(0, Math.min(100, (cur / max) * 100))
-                          const isLowHp = max > 0 && pct < 25
-                          const isMidHp = max > 0 && pct >= 25 && pct < 50
-                          const barColor = isLowHp ? 'bg-dnd-red' : isMidHp ? 'bg-dnd-warning' : 'bg-dnd-success'
-                          const level = displayLevel(c)
-                          const classLevelText = displayClassLevel(c)
-                          const isClickable = canOpen(c)
-                          const cardClass =
-                            'flex items-center gap-4 rounded-xl bg-dnd-card border border-white/10 p-4 ' +
-                            (isClickable
-                              ? 'border-l-4 border-dnd-red hover:shadow-dnd-card-hover transition-shadow'
-                              : 'border-l-4 border-dnd-text-muted opacity-90')
-                          const content = (
-                            <>
-                              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-black/30 border border-white/10 overflow-hidden aspect-square">
-                                {c.avatar ? (
-                                  <img src={c.avatar} alt="" className="h-full w-full object-cover object-center" />
-                                ) : (
-                                  <User className="w-6 h-6 text-dnd-text-muted" />
-                                )}
-                              </span>
-                              <div className="min-w-0 flex-1">
-                                {c.codename ? <p className="text-base font-semibold text-white truncate mb-0.5">{c.codename}</p> : null}
-                                <p className="text-xs text-dnd-text-muted truncate">{c.name || '未命名'}</p>
-                                <p className="text-dnd-text-muted text-sm">{classLevelText} · 等级 {level}</p>
-                                <div className="mt-1.5 h-1.5 rounded-full bg-black/30 overflow-hidden">
-                                  <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${pct}%` }} />
-                                </div>
-                                <div className="flex items-end justify-between gap-2 mt-0.5 min-h-[1.25rem]">
-                                  <p className="text-xs text-dnd-text-muted truncate min-w-0">创建 {c.owner ?? '—'} · 修改 {formatDateTime(c.updatedAt ?? c.createdAt)}</p>
-                                  <p className={`text-xs font-mono font-semibold shrink-0 ${isLowHp ? 'text-dnd-red' : 'text-dnd-text-muted'}`}>HP {cur}/{max}{hp.temp ? ` +${hp.temp} 临时` : ''}</p>
-                                </div>
-                              </div>
-                            </>
-                          )
-                          return isClickable ? <Link to={`/characters/${c.id}`} className={cardClass}>{content}</Link> : <div className={cardClass} aria-disabled>{content}<span className="text-dnd-text-muted text-xs shrink-0">仅创建人可进入</span></div>
-                        }
-
-                        const renderSubCard = (c) => {
-                          const isClickable = canOpen(c)
-                          const cardClass =
-                            'flex items-center gap-3 rounded-lg bg-black/20 border border-white/10 px-3 py-2 min-w-0 ' +
-                            (isClickable
-                              ? 'border-l-2 border-cyan-400/70 hover:bg-black/30 transition-colors'
-                              : 'border-l-2 border-dnd-text-muted opacity-90')
-                          const content = (
-                            <>
-                              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-black/30 border border-white/10 overflow-hidden aspect-square">
-                                {c.avatar ? (
-                                  <img src={c.avatar} alt="" className="h-full w-full object-cover object-center" />
-                                ) : (
-                                  <User className="w-4 h-4 text-dnd-text-muted" />
-                                )}
-                              </span>
-                              <div className="min-w-0 flex-1">
-                                {c.codename ? (
-                                  <p className="text-sm font-semibold text-white truncate mb-0.5">
-                                    {c.codename}
-                                    <span className="ml-1 text-[10px] text-cyan-300/90 align-middle">附属卡</span>
-                                  </p>
-                                ) : null}
-                                <p className="text-[11px] text-dnd-text-muted truncate">{c.name || '未命名'}</p>
-                              </div>
-                            </>
-                          )
-                          return isClickable ? <Link to={`/characters/${c.id}`} className={cardClass}>{content}</Link> : <div className={cardClass} aria-disabled>{content}<span className="text-dnd-text-muted text-[10px] shrink-0">仅创建人可进入</span></div>
-                        }
-
-                        return (
-                          <>
-                            {mains.map((m0) => {
-                              const children = subByParent.get(m0.id) || []
-                              return (
-                                <Fragment key={m0.id}>
-                                  <li>{renderMainCard(m0)}</li>
-                                  {children.length > 0 && (
-                                    <li className="ml-8">
-                                      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
-                                        {children.map((s) => (
-                                          <div key={s.id} className="min-w-0">{renderSubCard(s)}</div>
-                                        ))}
-                                      </div>
-                                    </li>
-                                  )}
-                                </Fragment>
-                              )
-                            })}
-                            {orphanSubs.length > 0 && (
-                              <li className="ml-8">
-                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
-                                  {orphanSubs.map((s) => (
-                                    <div key={s.id} className="min-w-0">{renderSubCard(s)}</div>
-                                  ))}
-                                </div>
-                              </li>
-                            )}
-                          </>
-                        )
-                      })()}
-                    </ul>
-                    <div className="px-3 pb-3 pt-1">
-                      <Link
-                        to={`/characters/new?moduleId=${encodeURIComponent(m.id)}`}
-                        onClick={() => setCurrentModuleId(m.id)}
-                        className="inline-flex items-center justify-center gap-2 py-2 px-4 rounded-lg border border-dnd-red text-dnd-red hover:bg-dnd-red hover:text-white font-medium text-sm transition-colors"
-                      >
-                        <Plus className="w-4 h-4" />
-                        新增角色
-                      </Link>
+                    <div className="px-2 pb-3 pt-2">
+                      <div className="mb-2 flex flex-wrap items-center justify-between gap-2 px-1">
+                        <p className="text-[11px] text-dnd-text-muted">
+                          共 <span className="text-dnd-gold-light/90 font-medium tabular-nums">{charList.length}</span> 个角色 · 归属、分组、模组说明等均在下方列表中操作
+                        </p>
+                        <Link
+                          to={`/characters/new?moduleId=${encodeURIComponent(m.id)}`}
+                          onClick={() => setCurrentModuleId(m.id)}
+                          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-dnd-red/90 hover:bg-dnd-red px-3 py-1.5 text-white text-xs font-medium"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          新增角色
+                        </Link>
+                      </div>
+                      <Characters embedded embeddedModuleId={m.id} />
                     </div>
-                    </>
                   )}
                 </div>
               )}
             </div>
           )
         })}
+      </div>
+      </div>
 
+      <div className="mt-6">
         {showAddModule ? (
           <div className="rounded-xl bg-dnd-card border border-dashed border-gray-500 p-4 flex flex-col gap-2">
             <input

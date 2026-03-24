@@ -598,18 +598,167 @@ const CLASS_DATA = {
     features: [
       { id: 'firearm_expertise', name: '火器专精', description: '获得火器熟练；装填时不会引发借机攻击。', level: 1 },
       { id: 'steady_shot', name: '维稳射击', description: '若该回合未移动，本回合第一次火器攻击获得优势。', level: 1 },
-      { id: 'focus_points', name: '专注点', description: '专注点每 2 级获得 1 点（2 级 2 点起），战斗短休回复。可消耗：1 点 聚精会神(2 级) 攻击=10+职业等级+敏捷+熟练不掷骰；1 点 快速装填(2 级) 装填变反应/全回合变标准/标准变附赠；1 点 锁定弱点(3 级) 命中可视为暴击；1 点 预判(3 级 战场先知) 先攻优势；1 点 骑枪齐射(3 级 库罗骑士) 骑乘时马匹移动不失去维稳优势；1 点 死不旋踵(3 级 敢死先锋) 反应 10 尺内火器攻击；1 点 精准射击(6 级) 命中后目标体质豁免伤害减半否则倒地；4 点 突袭射击(13 级) 优势下火器攻击额外 2d6 武器伤害，暴击倍率翻倍，每回合一次。', level: 2 },
+      { id: 'focus_points', name: '专注点', description: '你获得「专注点」资源：每 2 个火铳手等级获得 1 点（2 级时为 2 点）；战斗间进行短休时，已消耗的专注点全部恢复。另可通过「全神贯注」在短休前补满（见 6 级起说明）。各能力的消耗与效果见下方「专注点 · 特殊能力」表。', level: 2 },
       { id: 'predictive_shot', name: '预判射击', description: '攻击时可将熟练加值加到攻击骰或伤害骰上。', level: 2 },
-      { id: 'gunslinger_archetype', name: '子职业', description: '选择：战场先知（隐匿/察觉专精，7 级猎手直觉每回合一次免费察觉，14 级幽影身法攻击后隐匿未发现则维稳仍有效）、库罗骑士（3 级骑枪机动用自己移动换坐骑移动，7 级骑士守护反应转移伤害/坐骑豁免优势且不恐惧魅惑，14 级战场统御攻击时坐骑移动 15 尺/骑乘不引发对坐骑借机）、敢死先锋（3 级血肉堡垒每级+3 HP 恐惧豁免优势，7 级铁血坚守 HP 半以下感知智力魅力豁免优势，14 级死不旋踵 1 专注点改为降至 1 HP，短休一次）。', level: 3 },
+      { id: 'gunslinger_archetype', name: '子职业', description: '在「战场先知」「库罗骑士」「敢死先锋」中选择其一；各子职 3、7、14 级能力见下方子职条目。', level: 3 },
       { id: 'asi_gunslinger', name: '属性值提升', description: '第 4、8、12、16、19 级可获得属性提升或专长。', level: 4 },
       { id: 'extra_attack_gunslinger', name: '额外攻击', description: '执行攻击动作时可攻击两次（5 级）；11 级可攻击三次。', level: 5 },
       { id: 'full_focus', name: '全神贯注', description: '短休前可重新获得所有专注点。6 级 1 次/天，12 级 2 次/天，18 级 3 次/天。', level: 6 },
       { id: 'disrupting_shot', name: '干扰射击', description: '火器攻击命中时可不造成伤害，改为迫使目标消耗反应进行一次移动，移动距离为该生物一半速度、最多 30 尺。', level: 7 },
       { id: 'deadly_focus', name: '致命专注', description: '火器攻击时暴击骰 -1（9 级）。17 级必杀手：暴击骰 -2。', level: 9 },
-      { id: 'precise_shot', name: '精准射击', description: '消耗 1 点专注点（6 级起）：命中后目标体质豁免伤害减半，失败则倒地。', level: 13 },
+      { id: 'precise_shot', name: '精准射击', description: '自 6 级起，可消耗 1 专注点发动「精准射击」，效果见下方「专注点 · 特殊能力」表。', level: 6 },
       { id: 'barrage_fire', name: '弹雨火力', description: '每回合可进行一次额外火器攻击，伤害减半。', level: 13 },
       { id: 'unwavering_precision', name: '不屈精准', description: '15 级获得，详见模组。', level: 15 },
       { id: 'headshot', name: '爆头', description: '远程武器对生物造成重击时，可选择爆头：若其生命值不高于 100 则死亡；否则额外受到 10d10 伤害（武器伤害类型）。使用后直至短休或长休无法再次使用。', level: 20 },
+    ],
+    subclasses: {
+      战场先知: {
+        flavor: '以隐匿与察觉掌控战场节奏，在阴影与先机中寻找致命射击窗口。',
+        features: [
+          {
+            id: 'gunslinger_oracle_stealth',
+            name: '隐匿专精',
+            description: '你获得隐匿技能熟练。若你原本已熟练隐匿，则改为获得隐匿专精（熟练加值翻倍，与同类规则叠加时取 DM 裁定）。',
+            level: 3,
+          },
+          {
+            id: 'gunslinger_oracle_perception',
+            name: '威胁感应',
+            description: '你获得察觉技能熟练。若你原本已熟练察觉，则改为获得察觉专精（熟练加值翻倍，与同类规则叠加时取 DM 裁定）。',
+            level: 3,
+          },
+          {
+            id: 'gunslinger_oracle_hunter_instinct',
+            name: '猎手直觉',
+            description: '在战斗中，你的每个回合一次，你可以不消耗动作进行一次察觉检定。',
+            level: 7,
+          },
+          {
+            id: 'gunslinger_oracle_shadow_step',
+            name: '幽影身法',
+            description: '每回合一次，在你用攻击动作中的攻击（含火器攻击）结束后，你可以立即进行一次隐匿检定。若你未因此次隐匿而被发现，则本回合「维稳射击」仍视为满足「该回合未移动」的前提（维稳射击的优势等效果仍然生效）。',
+            level: 14,
+          },
+        ],
+      },
+      库罗骑士: {
+        flavor: '人马如一，以骑乘与守护在冲锋与缠斗中倾泻火铳火力。',
+        features: [
+          {
+            id: 'gunslinger_kuro_lance_maneuver',
+            name: '骑枪机动',
+            description: '骑乘时，你可以用自己的移动量换取坐骑的移动：你本轮减少的移动距离可加到坐骑本轮的移动上（由你与 DM 具体裁定移动顺序与借机规则）。',
+            level: 3,
+          },
+          {
+            id: 'gunslinger_kuro_knights_guard',
+            name: '骑士守护',
+            description: '以反应动作，当坐骑或你 5 尺内一名盟友受到伤害时，可将该伤害的一部分转移到坐骑身上（具体比例与上限由 DM 裁定）；此外，你的坐骑进行豁免检定时具有优势，且免疫恐慌与魅惑（若规则允许可写为对恐惧、魅惑相关效应具有优势或豁免加成，以房规为准）。',
+            level: 7,
+          },
+          {
+            id: 'gunslinger_kuro_battle_command',
+            name: '战场统御',
+            description: '当你骑乘并发动攻击时，可令坐骑移动至多 15 尺（不消耗你的动作，具体触发时机为攻击前或攻击后由房规裁定）；骑乘期间你对坐骑发动的借机攻击免疫或不受借机（以「不引发对坐骑的借机攻击」之房规表述为准）。',
+            level: 14,
+          },
+        ],
+      },
+      敢死先锋: {
+        flavor: '以血肉与意志换距离与火力，在生死线上扣动扳机。',
+        features: [
+          {
+            id: 'gunslinger_daredevil_fortress',
+            name: '血肉堡垒',
+            description: '你每拥有 1 级火铳手等级，生命值上限额外 +3。你对恐惧相关效应的豁免具有优势。',
+            level: 3,
+          },
+          {
+            id: 'gunslinger_daredevil_iron_will',
+            name: '铁血坚守',
+            description: '当你的当前生命值不高于生命值上限的一半时，你在感知、智力、魅力相关的豁免检定上具有优势。',
+            level: 7,
+          },
+          {
+            id: 'gunslinger_daredevil_last_stand',
+            name: '绝命一息',
+            description: '当你将因伤害降至 0 生命值时，你可以消耗 1 点专注点，改为生命值降至 1 点并仍保持清醒（避免倒地/濒死，以房规为准）。此能力每短休只能使用一次。（注：与专注点表「死不旋踵」——进入 10 尺反应射击——为不同能力。）',
+            level: 14,
+          },
+        ],
+      },
+    },
+    /** 专注点可兑换的特殊能力（数据表，房规页展示） */
+    focusAbilities: [
+      {
+        id: 'gs_focus_concentration',
+        cost: 1,
+        name: '聚精会神',
+        minLevel: 2,
+        exclusiveSubclass: null,
+        effect:
+          '选择一次火器攻击，该次攻击检定视为固定值 10 + 你的火铳手职业等级 + 敏捷调整值 + 熟练加值，无需掷 d20。',
+      },
+      {
+        id: 'gs_focus_rapid_reload',
+        cost: 1,
+        name: '快速装填',
+        minLevel: 2,
+        exclusiveSubclass: null,
+        effect:
+          '以一个动作启用：当次装填可用你的反应完成；若装填原为整轮动作则降为标准动作，若原为标准动作则降为附赠动作（对单次装填生效，具体以房规裁定）。',
+      },
+      {
+        id: 'gs_focus_lock_weakness',
+        cost: 1,
+        name: '锁定弱点',
+        minLevel: 3,
+        exclusiveSubclass: null,
+        effect: '当你的火器攻击检定已成功命中时，你可使该次攻击视为重击。',
+      },
+      {
+        id: 'gs_focus_never_retreat_shot',
+        cost: 1,
+        name: '死不旋踵',
+        minLevel: 3,
+        exclusiveSubclass: '敢死先锋',
+        effect:
+          '当一名敌对生物进入距你 10 尺内时，你可以用反应并消耗本项所需的专注点，对该生物发动一次火器武器攻击。',
+      },
+      {
+        id: 'gs_focus_anticipation',
+        cost: 1,
+        name: '预判',
+        minLevel: 3,
+        exclusiveSubclass: '战场先知',
+        effect: '每场战斗开始时，你的先攻检定具有优势。',
+      },
+      {
+        id: 'gs_focus_mounted_volley',
+        cost: 1,
+        name: '骑枪齐射',
+        minLevel: 3,
+        exclusiveSubclass: '库罗骑士',
+        effect: '骑乘状态下，本回合内坐骑的移动不会使你失去「维稳射击」所给予的攻击优势。',
+      },
+      {
+        id: 'gs_focus_precise_shot',
+        cost: 1,
+        name: '精准射击',
+        minLevel: 6,
+        exclusiveSubclass: null,
+        effect:
+          '本次攻击刻意瞄准足部或使其失衡。命中后，目标进行一次体质豁免：成功则该次攻击伤害减半，失败则陷入倒地。',
+      },
+      {
+        id: 'gs_focus_surprise_shot',
+        cost: 4,
+        name: '突袭射击',
+        minLevel: 13,
+        exclusiveSubclass: null,
+        effect:
+          '每回合至多一次。仅当你对该次火器攻击具有优势时可用：该次攻击额外造成 2d6 武器伤害，且重击时武器伤害骰的倍率翻倍（与暴击规则叠加方式以房规为准）。',
+      },
     ],
   },
   奇械师: {
@@ -843,8 +992,8 @@ export function getCharacterClasses(character) {
 }
 
 /**
- * 计算施法等级（用于法术位表）
- * 规则：全施法=等级，半施法=floor(等级/2)，三分之一=floor(等级/3)；契约(魔契师)不加入此值。
+ * 计算施法等级（用于兼职施法者共用法术位表）
+ * 规则（与本应用房规一致）：全施法=等级全额；半施法=等级的一半向上取整；三分之一施法（奥法骑士/诡术师等）= floor(等级/3)；契约魔法（魔契师）不计入此值，法术位单独计算后合并显示。
  */
 export function getSpellcastingLevel(character) {
   const classes = getCharacterClasses(character)
@@ -861,7 +1010,7 @@ export function getSpellcastingLevel(character) {
         level += lv
         break
       case 'half':
-        level += Math.floor(lv / 2)
+        level += Math.ceil(lv / 2)
         break
       case 'third':
         level += Math.floor(lv / 3)
@@ -876,8 +1025,8 @@ export function getSpellcastingLevel(character) {
 }
 
 /**
- * D&D 5e 法术位表（按施法等级 1–20，全施法/半施法/三分之一施法共用此表，按各自施法等级查）
- * 索引为环位 1–9，值为该环位数量；0 级无法术位（避免纯魔契师被误算为 1 级表）
+ * D&D 5e 兼职施法者法术位表（施法等级 1–20；下标 0 占位，下标 1–20 对应等级）
+ * 每行 [占位, 1环, 2环, … 9环]；角色卡 getMaxSpellSlotsByRing 与此表一致。
  */
 const SPELL_SLOTS_BY_LEVEL = [
   [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], // 0
@@ -902,6 +1051,9 @@ const SPELL_SLOTS_BY_LEVEL = [
   [0, 4, 3, 3, 3, 3, 2, 1, 1, 1], // 19
   [0, 4, 3, 3, 3, 3, 2, 2, 1, 1], // 20
 ]
+
+/** 导出供房规页等展示「兼职施法者：每环阶法术位」表（与 SPELL_SLOTS_BY_LEVEL 同一引用） */
+export const MULTICLASS_SPELL_SLOT_ROWS = SPELL_SLOTS_BY_LEVEL
 
 /**
  * 根据施法等级返回各环位数量（1–9 环）

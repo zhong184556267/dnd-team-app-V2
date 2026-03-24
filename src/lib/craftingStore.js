@@ -79,6 +79,12 @@ export function addCraftingProject(moduleId, project) {
     ...(project.单次材料费 != null ? { 单次材料费: Number(project.单次材料费) || 0 } : {}),
     ...(project.法术数量 != null ? { 法术数量: Number(project.法术数量) || 1 } : {}),
     ...(project.数量 != null ? { 数量: Math.max(1, Number(project.数量) || 1) } : {}),
+    ...(project.内含法术 != null && typeof project.内含法术 === 'object'
+      ? { 内含法术: { ...project.内含法术 } }
+      : {}),
+    ...(Array.isArray(project.内含法术列表)
+      ? { 内含法术列表: project.内含法术列表.map((x) => (x && typeof x === 'object' ? { ...x } : x)) }
+      : {}),
   }
   list.push(entry)
   const mod = moduleId ?? 'default'

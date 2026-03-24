@@ -2,7 +2,7 @@ import { useMemo, useState, useEffect } from 'react'
 import { Package, Plus, Trash2, GripVertical, ChevronDown, ChevronRight } from 'lucide-react'
 import { getBagOfHoldingSelfWeightLb } from '../lib/encumbrance'
 import { normalizeBagOfHoldingVisibility } from '../lib/bagOfHoldingVisibility'
-import { entryBelongsToBagModule, MAX_BAG_OF_HOLDING_TOTAL } from '../lib/bagOfHoldingModules'
+import { entryBelongsToBagModule, MAX_BAG_OF_HOLDING_TOTAL, compareBagInventoryDisplayOrder } from '../lib/bagOfHoldingModules'
 import { getCurrencyById, getCurrencyDisplayName } from '../data/currencyConfig'
 import { NumberStepper } from './BuffForm'
 import { inputClass } from '../lib/inputStyles'
@@ -61,9 +61,11 @@ export default function BagOfHoldingPanel({
 
   const bagRows = useMemo(() => {
     if (!mod) return []
-    return inventory
+    const rows = inventory
       .map((entry, i) => ({ entry, i }))
       .filter(({ entry }) => entryBelongsToBagModule(entry, mod, modules))
+    rows.sort((a, b) => compareBagInventoryDisplayOrder(a.entry, a.i, b.entry, b.i))
+    return rows
   }, [inventory, mod, modules])
 
   /** 本模块袋内特品与钱币堆叠的合计重量（不含次元袋自重） */
@@ -211,11 +213,11 @@ export default function BagOfHoldingPanel({
                         onChange={(e) =>
                           onSetModuleVisibility?.(mod.id, e.target.value === 'public' ? 'public' : 'private')
                         }
-                        title="私人：团队仓库不列出此袋内物品。公家：团队仓库可查看并拖入物品。"
+                        title="私人：团队仓库不列出此袋内物品。公家（新建默认）：全体玩家可在团队仓库查看袋内并编辑数量/充能。"
                         className={`${inputClass} box-border !h-7 w-full min-h-0 max-h-7 py-0 pl-1.5 pr-5 text-[11px] text-right leading-none`}
                       >
+                        <option value="public">公家（团队可见）</option>
                         <option value="private">私人</option>
-                        <option value="public">公家</option>
                       </select>
                     </div>
                   </div>
@@ -259,7 +261,7 @@ export default function BagOfHoldingPanel({
                     onDragOver={canEdit ? handleDragOver : undefined}
                     onDrop={canEdit ? handleDropZone : undefined}
                     className={`rounded-md border-2 border-dashed border-dnd-gold/30 bg-[#151c28]/50 flex flex-col min-h-[88px] max-h-[min(32vh,18rem)] overflow-hidden ${canEdit ? 'hover:border-dnd-gold/50' : ''}`}
-                    title={canEdit ? '从左侧拖入身上物品或钱包钱币' : ''}
+                    title={canEdit ? '从相邻背包拖入身上物品；从个人持有拖货币（⋮ 柄）入袋' : ''}
                   >
                     <div className="overflow-x-auto overflow-y-auto flex-1 min-h-0">
                       <table className="inventory-table w-full text-sm" style={{ tableLayout: 'fixed', minWidth: '480px' }}>
@@ -305,7 +307,7 @@ export default function BagOfHoldingPanel({
                                 className="py-4 px-3 text-center text-gray-500 text-[11px] align-middle"
                                 style={{ minHeight: 72 }}
                               >
-                                {canEdit ? '暂无。可从左侧拖入物品或钱币。' : '—'}
+                                {canEdit ? '暂无。可拖入背包内物品，或将个人持有中货币的 ⋮ 柄拖入此处。' : '—'}
                               </td>
                             </tr>
                           ) : (
@@ -341,7 +343,26 @@ export default function BagOfHoldingPanel({
                                       袋内钱币堆；拖回背包表合并至钱包。
                                     </td>
                                     <td className="py-1 px-2 border-l border-gray-600 align-middle text-center text-dnd-text-body text-xs tabular-nums overflow-hidden" style={{ height: 48 }}>
-                                      {qty}
+                                      {patchBag && canEdit ? (
+                                        <div className="flex justify-center max-w-[5.5rem] mx-auto" onMouseDown={(e) => e.stopPropagation()} role="presentation">
+                                          <NumberStepper
+                                            value={entry.walletCurrencyId === 'gem_lb' ? Math.max(0, Number(qty) || 0) : Math.max(0, Math.floor(qty))}
+                                            onChange={(v) => {
+                                              const raw =
+                                                entry.walletCurrencyId === 'gem_lb'
+                                                  ? Math.max(0, Number(v) || 0)
+                                                  : Math.max(0, Math.floor(Number(v) || 0))
+                                              patchBag(i, { qty: raw })
+                                            }}
+                                            min={0}
+                                            max={999999999}
+                                            compact
+                                            pill
+                                          />
+                                        </div>
+                                      ) : (
+                                        qty
+                                      )}
                                     </td>
                                     {canEdit && (
                                       <td className="py-1 px-1 border-l border-gray-600 align-middle text-center text-dnd-text-muted text-[10px]" style={{ height: 48 }}>

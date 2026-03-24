@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { ArrowDownToLine, ArrowUpFromLine } from 'lucide-react'
-import { getTeamVault, getCharacterWallet } from '../lib/currencyStore'
+import { getCharacter } from '../lib/characterStore'
+import { mergeWalletWithBagWallet } from '../lib/currencyInventoryRows'
 import { CurrencyGrid } from './CurrencyDisplay'
 import TransferModal from './TransferModal'
 
@@ -11,13 +12,20 @@ export default function CharacterWallet({ characterId, characterName, canEdit, o
   const [transferDirection, setTransferDirection] = useState('toVault')
   const [flashKey, setFlashKey] = useState(0)
 
-  const refresh = () => {
-    if (characterId) setWallet(getCharacterWallet(characterId))
-  }
+  const refresh = useCallback(() => {
+    if (!characterId) return
+    const c = getCharacter(characterId)
+    setWallet(mergeWalletWithBagWallet(c?.wallet, c?.inventory || []))
+  }, [characterId])
 
   useEffect(() => {
     refresh()
-  }, [characterId])
+  }, [refresh])
+
+  useEffect(() => {
+    window.addEventListener('dnd-realtime-characters', refresh)
+    return () => window.removeEventListener('dnd-realtime-characters', refresh)
+  }, [refresh])
 
   const handleTransferSuccess = () => {
     refresh()
@@ -38,6 +46,9 @@ export default function CharacterWallet({ characterId, characterName, canEdit, o
 
   return (
     <div className="space-y-3">
+      <p className="text-[10px] text-dnd-text-muted leading-tight">
+        含身上钱包与<strong className="text-dnd-text-body">次元袋内钱币</strong>合计（只读展示）。
+      </p>
       <CurrencyGrid
         key={`wallet-${flashKey}`}
         balances={wallet}

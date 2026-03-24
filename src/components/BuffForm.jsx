@@ -73,6 +73,12 @@ function normalizeValueForSave(module, currentEffect) {
     const selected = Array.isArray(value) ? value : []
     return { selected, pierce: [] }
   }
+  if (needsSubSelect === 'initBonusAndProficiency') {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return { bonus: Number(value.bonus) || 0, proficient: !!value.proficient }
+    }
+    return { bonus: typeof value === 'number' && !Number.isNaN(value) ? value : 0, proficient: false }
+  }
   if (needsSubSelect === 'numberAndAdvantage' || needsSubSelect === 'flightSpeed' || needsSubSelect === 'abilityScoresAndAdvantage' || needsSubSelect === 'skillsAndAdvantage' || needsSubSelect === 'attackAreaSize') return value
   if (needsSubSelect === 'containedSpell') {
     if (value && typeof value === 'object' && !Array.isArray(value)) return value
@@ -228,9 +234,16 @@ function NumberStepper({ value, onChange, min = -999, max = 999, step = 1, compa
   }
   const padX = pill ? 'pl-1.5 pr-1.5' : (narrow ? 'px-5' : 'px-7')
   const inputWidth = pill ? 'min-w-[1.5rem] w-8 flex-1' : (narrow ? 'min-w-[2rem] w-11' : compact ? 'min-w-[2rem] flex-1' : 'min-w-[3.5rem] w-20')
+  /** compact 默认拉满父级；若同时 narrow（如属性卡、伤害骰行），用固定最小宽度，避免三列网格把步进器压扁导致箭头与数字重叠 */
+  const compactWidthCls =
+    compact && narrow
+      ? 'w-[6.75rem] min-w-[6.5rem] max-w-[min(100%,7.5rem)] shrink-0'
+      : compact && !narrow
+        ? 'w-full min-w-0 max-w-full'
+        : ''
   const wrapperCls = pill
     ? `relative flex items-center border border-gray-600 rounded-full bg-gray-700 shadow-sm ${padX} ${rowH} max-w-full ${disabled ? 'opacity-60' : ''}`
-    : `relative flex items-center border border-gray-500/60 rounded-md bg-gray-800/90 shadow-sm ${padX} ${rowH} ${compact ? 'w-full min-w-0 max-w-full' : ''} ${disabled ? 'opacity-60' : ''}`
+    : `relative flex items-center border border-gray-500/60 rounded-md bg-gray-800/90 shadow-sm ${padX} ${rowH} ${compactWidthCls} ${disabled ? 'opacity-60' : ''}`
   return (
     <div className={wrapperCls}>
       <button
@@ -320,7 +333,23 @@ function MultiSelectDropdown({ options, selected, onChange, placeholder, id }) {
 }
 
 /** 单条效果的数值/选项编辑区；inline 时仅渲染紧凑控件（同一行用），无 label。可选 spellDC/spellAttackBonus 用于内含法术命中判断旁显示实际数值；useWandScrollTable 为真时改用魔杖/卷轴法强表按环阶显示 */
-function EffectValueEditor({ module, onChange, catData, inline, spellDC, spellAttackBonus, useWandScrollTable }) {
+function EffectValueEditor({
+  module,
+  onChange,
+  catData,
+  inline,
+  spellDC,
+  spellAttackBonus,
+  useWandScrollTable,
+  /** 内含法术：仅第一行（法术名 / 环位 / 充能），隐藏命中、距离、伤害；用于制作队列新建等场景，细项在入库后背包编辑 */
+  containedSpellPrimaryOnly = false,
+  /** 内含法术第一行不显示「充能数」步进器（充能由表单其它控件统一提供，如制作工厂的「充能次数」） */
+  containedSpellHideChargesInPrimary = false,
+  /** 内含法术第一行「内含法术」文案前的序号（与内含法术同一 flex 行），如 "1." */
+  containedSpellRowPrefix,
+  /** 为真时不显示顶部的「选项」等区块标题（制作工厂等场景） */
+  hideSectionLabel = false,
+}) {
   const [selectedSkillId, setSelectedSkillId] = useState(SKILLS[0]?.id ?? 'acrobatics')
   const [selectedAbilityId, setSelectedAbilityId] = useState(ABILITY_KEYS[0] ?? 'str')
   const effects = catData?.effects ?? []
@@ -665,6 +694,30 @@ function EffectValueEditor({ module, onChange, catData, inline, spellDC, spellAt
         </div>
       )
     }
+    if (needsSubSelect === 'initBonusAndProficiency') {
+      const ib = value && typeof value === 'object' && !Array.isArray(value)
+        ? value
+        : { bonus: typeof value === 'number' ? value : 0, proficient: false }
+      const bon = typeof ib.bonus === 'number' ? ib.bonus : (parseInt(ib.bonus, 10) || 0)
+      return (
+        <div className="flex items-center gap-1.5 flex-nowrap col-span-2">
+          <NumberStepper
+            value={bon}
+            onChange={(v) => onChange({ ...module, value: { ...ib, bonus: v } })}
+            compact
+          />
+          <label className="flex items-center gap-1 cursor-pointer shrink-0">
+            <input
+              type="checkbox"
+              checked={!!ib.proficient}
+              onChange={(e) => onChange({ ...module, value: { ...ib, proficient: e.target.checked } })}
+              className="rounded border-gray-600 bg-gray-800 text-dnd-red"
+            />
+            <span className="text-xs text-gray-400">先攻熟练</span>
+          </label>
+        </div>
+      )
+    }
     if (isComplexValueType(currentEffect)) return null
     return null
   }
@@ -698,9 +751,11 @@ function EffectValueEditor({ module, onChange, catData, inline, spellDC, spellAt
 
   return (
     <div className="space-y-0.5">
-      <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider mb-0.5 leading-none">
-        {isCustom ? '效果描述' : isText ? '填写内容' : isBoolean ? '开关' : isNumber ? '数字输入' : '选项'}
-      </label>
+      {!hideSectionLabel && (
+        <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider mb-0.5 leading-none">
+          {isCustom ? '效果描述' : isText ? '填写内容' : isBoolean ? '开关' : isNumber ? '数字输入' : '选项'}
+        </label>
+      )}
       {isBoolean ? (
         <label className="flex items-center gap-2 cursor-pointer">
           <input
@@ -895,6 +950,32 @@ function EffectValueEditor({ module, onChange, catData, inline, spellDC, spellAt
             <span className="text-sm text-gray-300">是否悬浮</span>
           </label>
         </div>
+      ) : needsSubSelect === 'initBonusAndProficiency' ? (
+        <div className="flex flex-wrap items-center gap-2">
+          {(() => {
+            const ib = value && typeof value === 'object' && !Array.isArray(value)
+              ? value
+              : { bonus: typeof value === 'number' ? value : 0, proficient: false }
+            const bon = typeof ib.bonus === 'number' ? ib.bonus : (parseInt(ib.bonus, 10) || 0)
+            return (
+              <>
+                <NumberStepper
+                  value={bon}
+                  onChange={(v) => onChange({ ...module, value: { ...ib, bonus: v } })}
+                />
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={!!ib.proficient}
+                    onChange={(e) => onChange({ ...module, value: { ...ib, proficient: e.target.checked } })}
+                    className="rounded border-gray-600 bg-gray-800 text-dnd-red"
+                  />
+                  <span className="text-sm text-gray-300">先攻获得熟练加值（PB）</span>
+                </label>
+              </>
+            )
+          })()}
+        </div>
       ) : needsSubSelect === 'abilityScoresAndAdvantage' ? (
         <div className="flex items-center gap-2 flex-nowrap">
           <select
@@ -1017,6 +1098,9 @@ function EffectValueEditor({ module, onChange, catData, inline, spellDC, spellAt
               {/* 第一行：宽度 5 份 — 内含法术 3 份 | 释放环位 1 份 | 充能数 1 份 */}
               <div className="flex items-center gap-x-2 flex-nowrap min-w-0 whitespace-nowrap w-full overflow-hidden">
                 <div className="flex-[3] min-w-0 flex items-center gap-x-2">
+                  {containedSpellRowPrefix != null && String(containedSpellRowPrefix).trim() !== '' && (
+                    <span className="text-dnd-text-muted shrink-0 tabular-nums select-none">{containedSpellRowPrefix}</span>
+                  )}
                   <span className="text-dnd-text-muted shrink-0">内含法术</span>
                   <input
                     type="text"
@@ -1024,13 +1108,22 @@ function EffectValueEditor({ module, onChange, catData, inline, spellDC, spellAt
                     onChange={(e) => {
                       const name = e.target.value
                       const match = name.trim() ? SPELLS.find((s) => s.name === name.trim()) : null
-                      const nextLevel = (match && (typeof obj.level !== 'number' || obj.level === 0)) ? match.level : obj.level
+                      const prevSpellId = (obj.spellId ?? '').trim()
+                      const nextSpellId = match ? match.id : ''
+                      let nextLevel = level
+                      if (match) {
+                        if (nextSpellId !== prevSpellId) {
+                          // 换了一道法术：用新法术默认环位；若刚从「未识别名」补全且玩家已填过环位则保留（避免重打字丢升环）
+                          nextLevel = prevSpellId === '' && level > 0 ? level : match.level
+                        }
+                        // 同一法术：不碰环位，玩家可自由改升环/戏法等
+                      }
                       onChange({
                         ...module,
                         value: {
                           ...obj,
                           spellName: name,
-                          spellId: match ? match.id : '',
+                          spellId: nextSpellId,
                           range: match ? (match.range ?? '') : obj.range,
                           area: match ? (match.range ?? '') : obj.area,
                           level: nextLevel,
@@ -1049,94 +1142,107 @@ function EffectValueEditor({ module, onChange, catData, inline, spellDC, spellAt
                   </datalist>
                 </div>
                 {sep}
-                <div className="flex-[1] min-w-0 flex items-center gap-x-2">
+                <div className={containedSpellHideChargesInPrimary ? 'flex-[2] min-w-0 flex items-center gap-x-2' : 'flex-[1] min-w-0 flex items-center gap-x-2'}>
                   <span className="text-dnd-text-muted shrink-0">释放环位</span>
                   <NumberStepper
                     value={Math.max(0, Math.min(9, level))}
-                    onChange={(v) => onChange({ ...module, value: { ...obj, level: Math.max(0, Math.min(9, v)) } })}
+                    onChange={(v) =>
+                      onChange({
+                        ...module,
+                        value: { ...obj, level: Math.max(0, Math.min(9, v)) },
+                      })
+                    }
                     min={0}
                     max={9}
                     compact
                   />
                 </div>
-                {sep}
-                <div className="flex-[1] min-w-0 flex items-center gap-x-2">
-                  <span className="text-dnd-text-muted shrink-0">充能数</span>
-                  <NumberStepper
-                    value={charges}
-                    onChange={(v) => onChange({ ...module, value: { ...obj, charges: Math.max(0, v) } })}
-                    min={0}
-                    max={99}
-                    compact
-                  />
-                </div>
+                {!containedSpellHideChargesInPrimary && (
+                  <>
+                    {sep}
+                    <div className="flex-[1] min-w-0 flex items-center gap-x-2">
+                      <span className="text-dnd-text-muted shrink-0">充能数</span>
+                      <NumberStepper
+                        value={charges}
+                        onChange={(v) => onChange({ ...module, value: { ...obj, charges: Math.max(0, v) } })}
+                        min={0}
+                        max={99}
+                        compact
+                      />
+                    </div>
+                  </>
+                )}
               </div>
-              {/* 第二行：宽度 5 份 — 命中判断 1 份 | 施法距离（可修改）1 份 | 伤害 3 份 */}
-              <div className="flex items-center gap-x-2 flex-nowrap min-w-0 whitespace-nowrap w-full overflow-hidden">
-                <div className="flex-[1] min-w-0 flex items-center gap-x-2">
-                  <span className="text-dnd-text-muted shrink-0">命中判断</span>
-                  <select
-                    value={hitResolution}
-                    onChange={(e) => onChange({ ...module, value: { ...obj, hitResolution: e.target.value } })}
-                    className={inputClass + ' h-7 text-xs flex-1 min-w-0'}
-                  >
-                    {HIT_RESOLUTION_OPTIONS.map((o) => (
-                      <option key={o.value} value={o.value}>{o.label}</option>
-                    ))}
-                  </select>
-                  {hitValueDisplay != null && (
-                    <span className="text-white font-mono tabular-nums shrink-0">{hitValueDisplay}</span>
-                  )}
-                </div>
-                {sep}
-                <div className="flex-[1] min-w-0 flex items-center gap-x-2">
-                  <span className="text-dnd-text-muted shrink-0">施法距离</span>
-                  <input
-                    type="text"
-                    value={rangeValue}
-                    onChange={(e) => onChange({ ...module, value: { ...obj, range: e.target.value } })}
-                    placeholder="如 自身、60尺"
-                    className={inputClass + ' h-7 text-xs flex-1 min-w-0'}
-                  />
-                </div>
-                {sep}
-                <div className="flex-[3] min-w-0 flex items-center gap-x-2">
-                  <span className="text-dnd-text-muted shrink-0">伤害</span>
-                  <NumberStepper
-                    value={damageDiceCount}
-                    onChange={(v) => onChange({ ...module, value: { ...obj, damageDiceCount: Math.max(0, Math.min(99, v)) } })}
-                    min={0}
-                    max={99}
-                    compact
-                  />
-                  <select
-                    value={damageDiceSides}
-                    onChange={(e) => onChange({ ...module, value: { ...obj, damageDiceSides: Number(e.target.value) } })}
-                    className={inputClass + ' h-7 text-xs min-w-0 text-white bg-[var(--input-bg)]'}
-                  >
-                    {DICE_SIDES_OPTIONS.map((o) => (
-                      <option key={o.value} value={o.value} className="bg-gray-800 text-white">{o.label}</option>
-                    ))}
-                  </select>
-                  <div className="flex-1 min-w-[5rem] relative flex items-center rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] h-7 px-2">
-                    <span className="text-white text-xs flex-1 min-w-0 truncate pointer-events-none">
-                      {damageType ? (DAMAGE_TYPES.find((d) => d.value === damageType)?.label ?? damageType) : '— 类型 —'}
-                    </span>
-                    <select
-                      value={damageType}
-                      onChange={(e) => onChange({ ...module, value: { ...obj, damageType: e.target.value } })}
-                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                      title="伤害类型"
-                    >
-                      <option value="">— 类型 —</option>
-                      {DAMAGE_TYPES.map((d) => (
-                        <option key={d.value} value={d.value}>{d.label}</option>
-                      ))}
-                    </select>
-                    <ChevronDown className="w-4 h-4 text-gray-400 shrink-0 pointer-events-none" />
+              {!containedSpellPrimaryOnly && (
+                <>
+                  {/* 第二行：宽度 5 份 — 命中判断 1 份 | 施法距离（可修改）1 份 | 伤害 3 份 */}
+                  <div className="flex items-center gap-x-2 flex-nowrap min-w-0 whitespace-nowrap w-full overflow-hidden">
+                    <div className="flex-[1] min-w-0 flex items-center gap-x-2">
+                      <span className="text-dnd-text-muted shrink-0">命中判断</span>
+                      <select
+                        value={hitResolution}
+                        onChange={(e) => onChange({ ...module, value: { ...obj, hitResolution: e.target.value } })}
+                        className={inputClass + ' h-7 text-xs flex-1 min-w-0'}
+                      >
+                        {HIT_RESOLUTION_OPTIONS.map((o) => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                      </select>
+                      {hitValueDisplay != null && (
+                        <span className="text-white font-mono tabular-nums shrink-0">{hitValueDisplay}</span>
+                      )}
+                    </div>
+                    {sep}
+                    <div className="flex-[1] min-w-0 flex items-center gap-x-2">
+                      <span className="text-dnd-text-muted shrink-0">施法距离</span>
+                      <input
+                        type="text"
+                        value={rangeValue}
+                        onChange={(e) => onChange({ ...module, value: { ...obj, range: e.target.value } })}
+                        placeholder="如 自身、60尺"
+                        className={inputClass + ' h-7 text-xs flex-1 min-w-0'}
+                      />
+                    </div>
+                    {sep}
+                    <div className="flex-[3] min-w-0 flex items-center gap-x-2">
+                      <span className="text-dnd-text-muted shrink-0">伤害</span>
+                      <NumberStepper
+                        value={damageDiceCount}
+                        onChange={(v) => onChange({ ...module, value: { ...obj, damageDiceCount: Math.max(0, Math.min(99, v)) } })}
+                        min={0}
+                        max={99}
+                        compact
+                      />
+                      <select
+                        value={damageDiceSides}
+                        onChange={(e) => onChange({ ...module, value: { ...obj, damageDiceSides: Number(e.target.value) } })}
+                        className={inputClass + ' h-7 text-xs min-w-0 text-white bg-[var(--input-bg)]'}
+                      >
+                        {DICE_SIDES_OPTIONS.map((o) => (
+                          <option key={o.value} value={o.value} className="bg-gray-800 text-white">{o.label}</option>
+                        ))}
+                      </select>
+                      <div className="flex-1 min-w-[5rem] relative flex items-center rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] h-7 px-2">
+                        <span className="text-white text-xs flex-1 min-w-0 truncate pointer-events-none">
+                          {damageType ? (DAMAGE_TYPES.find((d) => d.value === damageType)?.label ?? damageType) : '— 类型 —'}
+                        </span>
+                        <select
+                          value={damageType}
+                          onChange={(e) => onChange({ ...module, value: { ...obj, damageType: e.target.value } })}
+                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                          title="伤害类型"
+                        >
+                          <option value="">— 类型 —</option>
+                          {DAMAGE_TYPES.map((d) => (
+                            <option key={d.value} value={d.value}>{d.label}</option>
+                          ))}
+                        </select>
+                        <ChevronDown className="w-4 h-4 text-gray-400 shrink-0 pointer-events-none" />
+                      </div>
+                    </div>
                   </div>
-                </div>
-              </div>
+                </>
+              )}
             </div>
           )
         })()
@@ -1259,7 +1365,12 @@ export default function BuffForm({ initial, onSave, onCancel, spellDC, spellAtta
                   <div className="min-w-0">
                     <select
                       value={effectiveEffectType}
-                      onChange={(e) => updateModule(mod.id, { ...mod, effectType: e.target.value })}
+                      onChange={(e) => {
+                        const nextType = e.target.value
+                        const patch = { ...mod, effectType: nextType }
+                        if (nextType === 'initiative_buff') patch.value = { bonus: 0, proficient: false }
+                        updateModule(mod.id, patch)
+                      }}
                       className={inputClass + ' h-7 text-xs w-full min-w-0'}
                       disabled={!hasCategory}
                     >

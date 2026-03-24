@@ -1,7 +1,12 @@
 import { useState, useEffect, useMemo, Fragment } from 'react'
 import { Package, Pencil, Trash2, GripVertical } from 'lucide-react'
 import { normalizeBagOfHoldingVisibility } from '../lib/bagOfHoldingVisibility'
-import { getNormalizedBagModules, entryBelongsToBagModule } from '../lib/bagOfHoldingModules'
+import {
+  getNormalizedBagModules,
+  entryBelongsToBagModule,
+  compareBagInventoryDisplayOrder,
+  applyBagItemPatch,
+} from '../lib/bagOfHoldingModules'
 import { useAuth } from '../contexts/AuthContext'
 import { useModule } from '../contexts/ModuleContext'
 import { logTeamActivity } from '../lib/activityLog'
@@ -14,8 +19,14 @@ import {
   depositVaultCurrencyToPublicBag,
 } from '../lib/teamCurrencyPublicBags'
 import { getWarehouse, loadWarehouseIntoCache, addToWarehouse, removeFromWarehouse, updateWarehouseItem, reorderWarehouse, setWarehouse } from '../lib/warehouseStore'
-import { getCraftingProjects, removeCraftingProject } from '../lib/craftingStore'
-import { normalizeProject, isCraftFeeClaimed, DND_CRAFT_COMPLETED_MIME, parseCraftCompletedDragPayload } from '../lib/craftingProjectUtils'
+import { getCraftingProjects, updateCraftingProject } from '../lib/craftingStore'
+import {
+  normalizeProject,
+  isCraftFeeClaimed,
+  isCraftDeposited,
+  DND_CRAFT_COMPLETED_MIME,
+  parseCraftCompletedDragPayload,
+} from '../lib/craftingProjectUtils'
 import { getAllCharacters, updateCharacter, getCharacter } from '../lib/characterStore'
 import { getItemWeightLb, parseWeightString, getWalletCurrencyStackWeightLb } from '../lib/encumbrance'
 import ItemAddForm from '../components/ItemAddForm'
@@ -317,7 +328,7 @@ export default function Warehouse() {
     if (!e) return
     setDepositContext({ type: 'warehouse', index: i })
     setDepositCharId(characters[0]?.id ?? '')
-    setDepositQty(Math.min(Math.max(1, Number(e.qty) ?? 1), 999))
+    setDepositQty(1)
   }
 
   const openDepositFromPublicBag = (sourceCharId, invIdx) => {
@@ -326,7 +337,7 @@ export default function Warehouse() {
     if (!e) return
     setDepositContext({ type: 'bag', sourceCharId, invIdx })
     setDepositCharId(characters[0]?.id ?? '')
-    setDepositQty(Math.min(Math.max(1, Number(e.qty) ?? 1), 999))
+    setDepositQty(1)
   }
 
   const closeDepositModal = () => {
@@ -473,7 +484,7 @@ export default function Warehouse() {
     })
   }
 
-  /** 已完成制作（已领取）拖入公家次元袋：写入袋内 inventory 并移除制作项 */
+  /** 已完成制作（已领取）拖入公家次元袋：写入袋内 inventory 并标记已入库（列表保留灰色记录） */
   const depositCraftProjectToPublicBag = (charId, bagModId, projectIndex) => {
     const list = getCraftingProjects(currentModuleId)
     const p = list[projectIndex]
@@ -485,6 +496,10 @@ export default function Warehouse() {
     }
     if (!isCraftFeeClaimed(p)) {
       alert('请先在「已完成物品列表」中点击「领取结算」，支付制作成本与工匠经验后再拖入次元袋。')
+      return
+    }
+    if (isCraftDeposited(p)) {
+      alert('该制作项已入库，仅作记录，无法再次拖入次元袋。')
       return
     }
     const ownerName = user?.name?.trim() || ''
@@ -522,8 +537,17 @@ export default function Warehouse() {
       bagModuleId: bagModId,
     }
     const inv = ch.inventory ?? []
+    const nowIso = new Date().toISOString()
     Promise.resolve(updateCharacter(charId, { inventory: [...inv, invEntry] }))
-      .then(() => removeCraftingProject(currentModuleId, projectIndex))
+      .then(() =>
+        updateCraftingProject(currentModuleId, projectIndex, {
+          已入库: true,
+          入库时间: nowIso,
+          入库去向: 'public_bag',
+          入库角色Id: charId,
+          入库次元袋模块Id: bagModId,
+        }),
+      )
       .then(() => {
         window.dispatchEvent(new CustomEvent('dnd-realtime-crafting'))
         if (user?.name) {
@@ -702,19 +726,23 @@ export default function Warehouse() {
     e.currentTarget.classList.add('opacity-50')
   }
 
-  /** 公家次元袋内物品：内联修改充能 / 数量（与团队储物栏一致） */
+  /** 公家次元袋内物品：内联修改充能 / 数量（含钱币堆数量；钱币为 0 时移除该行并刷新金库合计） */
   const patchPublicBagInventoryItem = (charId, invIdx, patch) => {
     const ch = getCharacter(charId)
     if (!ch || !Array.isArray(ch.inventory)) return
     if (invIdx < 0 || invIdx >= ch.inventory.length) return
     const entry = ch.inventory[invIdx]
     if (!entry?.inBagOfHolding) return
-    const next = { ...entry }
-    if ('charge' in patch) next.charge = Math.max(0, Number(patch.charge) || 0)
-    if ('qty' in patch) next.qty = Math.max(1, Math.floor(Number(patch.qty)) || 1)
-    const nextInv = ch.inventory.map((e, i) => (i === invIdx ? next : e))
+    const next = applyBagItemPatch(entry, patch)
+    const nextInv =
+      next.walletCurrencyId && Number(next.qty) <= 0
+        ? ch.inventory.filter((_, i) => i !== invIdx)
+        : ch.inventory.map((e, i) => (i === invIdx ? next : e))
     Promise.resolve(updateCharacter(charId, { inventory: nextInv }))
-      .then(() => setCharRefresh((x) => x + 1))
+      .then(() => {
+        window.dispatchEvent(new CustomEvent('dnd-realtime-team-vault'))
+        setCharRefresh((x) => x + 1)
+      })
       .catch((err) => {
         console.error('[Warehouse] 更新次元袋物品失败', err)
         alert('更新失败，请重试')
@@ -794,7 +822,7 @@ export default function Warehouse() {
           <h3 className={subTitleClass + ' mb-0'}>次元袋 · 团队可见储物</h3>
         </div>
         <p className="text-dnd-text-muted text-[11px] leading-relaxed -mt-2">
-          游玩时多以「背上次元袋」当队伍储物。请在各角色卡的次元袋面板将可见性设为「公家」，此处会列出该角色<strong className="text-dnd-text-body">袋内</strong>物品；「私人」则仅在该角色卡可见。下方「团队储物栏」为直接存入共享列表的物品（不经过某角色的袋内），可继续用于临时掉落物等。
+          游玩时多以「背上次元袋」当队伍储物。<strong className="text-dnd-text-body">新建次元袋模块默认为「公家」</strong>：全体玩家在本页可查看该袋内物品并调整数量/充能；「私人」则仅在该角色卡可见、团队仓库不列出。袋内<strong className="text-dnd-text-body">钱币堆始终置顶</strong>显示。下方「团队储物栏」为直接存入共享列表的物品（不经过某角色的袋内）。
         </p>
 
         <div className="space-y-4">
@@ -862,6 +890,7 @@ export default function Warehouse() {
               const bagItemRows = (c.inventory || [])
                 .map((entry, invIdx) => ({ entry, invIdx }))
                 .filter(({ entry }) => entryBelongsToBagModule(entry, mod, mods))
+                .sort((a, b) => compareBagInventoryDisplayOrder(a.entry, a.invIdx, b.entry, b.invIdx))
               const bagTotalLb =
                 Math.round(
                   bagItemRows.reduce((s, { entry }) => {
@@ -926,7 +955,7 @@ export default function Warehouse() {
                             colSpan={6}
                             className="py-2.5 px-3 text-emerald-100/95 text-[11px] leading-relaxed [&_*]:pointer-events-none"
                           >
-                            <strong className="text-white">拖入区：</strong>「团队储物栏」实体物品、<strong className="text-white">团队金库货币行</strong>，或下方「制作工厂」<strong className="text-white">已完成且已领取</strong>的制作行，拖到<strong className="text-white">本卡片任意位置</strong>：货币从账面入袋仍计团队金库合计；储物栏物品扣除仓库；制作物品直接入袋。
+                            <strong className="text-white">拖入区：</strong>「团队储物栏」实体物品、<strong className="text-white">团队金库货币行</strong>，或下方「制作工厂」<strong className="text-white">已完成且已领取</strong>的制作行，拖到<strong className="text-white">本卡片任意位置</strong>：货币从账面入袋仍计团队金库合计；储物栏物品扣除仓库；制作物品直接入袋（工厂列表保留灰色记录，不删除条目）。
                           </td>
                         </tr>
                         {bagItemRows.length === 0 ? (
@@ -970,10 +999,22 @@ export default function Warehouse() {
                                       —
                                     </td>
                                     <td className="inventory-table-cell-brief py-1 px-4 text-dnd-text-muted text-[11px] border-l border-white/10 align-middle text-left" style={{ height: 48, maxHeight: 48 }}>
-                                      公家袋内钱币堆，计入「货币与金库」团队合计；与角色个人钱包无关。
+                                      公家袋内钱币堆，计入「货币与金库」团队合计；与角色个人钱包无关。数量可在本列修改；改为 0 将移除该币种堆叠。
                                     </td>
-                                    <td className="py-1 px-2 border-l border-white/10 align-middle text-center text-dnd-text-body text-xs tabular-nums" style={{ height: 48, maxHeight: 48 }}>
-                                      {qty}
+                                    <td className="py-1 px-2 border-l border-white/10 align-middle text-center text-dnd-text-body text-xs tabular-nums overflow-hidden" style={{ height: 48, maxHeight: 48 }}>
+                                      <div className="flex justify-center max-w-[5.5rem] mx-auto" onMouseDown={(e) => e.stopPropagation()} role="presentation">
+                                        <NumberStepper
+                                          value={entry.walletCurrencyId === 'gem_lb' ? Math.max(0, Number(qty) || 0) : Math.max(0, Math.floor(qty))}
+                                          onChange={(v) => {
+                                            const raw = entry.walletCurrencyId === 'gem_lb' ? Math.max(0, Number(v) || 0) : Math.max(0, Math.floor(Number(v) || 0))
+                                            patchPublicBagInventoryItem(c.id, invIdx, { qty: raw })
+                                          }}
+                                          min={0}
+                                          max={999999999}
+                                          compact
+                                          pill
+                                        />
+                                      </div>
                                     </td>
                                     <td className="py-1 px-1 border-l border-white/10 align-middle text-center overflow-hidden text-dnd-text-muted text-[10px]" style={{ height: 48, maxHeight: 48 }}>
                                       —
@@ -1284,22 +1325,28 @@ export default function Warehouse() {
                   ))}
                 </select>
               </div>
-              <div className="flex items-center gap-2">
-                <label className="text-dnd-text-muted text-xs shrink-0">数量</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={Math.max(1, Number(depositModalEntry?.qty) ?? 1)}
-                  value={depositQty}
-                  onChange={(e) => {
-                    const max = Math.max(1, Number(depositModalEntry?.qty) ?? 1)
-                    const v = parseInt(e.target.value, 10)
-                    setDepositQty(Number.isNaN(v) ? 1 : Math.max(1, Math.min(max, v)))
-                  }}
-                  className={inputClass + ' h-10 w-24'}
-                />
-                <span className="text-dnd-text-muted text-xs">/ {depositModalEntry.qty}</span>
-              </div>
+              {(() => {
+                const maxDepositQty = Math.max(1, Number(depositModalEntry?.qty) ?? 1)
+                return (
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="w-10 shrink-0 text-dnd-text-muted text-xs">数量</span>
+                    <div className="flex min-w-0 flex-1 items-center gap-2">
+                      <div className="max-w-[min(100%,11rem)] w-full shrink-0 min-w-0">
+                        <NumberStepper
+                          value={depositQty}
+                          min={1}
+                          max={maxDepositQty}
+                          onChange={(v) => setDepositQty(v)}
+                          compact
+                        />
+                      </div>
+                      <span className="shrink-0 self-center font-mono text-sm tabular-nums leading-none text-dnd-text-muted whitespace-nowrap">
+                        / {maxDepositQty}
+                      </span>
+                    </div>
+                  </div>
+                )
+              })()}
             </div>
             <div className="flex gap-2 justify-end">
               <button type="button" onClick={closeDepositModal} className="h-10 px-4 rounded-lg bg-gray-600 hover:bg-gray-500 text-white font-bold text-sm">取消</button>

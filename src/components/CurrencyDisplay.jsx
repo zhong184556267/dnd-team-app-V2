@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { GripVertical } from 'lucide-react'
 import { CURRENCY_CONFIG, getCurrencyById, getCurrencyDisplayName } from '../data/currencyConfig'
 import { inputClass } from '../lib/inputStyles'
 
@@ -10,6 +11,28 @@ const PETTY_IDS = ['cp', 'sp', 'kr', 'pp']
 function formatAmount(amount) {
   if (typeof amount !== 'number' || Number.isNaN(amount)) return '0'
   return Number.isInteger(amount) ? amount.toLocaleString() : amount.toFixed(2)
+}
+
+/** 拖入次元袋：与个人持有格子配合，替代原背包内货币行的拖拽 */
+function WalletCurrencyDragHandle({ currencyId }) {
+  return (
+    <span
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData('text/dnd-wallet-currency', currencyId)
+        e.dataTransfer.setData('text/plain', `wc:${currencyId}`)
+        e.dataTransfer.effectAllowed = 'copyMove'
+        e.currentTarget.classList.add('opacity-50')
+      }}
+      onDragEnd={(e) => e.currentTarget.classList.remove('opacity-50')}
+      className="inline-flex items-center justify-center shrink-0 cursor-grab active:cursor-grabbing text-dnd-text-muted hover:text-dnd-gold-light/85 touch-none"
+      title="拖入次元袋"
+      aria-label="拖入次元袋"
+      role="presentation"
+    >
+      <GripVertical className="w-3.5 h-3.5 opacity-70" />
+    </span>
+  )
 }
 
 /** 可输入金额：支持光标编辑，失焦/回车提交（背包表格 / 个人持有共用） */
@@ -60,7 +83,7 @@ export function CurrencyAmountField({ currencyId, amount, compact, valueClass, o
 }
 
 /** 核心资产区单卡：金币 / 奥拉 / 晶石；compact 时仅略大于零钱区 */
-function CoreCurrencyCard({ currencyId, amount, compact, editable, onCurrencyChange }) {
+function CoreCurrencyCard({ currencyId, amount, compact, editable, onCurrencyChange, dragCurrencyToBag }) {
   const cfg = getCurrencyById(currencyId)
   if (!cfg) return null
   const isGold = cfg.style === 'gold'
@@ -87,25 +110,30 @@ function CoreCurrencyCard({ currencyId, amount, compact, editable, onCurrencyCha
   }
 
   return (
-    <div className={cardClass}>
-      {editable && onCurrencyChange ? (
-        <CurrencyAmountField
-          currencyId={currencyId}
-          amount={amount}
-          compact={compact}
-          valueClass={valueClass}
-          onCommit={onCurrencyChange}
-        />
-      ) : (
-        <span className={valueClass}>{formatAmount(amount)}</span>
-      )}
-      <span className={compact ? 'text-[9px] opacity-90 text-current font-medium leading-tight' : 'text-[10px] opacity-90 text-current font-medium leading-tight'}>{unitLabel}</span>
+    <div className={cardClass + (dragCurrencyToBag ? ' relative' : '')}>
+      <div className={`flex items-start gap-0.5 w-full min-w-0 ${dragCurrencyToBag ? '' : 'flex-col items-center'}`}>
+        {dragCurrencyToBag ? <WalletCurrencyDragHandle currencyId={currencyId} /> : null}
+        <div className={`flex flex-col justify-center items-center gap-0 min-h-0 flex-1 min-w-0 ${dragCurrencyToBag ? 'pt-0.5' : ''}`}>
+          {editable && onCurrencyChange ? (
+            <CurrencyAmountField
+              currencyId={currencyId}
+              amount={amount}
+              compact={compact}
+              valueClass={valueClass}
+              onCommit={onCurrencyChange}
+            />
+          ) : (
+            <span className={valueClass}>{formatAmount(amount)}</span>
+          )}
+          <span className={compact ? 'text-[9px] opacity-90 text-current font-medium leading-tight' : 'text-[10px] opacity-90 text-current font-medium leading-tight'}>{unitLabel}</span>
+        </div>
+      </div>
     </div>
   )
 }
 
 /** 零钱区单条：铜/银/铂；compact 时更小 */
-function PettyCurrencyItem({ currencyId, amount, compact, editable, onCurrencyChange }) {
+function PettyCurrencyItem({ currencyId, amount, compact, editable, onCurrencyChange, dragCurrencyToBag }) {
   const cfg = getCurrencyById(currencyId)
   if (!cfg) return null
   const unitLabel = getCurrencyDisplayName(cfg)
@@ -114,7 +142,10 @@ function PettyCurrencyItem({ currencyId, amount, compact, editable, onCurrencyCh
     : 'flex items-center justify-between gap-3 rounded-lg bg-gray-800/50 border border-white/5 px-3 py-2'
   return (
     <div className={wrapClass}>
-      <span className="text-dnd-text-muted text-xs font-medium shrink-0 min-w-0">{unitLabel}</span>
+      <div className="flex items-center gap-1 min-w-0 shrink-0">
+        {dragCurrencyToBag ? <WalletCurrencyDragHandle currencyId={currencyId} /> : null}
+        <span className="text-dnd-text-muted text-xs font-medium min-w-0">{unitLabel}</span>
+      </div>
       {editable && onCurrencyChange ? (
         <div className="min-w-0 flex-1 max-w-[5.5rem]">
           <CurrencyAmountField
@@ -146,6 +177,8 @@ export function CurrencyGrid({
   fillHeight,
   editable = false,
   onCurrencyChange,
+  /** 为真时各币种旁显示拖柄，可拖入次元袋（钱币不再出现在背包表） */
+  dragCurrencyToBag = false,
 }) {
   const compact = fillHeight
   const innerClass = fillHeight
@@ -175,6 +208,7 @@ export function CurrencyGrid({
                 compact={compact}
                 editable={editable}
                 onCurrencyChange={onCurrencyChange}
+                dragCurrencyToBag={dragCurrencyToBag}
               />
             ))}
           </div>
@@ -189,6 +223,7 @@ export function CurrencyGrid({
               compact={compact}
               editable={editable}
               onCurrencyChange={onCurrencyChange}
+              dragCurrencyToBag={dragCurrencyToBag}
             />
           ))}
         </div>

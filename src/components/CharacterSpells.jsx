@@ -2,7 +2,7 @@
  * 角色法术：从法术大全添加法术，支持「已准备」切换
  * 以卡片形式展示，从低环到高环垂直排布
  */
-import { useMemo, useState, useRef, useEffect } from 'react'
+import { useMemo, useState, useRef, useEffect, useCallback } from 'react'
 import { Trash2, Search, BookOpen, Plus, ChevronDown } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { getSpellById, getSpellsByClass, searchSpells } from '../data/spellDatabase'
@@ -13,6 +13,7 @@ import { getSpellcastingCombatStats } from '../lib/spellcastingStats'
 import { levelFromXP } from '../lib/xp5e'
 import { ABILITY_NAMES_ZH } from '../data/buffTypes'
 import { inputClass } from '../lib/inputStyles'
+import { rollPsychicCollapseCastSave, characterHasPsychicCollapse } from '../lib/psychicCollapse'
 
 const PREPARE_ALL_CLASSES = ['牧师', '德鲁伊', '游侠', '圣武士']
 
@@ -155,8 +156,71 @@ export default function CharacterSpells({ char, canEdit, onSave, buffStats: buff
   const [castModal, setCastModal] = useState({ open: false, spell: null, spellId: '', spellLevel: 0 })
   const [castRing, setCastRing] = useState(1)
   const [castSource, setCastSource] = useState('normal') // 'normal' | 'extraPoints'
+  /** 灵崩：先投体质豁免再确认消耗环位 */
+  const [castModalStep, setCastModalStep] = useState('form')
+  const [psychicRollResult, setPsychicRollResult] = useState(null)
   const dropdownRef = useRef(null)
   const searchRef = useRef(null)
+
+  const hasPsychicCollapse = characterHasPsychicCollapse(char)
+
+  useEffect(() => {
+    if (castModal.open) {
+      setCastModalStep('form')
+      setPsychicRollResult(null)
+    }
+  }, [castModal.open, castModal.spellId])
+
+  const applyCastConsumption = useCallback(
+    ({ psychicEchoSuccess = false } = {}) => {
+      const ring = castRing
+      const src = castSource
+      const spell = castModal.spell
+      const spellId = castModal.spellId
+      if (src === 'normal') {
+        const maxR = effectiveMaxByRing[ring] ?? 0
+        const cur = Math.max(0, (spellSlotsCurrent[ring] ?? maxR) - 1)
+        const nextSlots = { ...spellSlotsCurrent, [ring]: cur }
+        const patch = { spellSlots: nextSlots }
+        if (psychicEchoSuccess && hasPsychicCollapse && spell) {
+          patch.psychicCollapseEcho = {
+            spellId,
+            spellName: spell.name ?? spellId,
+            ring,
+            source: src,
+            at: Date.now(),
+          }
+        }
+        onSave(patch)
+      } else if (extraPoints.max > 0 && extraPoints.current >= ring) {
+        const patch = {
+          extraSpellSlotsPoints: { max: extraPoints.max, current: extraPoints.current - ring },
+        }
+        if (psychicEchoSuccess && hasPsychicCollapse && spell) {
+          patch.psychicCollapseEcho = {
+            spellId,
+            spellName: spell.name ?? spellId,
+            ring,
+            source: 'extraPoints',
+            at: Date.now(),
+          }
+        }
+        onSave(patch)
+      }
+    },
+    [
+      castRing,
+      castSource,
+      castModal.spell,
+      castModal.spellId,
+      effectiveMaxByRing,
+      spellSlotsCurrent,
+      extraPoints.max,
+      extraPoints.current,
+      hasPsychicCollapse,
+      onSave,
+    ],
+  )
 
   /** 角色职业可学的法术，按环位分组，排除已添加 */
   const spellsByLevelForDropdown = useMemo(() => {
@@ -226,6 +290,29 @@ export default function CharacterSpells({ char, canEdit, onSave, buffStats: buff
               <p className="text-white text-xl font-mono font-bold">{preparedCount}</p>
             </div>
           </div>
+        )}
+        {char?.psychicCollapseEcho && (
+          <div className="rounded-lg border border-dnd-gold/50 bg-dnd-gold/10 px-3 py-2.5 text-sm shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+            <p className="text-dnd-gold-light font-bold text-xs uppercase tracking-wide mb-1">灵崩回响 · 下回合</p>
+            <p className="text-gray-300 leading-snug">
+              请在<strong className="text-dnd-gold-light/90">原目标、原地点</strong>再结算一次「{char.psychicCollapseEcho.spellName}」（{char.psychicCollapseEcho.ring}环）
+              {char.psychicCollapseEcho.source === 'extraPoints' ? '（上次使用额外点数）' : ''}。不自动再扣环位，由你或 DM 手动处理效果后清除提醒。
+            </p>
+            {canEdit && (
+              <button
+                type="button"
+                onClick={() => onSave({ psychicCollapseEcho: null })}
+                className="mt-2 touch-manipulation rounded-lg border border-dnd-gold/50 bg-dnd-gold/15 px-3 py-1.5 text-xs text-dnd-gold-light hover:bg-dnd-gold/25"
+              >
+                已执行回响 / 清除提醒
+              </button>
+            )}
+          </div>
+        )}
+        {hasPsychicCollapse && (
+          <p className="text-amber-200/85 text-xs leading-snug border border-amber-500/25 rounded-md px-2 py-1.5 bg-amber-950/20">
+            <strong>灵崩：</strong>释放消耗环位的法术时，须先通过 DC16 体质豁免；失败则法术失败且环位仍消耗；成功则下回合同一法术须在原目标原地点再结算一次（见上方「灵崩回响」）。
+          </p>
         )}
         <p className="text-gray-500 text-xs">从法术大全添加法术至角色卡，可标记已准备。下方「添加法术」为按角色职业法表可学（且排除已添加），「从法术大全添加」才是全法表。</p>
         {canEdit && (
@@ -337,9 +424,10 @@ export default function CharacterSpells({ char, canEdit, onSave, buffStats: buff
                     <div className="rounded-lg px-4 py-2 bg-dnd-gold/30 border-l-4 border-dnd-gold border border-dnd-gold/50 shadow-md flex items-center justify-between gap-3">
                       <span className="text-dnd-gold-light text-base font-bold tracking-wide">{levelLabel}</span>
                       {level >= 1 && maxSlots > 0 && (
-                        <div className="flex items-center gap-0.5 shrink-0" title={`环位数量：${clampedCurrent}/${maxSlots}`}>
+                        <div className="flex flex-wrap items-center gap-x-0.5 gap-y-1 shrink-0" title={`环位数量：${clampedCurrent}/${maxSlots}`}>
                           {Array.from({ length: maxSlots }, (_, i) => {
                             const filled = i < clampedCurrent
+                            const label = i === 0 && clampedCurrent === 1 ? '点击后剩余 0 个法术位' : `点击后剩余 ${i + 1} 个法术位`
                             return canEdit ? (
                               <button
                                 key={i}
@@ -349,20 +437,31 @@ export default function CharacterSpells({ char, canEdit, onSave, buffStats: buff
                                   if (next === 1 && clampedCurrent === 1) setSpellSlotCurrent(level, 0)
                                   else setSpellSlotCurrent(level, next)
                                 }}
-                                className={`w-4 h-4 rounded-full border-2 transition-colors ${
-                                  filled
-                                    ? 'bg-dnd-gold border-dnd-gold-light'
-                                    : 'bg-transparent border-dnd-gold/60 hover:border-dnd-gold'
-                                }`}
-                                aria-label={i === 0 && clampedCurrent === 1 ? '剩余 0 个' : `剩余 ${i + 1} 个`}
-                              />
+                                className="touch-manipulation flex h-11 w-11 shrink-0 items-center justify-center rounded-full border-0 bg-transparent hover:bg-white/[0.07] active:bg-white/10"
+                                title={label}
+                                aria-label={label}
+                              >
+                                <span
+                                  className={`pointer-events-none h-7 w-7 rounded-full border-2 transition-colors ${
+                                    filled
+                                      ? 'bg-dnd-gold border-dnd-gold-light shadow-[0_0_6px_rgba(212,184,120,0.35)]'
+                                      : 'bg-transparent border-dnd-gold/60'
+                                  }`}
+                                  aria-hidden
+                                />
+                              </button>
                             ) : (
                               <span
                                 key={i}
-                                className={`inline-block w-4 h-4 rounded-full border-2 ${
-                                  filled ? 'bg-dnd-gold border-dnd-gold-light' : 'bg-transparent border-dnd-gold/60'
-                                }`}
-                              />
+                                className="inline-flex h-11 w-11 items-center justify-center shrink-0"
+                                aria-hidden
+                              >
+                                <span
+                                  className={`inline-block h-7 w-7 rounded-full border-2 ${
+                                    filled ? 'bg-dnd-gold border-dnd-gold-light' : 'bg-transparent border-dnd-gold/60'
+                                  }`}
+                                />
+                              </span>
                             )
                           })}
                         </div>
@@ -476,106 +575,154 @@ export default function CharacterSpells({ char, canEdit, onSave, buffStats: buff
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60" onClick={() => setCastModal((m) => ({ ...m, open: false }))}>
           <div className="rounded-xl border border-white/10 bg-[#1b2738] shadow-xl max-w-sm w-full p-4 space-y-4" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-dnd-gold-light font-semibold text-sm uppercase tracking-wider">释放魔法 · {castModal.spell.name}</h3>
-            <div>
-              <label className="block text-dnd-text-muted text-xs font-medium mb-1.5">用几环施法（升环施法）</label>
-              <div className="flex flex-wrap gap-1.5">
-                {Array.from({ length: 10 - castModal.spellLevel }, (_, i) => castModal.spellLevel + i).map((r) => {
-                  const maxR = effectiveMaxByRing[r] ?? 0
-                  const rawRem = spellSlotsCurrent[r] ?? maxR
-                  const rem = castSource === 'normal' ? Math.min(maxR, Math.max(0, rawRem)) : null
-                  const okPoints = castSource === 'extraPoints' && extraPoints.current >= r
-                  const ok = castSource === 'normal' ? (rem > 0) : okPoints
-                  return (
-                    <button
-                      key={r}
-                      type="button"
-                      onClick={() => setCastRing(r)}
-                      className={`min-w-[3rem] py-1.5 px-2 rounded border text-center transition-colors flex flex-col items-center justify-center ${
-                        castRing === r
-                          ? 'bg-dnd-gold/40 border-dnd-gold text-white'
-                          : ok
-                            ? 'border-gray-500 bg-gray-700/80 text-gray-200 hover:border-dnd-gold/60'
-                            : 'border-gray-600 bg-gray-800/50 text-gray-500 cursor-not-allowed'
-                      }`}
-                      disabled={!ok}
-                      title={castSource === 'normal' ? `${r}环 剩余 ${rem}/${maxR}（与法术环位条一致）` : `消耗 ${r} 点（当前 ${extraPoints.current}）`}
-                    >
-                      <span className="text-sm font-medium">{r}环</span>
-                      {castSource === 'normal' ? (
-                        <span className={`text-[10px] mt-0.5 ${rem > 0 ? 'text-gray-300' : 'text-gray-500'}`}>
-                          剩余{rem}
-                        </span>
-                      ) : (
-                        <span className={`text-[10px] mt-0.5 ${okPoints ? 'text-gray-300' : 'text-gray-500'}`}>
-                          耗{r}点
-                        </span>
-                      )}
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-            <div>
-              <label className="block text-dnd-text-muted text-xs font-medium mb-1.5">扣除哪里的环位</label>
-              <div className="flex flex-wrap gap-2">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="castSource"
-                    checked={castSource === 'normal'}
-                    onChange={() => setCastSource('normal')}
-                    className="rounded border-gray-500 text-dnd-red focus:ring-dnd-red"
-                  />
-                  <span className="text-sm text-gray-300">常规环位</span>
-                </label>
-                {extraPoints.max > 0 && (
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="castSource"
-                      checked={castSource === 'extraPoints'}
-                      onChange={() => setCastSource('extraPoints')}
-                      className="rounded border-gray-500 text-dnd-red focus:ring-dnd-red"
-                    />
-                    <span className="text-sm text-gray-300">额外环位（点数 {extraPoints.current}/{extraPoints.max}）</span>
-                  </label>
+            {castModalStep === 'psychic' && psychicRollResult ? (
+              <div className="space-y-3 border-t border-white/10 pt-3">
+                <p className="text-xs text-dnd-text-muted font-medium">灵崩 · 体质豁免（等同专注检定）</p>
+                <p className="text-sm text-gray-300 leading-relaxed">
+                  {psychicRollResult.rollMode !== 'normal' && (
+                    <span className="text-dnd-gold-light text-xs mr-1">[{psychicRollResult.rollMode === 'advantage' ? '优势' : '劣势'}]</span>
+                  )}
+                  d20
+                  {psychicRollResult.rolls.length > 1
+                    ? `（${psychicRollResult.rolls.join('、')} 取 ${psychicRollResult.d20Result}）`
+                    : `（${psychicRollResult.d20Result}）`}
+                  {psychicRollResult.modifier >= 0 ? '+' : ''}
+                  {psychicRollResult.modifier} = <span className="font-mono font-bold text-white">{psychicRollResult.total}</span>
+                  <span className="text-gray-500"> vs DC {psychicRollResult.dc}</span>
+                </p>
+                {psychicRollResult.success ? (
+                  <p className="text-sm text-emerald-400/95 leading-snug">成功：法术生效；环位将消耗，并记录「下回合在原目标原地点再结算一次」。</p>
+                ) : (
+                  <p className="text-sm text-red-400/95 leading-snug">失败：法术失败；环位仍将消耗（灵崩）。</p>
                 )}
+                <div className="flex gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCastModalStep('form')
+                      setPsychicRollResult(null)
+                    }}
+                    className="flex-1 py-2 rounded-lg border border-gray-500 text-gray-400 hover:bg-gray-700 text-sm"
+                  >
+                    返回
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      applyCastConsumption({ psychicEchoSuccess: psychicRollResult.success })
+                      setCastModal((m) => ({ ...m, open: false }))
+                      setCastModalStep('form')
+                      setPsychicRollResult(null)
+                    }}
+                    className="flex-1 py-2 rounded-lg bg-dnd-red hover:bg-dnd-red-hover text-white text-sm font-medium"
+                  >
+                    确认结果
+                  </button>
+                </div>
               </div>
-            </div>
-            <div className="flex gap-2 pt-1">
-              <button
-                type="button"
-                onClick={() => setCastModal((m) => ({ ...m, open: false }))}
-                className="flex-1 py-2 rounded-lg border border-gray-500 text-gray-400 hover:bg-gray-700 text-sm"
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (castSource === 'normal') {
-                    const maxR = effectiveMaxByRing[castRing] ?? 0
-                    const cur = Math.max(0, (spellSlotsCurrent[castRing] ?? maxR) - 1)
-                    setSpellSlotCurrent(castRing, cur)
-                  } else if (extraPoints.max > 0 && extraPoints.current >= castRing) {
-                    onSave({ extraSpellSlotsPoints: { max: extraPoints.max, current: extraPoints.current - castRing } })
-                  }
-                  setCastModal((m) => ({ ...m, open: false }))
-                }}
-                disabled={
-                  castSource === 'normal'
-                    ? (() => {
-                        const maxR = effectiveMaxByRing[castRing] ?? 0
-                        const raw = spellSlotsCurrent[castRing] ?? maxR
-                        return Math.min(maxR, Math.max(0, raw)) <= 0
-                      })()
-                    : extraPoints.current < castRing
-                }
-                className="flex-1 py-2 rounded-lg bg-dnd-red hover:bg-dnd-red-hover text-white text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                确认释放
-              </button>
-            </div>
+            ) : (
+              <>
+                <div>
+                  <label className="block text-dnd-text-muted text-xs font-medium mb-1.5">用几环施法（升环施法）</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {Array.from({ length: 10 - castModal.spellLevel }, (_, i) => castModal.spellLevel + i).map((r) => {
+                      const maxR = effectiveMaxByRing[r] ?? 0
+                      const rawRem = spellSlotsCurrent[r] ?? maxR
+                      const rem = castSource === 'normal' ? Math.min(maxR, Math.max(0, rawRem)) : null
+                      const okPoints = castSource === 'extraPoints' && extraPoints.current >= r
+                      const ok = castSource === 'normal' ? rem > 0 : okPoints
+                      return (
+                        <button
+                          key={r}
+                          type="button"
+                          onClick={() => setCastRing(r)}
+                          className={`touch-manipulation min-h-11 min-w-[3.25rem] py-2 px-2 rounded-lg border text-center transition-colors flex flex-col items-center justify-center ${
+                            castRing === r
+                              ? 'bg-dnd-gold/40 border-dnd-gold text-white'
+                              : ok
+                                ? 'border-gray-500 bg-gray-700/80 text-gray-200 hover:border-dnd-gold/60'
+                                : 'border-gray-600 bg-gray-800/50 text-gray-500 cursor-not-allowed'
+                          }`}
+                          disabled={!ok}
+                          title={castSource === 'normal' ? `${r}环 剩余 ${rem}/${maxR}（与法术环位条一致）` : `消耗 ${r} 点（当前 ${extraPoints.current}）`}
+                        >
+                          <span className="text-sm font-medium">{r}环</span>
+                          {castSource === 'normal' ? (
+                            <span className={`text-[10px] mt-0.5 ${rem > 0 ? 'text-gray-300' : 'text-gray-500'}`}>剩余{rem}</span>
+                          ) : (
+                            <span className={`text-[10px] mt-0.5 ${okPoints ? 'text-gray-300' : 'text-gray-500'}`}>耗{r}点</span>
+                          )}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-dnd-text-muted text-xs font-medium mb-1.5">扣除哪里的环位</label>
+                  <div className="flex flex-wrap gap-2">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="castSource"
+                        checked={castSource === 'normal'}
+                        onChange={() => setCastSource('normal')}
+                        className="rounded border-gray-500 text-dnd-red focus:ring-dnd-red"
+                      />
+                      <span className="text-sm text-gray-300">常规环位</span>
+                    </label>
+                    {extraPoints.max > 0 && (
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="castSource"
+                          checked={castSource === 'extraPoints'}
+                          onChange={() => setCastSource('extraPoints')}
+                          className="rounded border-gray-500 text-dnd-red focus:ring-dnd-red"
+                        />
+                        <span className="text-sm text-gray-300">额外环位（点数 {extraPoints.current}/{extraPoints.max}）</span>
+                      </label>
+                    )}
+                  </div>
+                </div>
+                {hasPsychicCollapse && (
+                  <p className="text-xs text-amber-200/90 bg-amber-950/25 border border-amber-500/20 rounded-md px-2 py-1.5">将先自动投掷体质豁免 DC16；也可返回后用角色卡万能骰手动核对。</p>
+                )}
+                <div className="flex gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setCastModal((m) => ({ ...m, open: false }))}
+                    className="flex-1 py-2 rounded-lg border border-gray-500 text-gray-400 hover:bg-gray-700 text-sm"
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (hasPsychicCollapse && castRing >= 1) {
+                        const r = rollPsychicCollapseCastSave(char, buffStats, sheetLevel)
+                        setPsychicRollResult(r)
+                        setCastModalStep('psychic')
+                        return
+                      }
+                      applyCastConsumption({})
+                      setCastModal((m) => ({ ...m, open: false }))
+                    }}
+                    disabled={
+                      castSource === 'normal'
+                        ? (() => {
+                            const maxR = effectiveMaxByRing[castRing] ?? 0
+                            const raw = spellSlotsCurrent[castRing] ?? maxR
+                            return Math.min(maxR, Math.max(0, raw)) <= 0
+                          })()
+                        : extraPoints.current < castRing
+                    }
+                    className="flex-1 py-2 rounded-lg bg-dnd-red hover:bg-dnd-red-hover text-white text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {hasPsychicCollapse && castRing >= 1 ? '投掷并继续' : '确认释放'}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

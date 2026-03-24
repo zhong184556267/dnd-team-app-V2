@@ -27,16 +27,8 @@ export default function More() {
           to="/more/house-rules"
           className="block py-3 px-4 rounded-xl bg-dnd-card border border-white/10 text-white hover:border-dnd-red/50 transition-colors"
         >
-          繁星特色（房规 / 模组 / 职业库）
+          规则收录
         </Link>
-        {isAdmin && (
-          <Link
-            to="/more/data"
-            className="block py-3 px-4 rounded-xl bg-dnd-card border border-white/10 text-white hover:border-dnd-red/50 transition-colors"
-          >
-            数据维护
-          </Link>
-        )}
         <p className="text-dnd-text-muted text-sm pt-2">
           当前：{user?.name}
           {isAdmin && ' (DM)'}

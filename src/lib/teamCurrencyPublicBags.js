@@ -2,7 +2,8 @@
  * 公家次元袋内的「钱币堆」(walletCurrencyId) 与团队金库账面合并统计与扣款。
  */
 import { getEmptyBalances, CURRENCY_IDS, getCurrencyById, getCurrencyDisplayName } from '../data/currencyConfig'
-import { getTeamVault, adjustVault, getCharacterWallet } from './currencyStore'
+import { getTeamVault, adjustVault, getCharacterWallet, convertCurrency, loadTeamVaultIntoCache } from './currencyStore'
+import { isSupabaseEnabled } from './supabase'
 import { getAllCharacters, getCharacter, updateCharacter } from './characterStore'
 import { getNormalizedBagModules, entryBelongsToBagModule } from './bagOfHoldingModules'
 import { normalizeBagOfHoldingVisibility } from './bagOfHoldingVisibility'
@@ -133,6 +134,46 @@ export async function deductTeamCurrency(moduleId, currencyId, amount) {
   }
   window.dispatchEvent(new CustomEvent('dnd-realtime-team-vault'))
   window.dispatchEvent(new CustomEvent('dnd-realtime-characters'))
+  return { success: true }
+}
+
+/**
+ * 团队金库货币兑换：源币种从「账面 + 公家次元袋钱币堆」扣除（顺序与 deductTeamCurrency 一致），目标币种记入账面金库。
+ */
+export async function convertEffectiveTeamCurrency(moduleId, fromId, toId, amount) {
+  if (!CURRENCY_IDS.includes(fromId) || !CURRENCY_IDS.includes(toId)) {
+    return { success: false, error: '无效货币类型' }
+  }
+  if (fromId === toId) return { success: false, error: '请选择不同的货币' }
+
+  if (isSupabaseEnabled()) await loadTeamVaultIntoCache(moduleId)
+
+  const eff = getEffectiveTeamVaultBalances(moduleId)
+  let amt
+  if (amount === 'all') {
+    amt = eff[fromId] ?? 0
+    if (fromId !== 'gem_lb') amt = Math.floor(amt)
+    if (!Number.isFinite(amt) || amt <= 0) {
+      return { success: false, error: '该货币无可用余额' }
+    }
+  } else {
+    amt = fromId === 'gem_lb' ? Number(amount) : Math.floor(Number(amount))
+    if (!Number.isFinite(amt) || amt <= 0) return { success: false, error: '请输入有效数量' }
+  }
+
+  const have = eff[fromId] ?? 0
+  if (amt > have) return { success: false, error: '团队金库（含公家次元袋）该货币余额不足' }
+
+  const toAmount = convertCurrency(amt, fromId, toId)
+  const credit = await adjustVault(moduleId, toId, toAmount)
+  if (!credit.success) return { success: false, error: credit.error || '兑入账面失败' }
+
+  const d = await deductTeamCurrency(moduleId, fromId, amt)
+  if (!d.success) {
+    await adjustVault(moduleId, toId, -toAmount)
+    return d
+  }
+  window.dispatchEvent(new CustomEvent('dnd-realtime-team-vault'))
   return { success: true }
 }
 

@@ -37,6 +37,14 @@ function getEffectSummaryShort(buff) {
       const hover = v.hover ? '悬浮' : ''
       return (speed ? speed + '尺' : '') + (hover ? (speed ? ' ' : '') + hover : '') || effectLabel
     }
+    if (info.effect.subSelect === 'initBonusAndProficiency' || buff.effectType === 'initiative_buff') {
+      const bon = Number(v.bonus) || 0
+      const prof = !!v.proficient
+      const parts = []
+      if (bon !== 0) parts.push((bon >= 0 ? '+' : '') + bon)
+      if (prof) parts.push('熟练')
+      return parts.length ? `${effectLabel} ${parts.join(' ')}` : effectLabel
+    }
     if (info.effect.subSelect === 'abilityScoresAndAdvantage') {
       const labels = buff.effectType === 'save_bonus' ? SAVE_NAMES : ABILITY_NAMES_ZH
       const parts = Object.entries(v)
@@ -160,6 +168,14 @@ function getEffectDisplay(buff, baseAbilities = {}) {
       const speed = v.speed ?? (typeof v === 'number' ? v : 0)
       const hover = v.hover ? '悬浮' : ''
       return { label: effectLabel, value: speed ? `${speed}尺${hover ? ' ' + hover : ''}` : (hover || null) }
+    }
+    if (info.effect.subSelect === 'initBonusAndProficiency' || buff.effectType === 'initiative_buff') {
+      const bon = Number(v.bonus) || 0
+      const prof = !!v.proficient
+      const parts = []
+      if (bon !== 0) parts.push((bon >= 0 ? '+' : '') + bon)
+      if (prof) parts.push('熟练加值')
+      return { label: effectLabel, value: parts.length ? parts.join(' ') : null }
     }
     if (info.effect.subSelect === 'abilityScoresAndAdvantage') {
       const labels = buff.effectType === 'save_bonus' ? SAVE_NAMES : ABILITY_NAMES_ZH

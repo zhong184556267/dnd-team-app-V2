@@ -1,5 +1,3 @@
-import { buildCurrencyRowsForInventory } from './currencyInventoryRows'
-
 /** @param {object} entry @param {number} invIndex */
 export function itemTokenForEntry(entry, invIndex) {
   if (entry?.id) return `i:${entry.id}`
@@ -21,25 +19,24 @@ export function resolveInvIndexFromItemToken(token, inv) {
 }
 
 /**
- * 背包表格行顺序：c:货币id、i:物品条目标识（优先 entry.id，否则 _idx_inv脚标）
+ * 背包表格行顺序：仅 i: 身上物品（钱币只在次元袋与个人持有中展示，不占背包行）
  * @param {string[]|undefined} saved
- * @param {object} wallet
+ * @param {object} _wallet 保留参数以兼容旧调用，已忽略
  * @param {object[]} inv
  */
-export function normalizeBackpackLayoutOrder(saved, wallet, inv) {
-  const currencyIds = buildCurrencyRowsForInventory(wallet).map((r) => r.currencyId)
-  const curTokens = currencyIds.map((id) => `c:${id}`)
+export function normalizeBackpackLayoutOrder(saved, _wallet, inv) {
   const itemTokens = []
   inv.forEach((e, idx) => {
     if (!e?.inBagOfHolding) itemTokens.push(itemTokenForEntry(e, idx))
   })
-  const defaultOrder = [...curTokens, ...itemTokens]
+  const defaultOrder = [...itemTokens]
   if (!Array.isArray(saved) || saved.length === 0) return defaultOrder
 
   const validSet = new Set(defaultOrder)
   const seen = new Set()
   const out = []
   for (const t of saved) {
+    if (!t || typeof t !== 'string' || t.startsWith('c:')) continue
     if (validSet.has(t) && !seen.has(t)) {
       out.push(t)
       seen.add(t)

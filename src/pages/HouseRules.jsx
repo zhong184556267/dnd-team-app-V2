@@ -1,9 +1,10 @@
 import { Link } from 'react-router-dom'
 import { useState } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
-import { CLASS_LIST, getClassData, isFanxingClass, ELDRITCH_INVOCATIONS } from '../data/classDatabase'
+import { CLASS_LIST, getClassData, isFanxingClass, ELDRITCH_INVOCATIONS, MULTICLASS_SPELL_SLOT_ROWS } from '../data/classDatabase'
 import { FEATS_BY_CATEGORY } from '../data/feats'
 import { MARTIAL_TECHNIQUES } from '../data/martialTechniques'
+import MartialStyleIntroBlock from '../components/MartialStyleIntroBlock'
 import { ABILITY_NAMES_ZH } from '../data/buffTypes'
 
 const SPELL_TYPE_LABELS = {
@@ -11,6 +12,52 @@ const SPELL_TYPE_LABELS = {
   half: '半施法',
   third: '三分之一施法',
   pact: '契约施法',
+}
+
+const MULTICLASS_SLOT_RING_LABELS = ['一环', '二环', '三环', '四环', '五环', '六环', '七环', '八环', '九环']
+
+function MulticlassSpellSlotTable() {
+  return (
+    <div className="mt-3 overflow-x-auto rounded-lg border border-white/10">
+      <table className="w-full min-w-[640px] text-xs text-dnd-text-muted border-collapse">
+        <thead>
+          <tr className="bg-white/5 border-b border-white/10">
+            <th className="py-2 px-2 text-center font-semibold text-dnd-gold-light/95 sticky left-0 bg-[#1e2a3d]/95 z-[1] border-r border-white/10">
+              等级
+            </th>
+            {MULTICLASS_SLOT_RING_LABELS.map((label) => (
+              <th key={label} className="py-2 px-1.5 text-center font-semibold text-dnd-gold-light/95 whitespace-nowrap">
+                {label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {Array.from({ length: 20 }, (_, i) => i + 1).map((lv) => {
+            const row = MULTICLASS_SPELL_SLOT_ROWS[lv] || []
+            return (
+              <tr
+                key={lv}
+                className={`border-b border-white/5 ${lv % 2 === 0 ? 'bg-white/[0.03]' : 'bg-transparent'}`}
+              >
+                <td className="py-1.5 px-2 text-center font-mono font-semibold text-dnd-text-body tabular-nums sticky left-0 bg-inherit z-[1] border-r border-white/10">
+                  {lv}
+                </td>
+                {MULTICLASS_SLOT_RING_LABELS.map((_, ri) => {
+                  const n = row[ri + 1] ?? 0
+                  return (
+                    <td key={ri} className="py-1.5 px-1.5 text-center font-mono tabular-nums">
+                      {n > 0 ? n : '—'}
+                    </td>
+                  )
+                })}
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
 }
 
 export default function HouseRules() {
@@ -27,11 +74,8 @@ export default function HouseRules() {
     })
   }
 
-  const sectionKeys = ['房规与模组', '职业库', '专长表', '武技库']
-  const [expandedSections, setExpandedSections] = useState(() => new Set(sectionKeys))
-  const [expandedFeatCategories, setExpandedFeatCategories] = useState(
-    () => new Set(Object.keys(FEATS_BY_CATEGORY))
-  )
+  const [expandedSections, setExpandedSections] = useState(() => new Set())
+  const [expandedFeatCategories, setExpandedFeatCategories] = useState(() => new Set())
   const [expandedSubclasses, setExpandedSubclasses] = useState(() => new Set())
   const [expandedInvocations, setExpandedInvocations] = useState(false)
 
@@ -69,7 +113,7 @@ export default function HouseRules() {
         ← 返回更多
       </Link>
       <h1 className="font-display text-xl font-semibold text-white mb-4 section-title">
-        繁星特色（房规/模组）
+        规则收录
       </h1>
 
       {/* 房规与模组说明 */}
@@ -87,8 +131,45 @@ export default function HouseRules() {
           <h2 className="text-dnd-gold-light text-sm font-bold uppercase tracking-wider">房规与模组</h2>
         </button>
         {expandedSections.has('房规与模组') && (
-          <div className="px-4 pb-4 pt-0 border-t border-white/10">
-            <p className="text-dnd-text-muted text-sm mt-3">富文本房规与模组说明，开发中。</p>
+          <div className="px-4 pb-4 pt-0 border-t border-white/10 space-y-4">
+            <p className="text-dnd-text-muted text-sm mt-3">其他模组与富文本说明可继续在此扩展。</p>
+
+            <div className="rounded-lg border border-dnd-gold/25 bg-[#1b2738]/35 p-3 space-y-3">
+              <h3 className="text-dnd-gold-light text-sm font-bold tracking-wide">兼职施法者 · 法术位</h3>
+              <p className="text-dnd-text-muted text-sm leading-relaxed">
+                你的法术位总量由<strong className="text-dnd-text-body">兼职施法者等级</strong>（见下述换算）对照下表决定；各职业<strong>已知/准备哪些法术</strong>仍分别遵循该职业规则。
+                当你从<strong>多种</strong>具有「施法」特性的职业获得法术时，使用下表。若兼职但<strong>仅有单一职业</strong>提供「施法」（魔契师的契约魔法另计），按该职业条目中的法术位即可（与换算后查表结果一致）。
+              </p>
+              <div className="text-dnd-text-muted text-sm leading-relaxed space-y-2 border-l-2 border-dnd-gold/35 pl-3">
+                <p>
+                  <span className="text-dnd-gold-light/90 font-medium">全施法（1∶1）</span>
+                  ：吟游诗人、牧师、德鲁伊、术士、法师——该职业等级全额计入。
+                </p>
+                <p>
+                  <span className="text-dnd-gold-light/90 font-medium">半施法（½，向上取整）</span>
+                  ：圣武士、游侠，以及职业库中标记为「半施法」的繁星职业——取该职业等级的一半，<strong className="text-dnd-text-body">向上取整</strong>后计入。
+                </p>
+                <p>
+                  <span className="text-dnd-gold-light/90 font-medium">三分之一施法（⅓，向下取整）</span>
+                  ：战士子职<strong>奥法骑士</strong>或<strong>奥法战士</strong>、游荡者子职<strong>诡术师</strong>——取该职业等级的三分之一，<strong className="text-dnd-text-body">向下取整</strong>后计入。
+                </p>
+                <p>
+                  <span className="text-dnd-gold-light/90 font-medium">魔契师 · 契约魔法</span>
+                  ：不计入兼职施法者等级；契约法术位按魔契师等级单独计算，与下表法术位<strong className="text-dnd-text-body">叠加</strong>（角色卡「角色法术 / 战斗状态」中已合并显示）。
+                </p>
+                <p className="text-[13px] text-dnd-text-muted/90 pt-1">
+                  例：游侠 4 / 术士 3 → 3 + ⌈4÷2⌉ = <strong className="text-dnd-text-body">5</strong> 级施法者 → 四环及以下法术位如下表 5 级行。
+                  你可能仍无法准备某些高环职业法术，但可用较高环位施展已知低环法术并享受升环效应。
+                </p>
+              </div>
+              <p className="text-dnd-gold-light text-xs font-bold uppercase tracking-wider pt-1">
+                兼职施法者：每环阶的法术位
+              </p>
+              <MulticlassSpellSlotTable />
+              <p className="text-[11px] text-dnd-text-muted/80">
+                本应用角色卡的每日法术位上限按上表与上述换算由程序计算；可在角色数据中手动覆盖「各环最大法术位」以处理特殊物品或房规调整。
+              </p>
+            </div>
           </div>
         )}
       </div>
@@ -135,7 +216,10 @@ export default function HouseRules() {
                   {isOpen ? <ChevronDown className="w-5 h-5 shrink-0" /> : <ChevronRight className="w-5 h-5 shrink-0" />}
                   <span className="font-semibold">{className}</span>
                   {isFanxingClass(className) && (
-                    <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/90 text-black uppercase tracking-wider">
+                    <span
+                      className="shrink-0 px-2 py-0.5 rounded-md text-[11px] font-semibold tracking-wide whitespace-nowrap border border-dnd-gold/35 bg-[#141210]/90 text-[#d4b878] shadow-none"
+                      title="繁星模组特色职业"
+                    >
                       繁星特色
                     </span>
                   )}
@@ -184,6 +268,38 @@ export default function HouseRules() {
                             </li>
                           ))}
                         </ul>
+                      </div>
+                    )}
+                    {Array.isArray(data.focusAbilities) && data.focusAbilities.length > 0 && (
+                      <div className="mt-4 pt-3 border-t border-white/10">
+                        <p className="text-dnd-gold-light text-xs font-bold uppercase tracking-wider mb-2">专注点 · 特殊能力</p>
+                        <p className="text-dnd-text-muted text-[11px] mb-2 leading-relaxed">
+                          消耗专注点发动；带「子职限定」者仅对应子职可选用；等级为最低火铳手等级。
+                        </p>
+                        <div className="overflow-x-auto rounded-lg border border-white/10">
+                          <table className="w-full text-xs min-w-[560px]">
+                            <thead>
+                              <tr className="bg-[#1b2738]/90 text-dnd-text-muted text-[10px] uppercase tracking-wider">
+                                <th className="text-left py-2 px-2 w-14 whitespace-nowrap">消耗</th>
+                                <th className="text-left py-2 px-2 w-28 whitespace-nowrap">特殊能力</th>
+                                <th className="text-left py-2 px-2 w-16 whitespace-nowrap">最低等级</th>
+                                <th className="text-left py-2 px-2">效果</th>
+                                <th className="text-left py-2 px-2 w-24 whitespace-nowrap">子职限定</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {data.focusAbilities.map((row) => (
+                                <tr key={row.id} className="border-t border-white/10 align-top">
+                                  <td className="py-2 px-2 text-white tabular-nums font-medium whitespace-nowrap">{row.cost} 点</td>
+                                  <td className="py-2 px-2 text-dnd-gold-light/95 font-medium whitespace-nowrap">{row.name}</td>
+                                  <td className="py-2 px-2 text-dnd-text-muted tabular-nums whitespace-nowrap">{row.minLevel}</td>
+                                  <td className="py-2 px-2 text-dnd-text-muted leading-relaxed">{row.effect}</td>
+                                  <td className="py-2 px-2 text-dnd-text-muted whitespace-nowrap">{row.exclusiveSubclass ?? '—'}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
                       </div>
                     )}
                     {className === '魔契师' && ELDRITCH_INVOCATIONS?.length > 0 && (
@@ -429,7 +545,7 @@ export default function HouseRules() {
         {expandedSections.has('武技库') && (
           <div className="px-4 pb-4 pt-0 border-t border-white/10">
             <p className="text-dnd-text-muted text-sm mt-3 mb-4">
-              武技数据供战斗、专长等调用使用。
+              武技数据供战斗、专长等调用使用。展开各流派可查看与《九剑之书》对应的流派介绍。
             </p>
             {MARTIAL_TECHNIQUES.length === 0 ? (
           <div className="rounded-xl bg-dnd-card border border-white/10 p-4">
@@ -453,7 +569,10 @@ export default function HouseRules() {
                   </button>
                   {isOpen && (
                     <div className="px-4 pb-4 pt-0 border-t border-white/10">
-                      <ul className="divide-y divide-white/10 pt-3">
+                      <div className="pt-3 mb-3">
+                        <MartialStyleIntroBlock styleName={style} />
+                      </div>
+                      <ul className="divide-y divide-white/10">
                         {MARTIAL_TECHNIQUES.filter((t) => t.style === style).map((t) => (
                           <li key={t.id} className="py-3 first:pt-0">
                             <div className="flex flex-wrap items-center gap-2 mb-1">

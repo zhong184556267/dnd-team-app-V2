@@ -2,6 +2,7 @@
  * 团队金库：Supabase 存 team_vault；否则 localStorage
  */
 import { CURRENCY_CONFIG, CURRENCY_IDS, getEmptyBalances, getCurrencyById } from '../data/currencyConfig'
+import { mergeWalletWithBagWallet } from './currencyInventoryRows'
 import { getCharacter, updateCharacter } from './characterStore'
 import { isSupabaseEnabled } from './supabase'
 import * as td from './teamDataSupabase'
@@ -180,6 +181,64 @@ export function getCharacterWallet(characterId) {
   return out
 }
 
+/** 身上钱包 + 角色次元袋内钱币堆（角色卡「个人持有」展示与转入金库上限用） */
+export function getCharacterWalletIncludingBag(characterId) {
+  const char = getCharacter(characterId)
+  if (!char) return getEmptyBalances()
+  return mergeWalletWithBagWallet(char.wallet, char.inventory || [])
+}
+
+/**
+ * 从角色身上钱包与次元袋钱币堆中扣除指定数量（先扣袋内堆叠，再扣 wallet）
+ */
+export async function deductFromCharacterWalletAndBag(characterId, currencyId, amount) {
+  const n = currencyId === 'gem_lb' ? Number(amount) : Math.floor(Number(amount))
+  if (!Number.isFinite(n) || n <= 0) return { success: true }
+  const ch = getCharacter(characterId)
+  if (!ch) return { success: false, error: '角色不存在' }
+
+  let remaining = n
+  const inv = [...(ch.inventory || [])]
+  const newInv = []
+  for (const e of inv) {
+    if (remaining <= 0 || !e?.inBagOfHolding || e.walletCurrencyId !== currencyId) {
+      newInv.push(e)
+      continue
+    }
+    const q = Number(e.qty) || 0
+    if (q <= 0) {
+      newInv.push(e)
+      continue
+    }
+    const take = currencyId === 'gem_lb' ? Math.min(remaining, q) : Math.min(remaining, Math.floor(q))
+    const nextQ = q - take
+    remaining -= take
+    if (nextQ > 0) newInv.push({ ...e, qty: nextQ })
+  }
+
+  const w = { ...getCharacterWallet(characterId) }
+  if (remaining > 0) {
+    const pocket = Number(w[currencyId]) || 0
+    const take = currencyId === 'gem_lb' ? Math.min(remaining, pocket) : Math.min(remaining, Math.floor(pocket))
+    if (currencyId === 'gem_lb') {
+      if (remaining - take > 1e-9) return { success: false, error: '个人余额不足' }
+    } else if (take < remaining) {
+      return { success: false, error: '个人余额不足' }
+    }
+    w[currencyId] = currencyId === 'gem_lb' ? Math.max(0, pocket - take) : Math.max(0, Math.floor(pocket - take))
+    remaining -= take
+  }
+
+  if (remaining > (currencyId === 'gem_lb' ? 1e-6 : 0)) {
+    return { success: false, error: '个人余额不足' }
+  }
+
+  await Promise.resolve(updateCharacter(characterId, { inventory: newInv, wallet: w }))
+  window.dispatchEvent(new CustomEvent('dnd-realtime-team-vault'))
+  window.dispatchEvent(new CustomEvent('dnd-realtime-characters'))
+  return { success: true }
+}
+
 export function transferCurrency(moduleId, direction, characterId, currencyId, amount) {
   return (async () => {
     if (isSupabaseEnabled()) await loadTeamVaultIntoCache(moduleId)
@@ -188,7 +247,12 @@ export function transferCurrency(moduleId, direction, characterId, currencyId, a
 
     let amt = amount
     if (amt === 'all' || amt === undefined) {
-      amt = direction === 'toVault' ? wallet[currencyId] ?? 0 : vault[currencyId] ?? 0
+      if (direction === 'toVault') {
+        const merged = getCharacterWalletIncludingBag(characterId)
+        amt = merged[currencyId] ?? 0
+      } else {
+        amt = vault[currencyId] ?? 0
+      }
     } else {
       amt = Number(amt)
       if (Number.isNaN(amt) || amt <= 0) {
@@ -197,11 +261,16 @@ export function transferCurrency(moduleId, direction, characterId, currencyId, a
     }
 
     if (direction === 'toVault') {
-      const have = wallet[currencyId] ?? 0
-      if (amt > have) return { success: false, error: '个人余额不足' }
-      const newWallet = { ...wallet, [currencyId]: have - amt }
+      const merged = getCharacterWalletIncludingBag(characterId)
+      const have = merged[currencyId] ?? 0
+      if (currencyId === 'gem_lb') {
+        if (amt > have + 1e-9) return { success: false, error: '个人余额不足' }
+      } else if (amt > have) {
+        return { success: false, error: '个人余额不足' }
+      }
+      const d = await deductFromCharacterWalletAndBag(characterId, currencyId, amt)
+      if (!d.success) return d
       const newVault = { ...vault, [currencyId]: (vault[currencyId] ?? 0) + amt }
-      await Promise.resolve(updateCharacter(characterId, { wallet: newWallet }))
       if (isSupabaseEnabled()) {
         vaultCache[moduleId ?? 'default'] = newVault
         await td.saveTeamVaultRow(moduleId, newVault)

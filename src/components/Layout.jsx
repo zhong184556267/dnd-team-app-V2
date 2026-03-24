@@ -7,7 +7,6 @@ import { loadAllCharactersIntoCache } from '../lib/characterStore'
 import { startSupabaseRealtime } from '../lib/realtimeSync'
 import { isSupabaseEnabled } from '../lib/supabase'
 import BottomNav from './BottomNav'
-import DiceRoller from './DiceRoller'
 
 function ScrollToTop() {
   const { pathname } = useLocation()
@@ -52,7 +51,6 @@ export default function Layout() {
           </main>
           <BottomNav />
         </div>
-        <DiceRoller />
       </div>
     </RollProvider>
   )

@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
 import { Plus, Minus, ArrowRightLeft } from 'lucide-react'
 import { useModule } from '../contexts/ModuleContext'
-import { getTeamVault, adjustVault, convertVaultCurrency, convertCurrency, loadTeamVaultIntoCache } from '../lib/currencyStore'
-import { getEffectiveTeamVaultBalances, deductTeamCurrency } from '../lib/teamCurrencyPublicBags'
+import { adjustVault, convertCurrency, loadTeamVaultIntoCache } from '../lib/currencyStore'
+import { getEffectiveTeamVaultBalances, deductTeamCurrency, convertEffectiveTeamCurrency } from '../lib/teamCurrencyPublicBags'
 import { CURRENCY_CONFIG, getCurrencyDisplayName } from '../data/currencyConfig'
 import { CurrencyGrid } from './CurrencyDisplay'
 
@@ -74,8 +74,7 @@ export default function CurrencyPanel() {
 
   const convertAmountNum = parseFloat(String(convertAmount).replace(/,/g, ''))
   const convertAmountValid = !Number.isNaN(convertAmountNum) && convertAmountNum > 0
-  const vaultBook = getTeamVault(currentModuleId)
-  const convertMaxFrom = vaultBook[convertFrom] ?? 0
+  const convertMaxFrom = vault[convertFrom] ?? 0
   const convertPreview = convertAmountValid
     ? convertCurrency(convertAmountNum, convertFrom, convertTo)
     : convertAmount.trim().toLowerCase() === '全部' && convertMaxFrom > 0
@@ -91,7 +90,7 @@ export default function CurrencyPanel() {
       setConvertError('请输入有效数量或「全部」')
       return
     }
-    Promise.resolve(convertVaultCurrency(currentModuleId, convertFrom, convertTo, amt)).then((result) => {
+    Promise.resolve(convertEffectiveTeamCurrency(currentModuleId, convertFrom, convertTo, amt)).then((result) => {
       if (result.success) {
         refresh()
         setConvertAmount('')
@@ -153,7 +152,7 @@ export default function CurrencyPanel() {
             )}
             {convertError && <p className="text-red-400 text-xs">{convertError}</p>}
             <p className="text-dnd-text-muted text-[10px] leading-snug">
-              兑换仅使用「货币与金库」<strong className="text-dnd-text-body">账面</strong>余额；已放入公家次元袋的货币请先拖回账面再兑换。
+              兑换会先从<strong className="text-dnd-text-body">账面金库</strong>扣源币种，不足部分再从<strong className="text-dnd-text-body">公家次元袋</strong>钱币堆扣除；兑得货币记入<strong className="text-dnd-text-body">账面</strong>（与下方合计一致）。
             </p>
           </div>
         </div>

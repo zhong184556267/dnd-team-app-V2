@@ -30,8 +30,9 @@ import {
   removeBagModuleAt,
   updateModuleBagCount,
   mergeWalletDelta,
+  inventoryWithBagPatch,
 } from '../lib/bagOfHoldingModules'
-import { buildCurrencyRowsForInventory } from '../lib/currencyInventoryRows'
+import { mergeWalletWithBagWallet, walletPartForCommittedTotal } from '../lib/currencyInventoryRows'
 import {
   normalizeBackpackLayoutOrder,
   resolveInvIndexFromItemToken,
@@ -58,16 +59,17 @@ function getEntryDisplayName(entry) {
   return getItemDisplayName(proto) || '—'
 }
 
-/** 手持：主手 武器+法器+枪械, 副手 盾牌+武器+枪械+法器（权杖/法杖等）, 备用 法器+武器 */
+/** 手持：主手 武器+法器+枪械；副手 盾牌+武器+枪械+法器；备用 与副手可选范围一致 */
 function getHeldOptions(inv, slotIndex) {
   return inv.filter((e) => {
     if (e?.inBagOfHolding) return false
     const proto = e.itemId ? getItemById(e.itemId) : null
     const t = proto?.类型 ?? ''
     const sub = proto?.子类型 ?? ''
-    if (slotIndex === 0) return t === '近战武器' || t === '远程武器' || t === '枪械' || t === '法器'
-    if (slotIndex === 1) return (t === '盔甲' && sub === '盾牌') || t === '近战武器' || t === '远程武器' || t === '枪械' || t === '法器'
-    return t === '法器' || t === '近战武器' || t === '远程武器'
+    const mainHandSet = t === '近战武器' || t === '远程武器' || t === '枪械' || t === '法器'
+    const offHandSet = (t === '盔甲' && sub === '盾牌') || mainHandSet
+    if (slotIndex === 0) return mainHandSet
+    return offHandSet
   })
 }
 
@@ -189,11 +191,12 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
     if (character?.id) setWallet(getCharacterWallet(character.id))
   }, [character?.id, character?.wallet])
 
-  const currencyRows = useMemo(() => buildCurrencyRowsForInventory(wallet), [wallet])
+  /** 展示用：钱包字段 + 次元袋内钱币合计 */
+  const displayWallet = useMemo(() => mergeWalletWithBagWallet(wallet, inv), [wallet, inv])
 
   const layoutOrder = useMemo(
-    () => normalizeBackpackLayoutOrder(character?.backpackLayoutOrder, wallet, inv),
-    [character?.backpackLayoutOrder, wallet, inv],
+    () => normalizeBackpackLayoutOrder(character?.backpackLayoutOrder, displayWallet, inv),
+    [character?.backpackLayoutOrder, displayWallet, inv],
   )
 
   useEffect(() => {
@@ -423,16 +426,13 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
       currencyId === 'gem_lb'
         ? Math.max(0, Number(qty) || 0)
         : Math.max(0, Math.floor(Number(qty) || 0))
-    onSave({ wallet: { ...wallet, [currencyId]: n } })
+    const stored = walletPartForCommittedTotal(currencyId, n, wallet, inv)
+    onSave({ wallet: { ...wallet, [currencyId]: stored } })
   }
 
   const handleBackpackRowDragStart = (e, layoutIdx) => {
     const tok = layoutOrder[layoutIdx]
-    if (tok?.startsWith('c:')) {
-      const cid = tok.slice(2)
-      e.dataTransfer.setData('text/dnd-wallet-currency', cid)
-      e.dataTransfer.setData('text/plain', `wc:${cid}`)
-    } else if (tok?.startsWith('i:')) {
+    if (tok?.startsWith('i:')) {
       const invIdx = resolveInvIndexFromItemToken(tok, inv)
       if (invIdx >= 0) {
         e.dataTransfer.setData('text/dnd-character-inv', String(invIdx))
@@ -548,15 +548,13 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
     onSave({ inventory: next })
   }
 
-  /** 次元袋面板行内编辑（下标为背包 inventory 全局下标） */
+  /** 次元袋面板行内编辑（下标为背包 inventory 全局下标）；钱币 qty 可改为 0 以移除堆叠 */
   const patchBagItem = (globalIndex, patch) => {
-    const e = inv[globalIndex]
-    if (!e?.inBagOfHolding) return
-    const next = { ...e }
-    if ('qty' in patch) next.qty = Math.max(1, Math.floor(Number(patch.qty)) || 1)
-    if ('charge' in patch) next.charge = Math.max(0, Number(patch.charge) || 0)
-    const nextInv = inv.map((row, i) => (i === globalIndex ? next : row))
-    onSave({ inventory: nextInv })
+    const prev = inv[globalIndex]
+    onSave({ inventory: inventoryWithBagPatch(inv, globalIndex, patch) })
+    if (prev?.walletCurrencyId && 'qty' in patch) {
+      window.dispatchEvent(new CustomEvent('dnd-realtime-team-vault'))
+    }
   }
 
   const startEdit = (index) => {
@@ -1023,52 +1021,6 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                   </tr>
                 ) : (
                   layoutOrder.map((token, layoutIdx) => {
-                  if (token.startsWith('c:')) {
-                    const currencyId = token.slice(2)
-                    const cr = currencyRows.find((r) => r.currencyId === currencyId)
-                    if (!cr) return null
-                    return (
-                      <tr
-                        key={token}
-                        className={`border-t border-gray-700/80 bg-[#1e2a3d]/50 hover:bg-gray-800/30 ${canEdit ? 'cursor-grab active:cursor-grabbing' : ''}`}
-                        style={{ height: 48, minHeight: 48, maxHeight: 48 }}
-                        draggable={!!canEdit}
-                        onDragStart={canEdit ? (e) => handleBackpackRowDragStart(e, layoutIdx) : undefined}
-                        onDragEnd={canEdit ? handleDragEnd : undefined}
-                        onDragOver={canEdit ? handleDragOver : undefined}
-                        onDrop={canEdit ? (e) => handleBackpackRowDrop(e, layoutIdx) : undefined}
-                      >
-                        {canEdit && (
-                          <td className="py-1 px-4 align-middle text-center overflow-hidden" title="拖拽调整顺序" style={{ height: 48, maxHeight: 48 }}>
-                            <span className="inline-flex justify-center"><GripVertical className="w-3.5 h-3.5 text-dnd-text-muted" /></span>
-                          </td>
-                        )}
-                        <td className="py-1 px-4 text-dnd-gold-light/95 font-medium align-middle text-left overflow-hidden" style={{ height: 48, maxHeight: 48 }}>
-                          <span className="block text-[10px] text-dnd-text-muted font-normal leading-tight">钱币</span>
-                          <span className="truncate block max-w-full">{cr.label}</span>
-                        </td>
-                        <td className="py-1 px-2 border-l border-gray-600 align-middle text-center text-dnd-text-muted text-xs" style={{ height: 48, maxHeight: 48 }}>
-                          —
-                        </td>
-                        <td className="inventory-table-cell-brief py-1 px-4 text-dnd-text-muted text-xs border-l border-gray-600 align-middle text-left" style={{ height: 48, maxHeight: 48 }}>
-                          个人钱包；与下方「个人持有」同步；数量请在下方修改；可拖入次元袋。
-                        </td>
-                        <td className="py-1 px-2 border-l border-gray-600 align-middle text-center overflow-hidden" style={{ height: 48, maxHeight: 48 }}>
-                          <span className="tabular-nums text-dnd-text-body text-xs" title="在下方「个人持有」中修改数量">
-                            {cr.qty}
-                          </span>
-                        </td>
-                        <td className="py-1 px-2 border-l border-gray-600 align-middle text-center text-dnd-text-muted text-xs" style={{ height: 48, maxHeight: 48 }}>
-                          —
-                        </td>
-                        {canEdit && (
-                          <td className="py-1 px-1 border-l border-gray-600 align-middle text-center text-dnd-text-muted text-[10px]" style={{ height: 48, maxHeight: 48 }}>
-                            —
-                          </td>
-                        )}
-                      </tr>
-                    )
-                  }
                   const i = resolveInvIndexFromItemToken(token, inv)
                   if (i < 0) return null
                   const entry = inv[i]
@@ -1166,7 +1118,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
               </tbody>
             </table>
           </div>
-          {inv.length === 0 && currencyRows.length === 0 && (
+          {inv.length === 0 && (
             <p className="text-gray-500 text-sm py-2 text-center">暂无物品</p>
           )}
         </div>
@@ -1192,14 +1144,16 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
         {/* 个人持有（紧凑：核心货币略大于零钱，整体省空间） */}
         <div className="rounded-xl border border-gray-600 bg-gray-800/30 overflow-hidden">
           <h3 className={subTitleClass + ' px-1.5 pt-0.5 pb-0.5 border-b border-gray-600/80'}>个人持有</h3>
+          <p className="px-1.5 pt-0.5 text-[10px] text-dnd-text-muted leading-tight">数额含身上钱包与<strong className="text-dnd-text-body">次元袋内钱币</strong>；改数字时仅调整身上钱包，袋内条不变。拖<strong className="text-dnd-text-body">⋮</strong>柄可将身上该币种移入上方次元袋。</p>
           <div className="px-1 py-0.5 flex flex-wrap items-stretch gap-1 min-h-0">
             <div className="flex-1 min-w-[160px] min-h-0 flex flex-col">
               <CurrencyGrid
-                balances={wallet}
+                balances={displayWallet}
                 title={null}
                 fillHeight
                 extraClass="!border-0 !bg-transparent !rounded-none !shadow-none"
                 editable={!!canEdit}
+                dragCurrencyToBag={!!canEdit}
                 onCurrencyChange={(currencyId, value) => patchWalletCurrency(currencyId, value)}
               />
             </div>
@@ -1229,22 +1183,30 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
           <div className="rounded-xl bg-dnd-card border border-white/10 shadow-dnd-card p-4 w-full max-w-sm mx-4" onClick={(e) => e.stopPropagation()}>
             <p className="text-dnd-gold-light text-sm font-bold mb-2">存到团队仓库</p>
             <p className="text-dnd-text-muted text-xs mb-2">当前：{invDisplayName(inv[storeToVaultIndex])} × {inv[storeToVaultIndex].qty}</p>
-            <div className="flex items-center gap-2 mb-4">
-              <label className="text-dnd-text-muted text-xs shrink-0">数量</label>
-              <input
-                type="number"
-                min={1}
-                max={Math.max(1, Number(inv[storeToVaultIndex].qty) ?? 1)}
-                value={storeToVaultQty}
-                onChange={(e) => {
-                  const max = Math.max(1, Number(inv[storeToVaultIndex].qty) ?? 1)
-                  const v = parseInt(e.target.value, 10)
-                  setStoreToVaultQty(Number.isNaN(v) ? 1 : Math.max(1, Math.min(max, v)))
-                }}
-                className={inputClass + ' h-10 w-24'}
-              />
-              <span className="text-dnd-text-muted text-xs">/ {inv[storeToVaultIndex].qty}</span>
-            </div>
+            {(() => {
+              const maxStoreQty = Math.max(1, Number(inv[storeToVaultIndex].qty) ?? 1)
+              return (
+                <div className="mb-4">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="w-10 shrink-0 text-dnd-text-muted text-xs">数量</span>
+                    <div className="flex min-w-0 flex-1 items-center gap-2">
+                      <div className="max-w-[min(100%,11rem)] w-full shrink-0 min-w-0">
+                        <NumberStepper
+                          value={storeToVaultQty}
+                          min={1}
+                          max={maxStoreQty}
+                          onChange={(v) => setStoreToVaultQty(v)}
+                          compact
+                        />
+                      </div>
+                      <span className="shrink-0 self-center font-mono text-sm tabular-nums leading-none text-dnd-text-muted whitespace-nowrap">
+                        / {maxStoreQty}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )
+            })()}
             <div className="flex gap-2 justify-end">
               <button type="button" onClick={() => setStoreToVaultIndex(null)} className="h-10 px-4 rounded-lg bg-gray-600 hover:bg-gray-500 text-white font-bold text-sm">取消</button>
               <button type="button" onClick={confirmStoreToVault} disabled={isStoreToVaulting} className="h-10 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm disabled:opacity-50 disabled:cursor-not-allowed">{isStoreToVaulting ? '存入中...' : '确认存入'}</button>

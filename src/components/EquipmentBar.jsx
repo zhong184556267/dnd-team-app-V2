@@ -62,17 +62,17 @@ export default function EquipmentBar({ character, canEdit, onSave }) {
     return t === '近战武器' || t === '远程武器' || t === '枪械' || t === '法器'
   })
 
-  /** 副手：盾牌 + 武器 + 枪械 */
+  /** 副手 / 备用：盾牌 + 武器 + 枪械 + 法器（与装备与背包页副手一致） */
   const offHandOptions = inv.filter((e) => {
     const proto = e.itemId ? getItemById(e.itemId) : null
     const t = proto?.类型 ?? ''
     const sub = proto?.子类型 ?? ''
     if (t === '盔甲' && sub === '盾牌') return true
-    if (t === '近战武器' || t === '远程武器' || t === '枪械') return true
+    if (t === '近战武器' || t === '远程武器' || t === '枪械' || t === '法器') return true
     return false
   })
 
-  const getHeldOptions = (slotIndex) => (slotIndex === 0 ? mainHandOptions : slotIndex === 1 ? offHandOptions : mainHandOptions)
+  const getHeldOptions = (slotIndex) => (slotIndex === 0 ? mainHandOptions : offHandOptions)
 
   const setHeld = (next) => onSave({ equippedHeld: next, equippedWorn: wornSlots })
   const setWorn = (next) => onSave({ equippedHeld: heldSlots, equippedWorn: next })

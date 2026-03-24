@@ -94,8 +94,14 @@ function entryToEffectModules(entry, proto) {
       : entry.effects
     toRestore.forEach((e) => {
       let val = e.value ?? 0
-      if (e.effectType === 'contained_spell' && typeof val === 'object' && val && !Array.isArray(val) && val.charges === undefined && entry.charge != null) {
-        val = { ...val, charges: Number(entry.charge) || 0 }
+      /** 内含法术「充能数」与背包表格外层 entry.charge 同一套数；列表步进器改的是 entry.charge，打开编辑时必须以之为准 */
+      if (e.effectType === 'contained_spell' && typeof val === 'object' && val && !Array.isArray(val)) {
+        const top = entry.charge
+        if (top != null && top !== '') {
+          val = { ...val, charges: Math.max(0, Number(top) || 0) }
+        } else if (val.charges === undefined) {
+          val = { ...val, charges: 0 }
+        }
       }
       add(normalizeEffectCategory(e.effectType ?? '', e.category), e.effectType ?? '', {
         value: val,
@@ -232,7 +238,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
         setWeaponDamage(parseDamageString(editEntry?.攻击 ?? proto?.攻击 ?? ''))
         const { traits, range, ammoCategory } = parseWeaponNoteToTraits(editEntry?.附注 ?? proto?.附注 ?? '')
         setWeaponTraits(traits)
-        setWeaponRange(range)
+        setWeaponRange((editEntry?.攻击距离 ?? range ?? proto?.攻击距离 ?? '').trim())
         setWeaponAmmoCategory(ammoCategory ?? '')
         setWeaponMastery((editEntry?.精通 != null && editEntry?.精通 !== '') ? String(editEntry.精通) : (proto?.精通 ?? ''))
       } else {
@@ -285,7 +291,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
       setWeaponDamage(parseDamageString(proto.攻击 ?? ''))
       const { traits, range, ammoCategory } = parseWeaponNoteToTraits(proto.附注 ?? '')
       setWeaponTraits(traits)
-      setWeaponRange(range)
+      setWeaponRange((proto.攻击距离 ?? range ?? '').trim())
       setWeaponAmmoCategory(ammoCategory ?? '')
       setWeaponMastery(proto.精通 ?? '')
     }
@@ -332,6 +338,8 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
       const attackStr = parts.join('') + (weaponDamage.type ? ' ' + weaponDamage.type : '')
       攻击 = attackStr.trim() || 攻击
       伤害 = weaponDamage.type || 伤害
+      const r = String(weaponRange ?? '').trim()
+      if (r) 攻击距离 = r
     }
     if (isExplosive && explosiveDamage) {
       攻击 = formatDamageForAttack(explosiveDamage).trim() || 攻击

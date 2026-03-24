@@ -12,7 +12,13 @@ import {
   reorderCraftingProjects,
   MAGIC_ITEM_TYPES,
 } from '../lib/craftingStore'
-import { normalizeProject, isCraftFeeClaimed, DND_CRAFT_COMPLETED_MIME } from '../lib/craftingProjectUtils'
+import {
+  normalizeProject,
+  isCraftFeeClaimed,
+  isCraftDeposited,
+  getCraftDepositDestLabel,
+  DND_CRAFT_COMPLETED_MIME,
+} from '../lib/craftingProjectUtils'
 import {
   parseCostFromString,
   calcCraftingDays,
@@ -30,15 +36,134 @@ import { useModule } from '../contexts/ModuleContext'
 import { logTeamActivity } from '../lib/activityLog'
 import { getAllCharacters, getCharacter, updateCharacter } from '../lib/characterStore'
 import { CRAFTING_FEAT_IDS } from '../data/feats'
-import { loadTeamVaultIntoCache, getCharacterWallet } from '../lib/currencyStore'
+import { loadTeamVaultIntoCache, getCharacterWalletIncludingBag, deductFromCharacterWalletAndBag } from '../lib/currencyStore'
 import { getEffectiveTeamVaultBalances, deductTeamCurrency } from '../lib/teamCurrencyPublicBags'
 import { loadCraftingIntoCache } from '../lib/craftingStore'
 import { isSupabaseEnabled } from '../lib/supabase'
 import { addToWarehouse } from '../lib/warehouseStore'
 import { inputClass, textareaClass } from '../lib/inputStyles'
+import { BUFF_TYPES } from '../data/buffTypes'
+import { EffectValueEditor } from './BuffForm'
 
 /** 自动计算字段：无描边 */
 const autoCalcClass = 'border-0 bg-gray-700/50 cursor-default'
+
+const EMPTY_CONTAINED_SPELL = {
+  spellId: '',
+  spellName: '',
+  level: 1,
+  hitResolution: 'dex_save',
+  range: '',
+  area: '',
+  damageDice: '',
+  damageDiceCount: 1,
+  damageDiceSides: 6,
+  damageType: '',
+  charges: 50,
+}
+
+/** 制作表单：该行是否已填法术名或已识别 spellId */
+function isCraftContainedSpellFilled(sp) {
+  if (!sp || typeof sp !== 'object') return false
+  return !!((sp.spellName && String(sp.spellName).trim()) || (sp.spellId && String(sp.spellId).trim()))
+}
+
+/** 法杖：有效法术条数（至少按 1 计，供定价公式 spellMult） */
+function staffCraftEffectiveSpellCount(rows) {
+  if (!Array.isArray(rows)) return 1
+  const n = rows.filter(isCraftContainedSpellFilled).length
+  return Math.max(1, n)
+}
+
+/** 法杖：取已填法术中的最高环级（无则取第一行草稿环级） */
+function staffCraftPricingLevel(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) return 1
+  const filled = rows.filter(isCraftContainedSpellFilled)
+  if (filled.length === 0) return spellLevelFromContainedForCraft(rows[0], 'staff')
+  return Math.max(...filled.map((s) => spellLevelFromContainedForCraft(s, 'staff')))
+}
+
+/** 魔杖/法杖：与附魔「释放环位」同一套环级（定价、存档 所含法术环级） */
+function spellLevelFromContainedForCraft(contained, craftTypeId) {
+  const raw = contained?.level
+  const lv = typeof raw === 'number' ? raw : (parseInt(raw, 10) || 1)
+  if (craftTypeId === 'wand') return Math.max(1, Math.min(4, lv))
+  if (craftTypeId === 'staff') return Math.max(1, Math.min(9, lv))
+  return 1
+}
+
+/** 交易价格 / 制作成本 / 制作天数 / 消耗经验 — 单行紧凑展示 */
+function CraftingAutoStatsRow({ tradePrice, craftCost, days, xp }) {
+  const inp = `${inputClass} h-7 text-[11px] ${autoCalcClass} w-full min-w-0`
+  const cell = 'min-w-0 flex-1 basis-0'
+  return (
+    <div className="flex flex-nowrap gap-1 sm:gap-1.5 w-full">
+      <div className={cell}>
+        <label className="block text-dnd-text-muted text-[10px] mb-0.5 leading-tight">交易价格</label>
+        <input readOnly value={tradePrice} className={inp} />
+      </div>
+      <div className={cell}>
+        <label className="block text-dnd-text-muted text-[10px] mb-0.5 leading-tight">制作成本</label>
+        <input readOnly value={craftCost} className={inp} />
+      </div>
+      <div className={cell}>
+        <label className="block text-dnd-text-muted text-[10px] mb-0.5 leading-tight">制作天数</label>
+        <input readOnly value={String(days)} className={inp} />
+      </div>
+      <div className={cell}>
+        <label className="block text-dnd-text-muted text-[10px] mb-0.5 leading-tight">消耗经验</label>
+        <input readOnly value={String(xp)} className={inp} />
+      </div>
+    </div>
+  )
+}
+
+/** 入库条目：魔杖/法杖可带内含法术与充能（与 ItemAddForm 存盘结构一致；法杖可多条约 contained_spell） */
+function buildCraftedInventoryEntry(p) {
+  const name = p.物品名称?.trim() || '未命名魔法物品'
+  const desc = p.详细介绍?.trim() ?? ''
+  const base = { name, 详细介绍: desc, qty: 1 }
+  const t = p.类型
+  const topCharges = Math.max(0, Number(p.充能次数) || 0)
+
+  if (t === 'staff' && Array.isArray(p.内含法术列表) && p.内含法术列表.length > 0) {
+    const effects = p.内含法术列表
+      .filter((sp) => sp && typeof sp === 'object' && isCraftContainedSpellFilled(sp))
+      .map((sp) => {
+        const charges = topCharges || Math.max(0, Number(sp.charges) || 0)
+        return {
+          category: 'mobility_casting',
+          effectType: 'contained_spell',
+          value: { ...sp, charges },
+          customText: '',
+        }
+      })
+    if (effects.length === 0) return base
+    const charge = topCharges || Math.max(0, Number(effects[0].value.charges) || 0)
+    return { ...base, charge, effects }
+  }
+
+  if ((t === 'wand' || t === 'staff') && p.内含法术 && typeof p.内含法术 === 'object') {
+    const sp = p.内含法术
+    const hasSpell = (sp.spellName && String(sp.spellName).trim()) || (sp.spellId && String(sp.spellId).trim())
+    if (!hasSpell) return base
+    const charges = topCharges || Math.max(0, Number(sp.charges) || 0)
+    const value = { ...sp, charges }
+    return {
+      ...base,
+      charge: charges,
+      effects: [
+        {
+          category: 'mobility_casting',
+          effectType: 'contained_spell',
+          value,
+          customText: '',
+        },
+      ],
+    }
+  }
+  return base
+}
 
 /** 判断角色是否为器魂术士（主职、兼职或进阶） */
 function isArtificer(char) {
@@ -105,8 +230,11 @@ export default function MagicCraftingPanel() {
   const [new所含法术环级, setNew所含法术环级] = useState(1)
   const [new充能次数, setNew充能次数] = useState(50)
   const [new单次材料费, setNew单次材料费] = useState(0)
-  const [new法术数量, setNew法术数量] = useState(1)
   const [new数量, setNew数量] = useState(1)
+  /** 魔杖：单条内含法术 */
+  const [newWandContainedSpell, setNewWandContainedSpell] = useState(() => ({ ...EMPTY_CONTAINED_SPELL }))
+  /** 法杖：多条内含法术，法术数量 = 已填法术词条数（至少 1 用于定价） */
+  const [newStaffContainedSpells, setNewStaffContainedSpells] = useState(() => [{ ...EMPTY_CONTAINED_SPELL }])
   const [showNewCraftModal, setShowNewCraftModal] = useState(false)
   // 存入
   const [depositProjectIndex, setDepositProjectIndex] = useState(null)
@@ -130,6 +258,17 @@ export default function MagicCraftingPanel() {
     if (!userName) return []
     return characters.filter((c) => c.owner === userName)
   }, [characters, isAdmin, userName])
+
+  /** 附魔内含法术的充能与「充能次数」下拉统一为 new充能次数（入库、项目存档均写同一数值） */
+  const wandContainedSpellModule = useMemo(
+    () => ({
+      id: 'craft-contained-spell',
+      category: 'mobility_casting',
+      effectType: 'contained_spell',
+      value: { ...newWandContainedSpell, charges: new充能次数 },
+    }),
+    [newWandContainedSpell, new充能次数],
+  )
 
   const refresh = () => setProjects(getCraftingProjects(currentModuleId))
   const refreshVault = () => setVault(getEffectiveTeamVaultBalances(currentModuleId))
@@ -174,11 +313,14 @@ export default function MagicCraftingPanel() {
       costGp = Math.floor(mp / 2)
       xp = calcXpFromCraftCostGp(costGp)
     } else if (type === 'wand') {
-      const mp = calcWandMarketPrice(new所含法术环级, new单次材料费, new充能次数)
+      const sl = spellLevelFromContainedForCraft(newWandContainedSpell, 'wand')
+      const mp = calcWandMarketPrice(sl, new单次材料费, new充能次数)
       costGp = Math.floor(mp / 2)
       xp = calcXpFromCraftCostGp(costGp)
     } else if (type === 'staff') {
-      const mp = calcStaffMarketPrice(new所含法术环级, new法术数量, new单次材料费, new充能次数)
+      const sl = staffCraftPricingLevel(newStaffContainedSpells)
+      const spellQty = staffCraftEffectiveSpellCount(newStaffContainedSpells)
+      const mp = calcStaffMarketPrice(sl, spellQty, new单次材料费, new充能次数)
       costGp = Math.floor(mp / 2)
       xp = calcXpFromCraftCostGp(costGp)
     } else if (type === 'weapon_armor') {
@@ -198,6 +340,16 @@ export default function MagicCraftingPanel() {
     const name = new物品名称?.trim()
     if (!name) return
     const { costStr, xp, days } = computeNewProjectStats()
+    const staffSpellsNorm =
+      new类型 === 'staff'
+        ? newStaffContainedSpells
+            .filter(isCraftContainedSpellFilled)
+            .map((sp) => ({
+              ...sp,
+              charges: new充能次数,
+              level: spellLevelFromContainedForCraft(sp, 'staff'),
+            }))
+        : []
     Promise.resolve(
       addCraftingProject(currentModuleId, {
         类型: new类型,
@@ -209,10 +361,36 @@ export default function MagicCraftingPanel() {
         消耗经验: xp,
         制作需求人: new制作需求人,
         委托角色: new委托角色,
-        ...(['potion', 'scroll', 'wand', 'staff'].includes(new类型) ? { 所含法术环级: new所含法术环级 } : {}),
+        ...(['potion', 'scroll', 'wand', 'staff'].includes(new类型)
+          ? {
+              所含法术环级:
+                new类型 === 'wand'
+                  ? spellLevelFromContainedForCraft(newWandContainedSpell, 'wand')
+                  : new类型 === 'staff'
+                    ? staffSpellsNorm.length
+                      ? Math.max(...staffSpellsNorm.map((s) => spellLevelFromContainedForCraft(s, 'staff')))
+                      : spellLevelFromContainedForCraft(newStaffContainedSpells[0] || EMPTY_CONTAINED_SPELL, 'staff')
+                    : new所含法术环级,
+            }
+          : {}),
         ...(['wand', 'staff'].includes(new类型) ? { 充能次数: new充能次数, 单次材料费: new单次材料费 } : {}),
-        ...(new类型 === 'staff' ? { 法术数量: new法术数量 } : {}),
+        ...(new类型 === 'staff'
+          ? {
+              法术数量: Math.max(1, staffSpellsNorm.length),
+              内含法术列表: staffSpellsNorm,
+              ...(staffSpellsNorm[0] ? { 内含法术: staffSpellsNorm[0] } : {}),
+            }
+          : {}),
         ...(new类型 === 'scroll' ? { 数量: new数量 } : {}),
+        ...(new类型 === 'wand'
+          ? {
+              内含法术: {
+                ...newWandContainedSpell,
+                charges: new充能次数,
+                level: spellLevelFromContainedForCraft(newWandContainedSpell, 'wand'),
+              },
+            }
+          : {}),
       })
     ).then(() => {
       refresh()
@@ -226,8 +404,9 @@ export default function MagicCraftingPanel() {
       setNew所含法术环级(1)
       setNew充能次数(50)
       setNew单次材料费(0)
-      setNew法术数量(1)
       setNew数量(1)
+      setNewWandContainedSpell({ ...EMPTY_CONTAINED_SPELL })
+      setNewStaffContainedSpells([{ ...EMPTY_CONTAINED_SPELL }])
       setShowNewCraftModal(false)
     })
   }
@@ -303,7 +482,7 @@ export default function MagicCraftingPanel() {
     setClaimProjectIndex(index)
     setClaimCostSource('vault')
     const payers = delegateCharacterOptions.filter((c) => {
-      const gp = getCharacterWallet(c.id).gp ?? 0
+      const gp = getCharacterWalletIncludingBag(c.id).gp ?? 0
       return gp >= parseCostFromString(p.消耗金额)
     })
     setClaimPayerCharId(payers[0]?.id ?? delegateCharacterOptions[0]?.id ?? '')
@@ -341,9 +520,9 @@ export default function MagicCraftingPanel() {
         alert('请选择支付金币的角色')
         return
       }
-      const w = getCharacterWallet(claimPayerCharId)
+      const w = getCharacterWalletIncludingBag(claimPayerCharId)
       if ((w.gp ?? 0) < costGp) {
-        alert(`该角色个人金币不足：需要 ${Math.ceil(costGp)} GP，当前 ${Math.round(w.gp ?? 0)} GP`)
+        alert(`该角色个人金币不足（含次元袋内钱币）：需要 ${Math.ceil(costGp)} GP，当前 ${Math.round(w.gp ?? 0)} GP`)
         return
       }
     }
@@ -358,11 +537,10 @@ export default function MagicCraftingPanel() {
         if (!r.success) throw new Error(r.error || '扣除团队资金失败')
       })
 
-    const runPersonal = () => {
-      const w = getCharacterWallet(claimPayerCharId)
-      const nextGp = Math.max(0, (w.gp ?? 0) - costGp)
-      return Promise.resolve(updateCharacter(claimPayerCharId, { wallet: { ...w, gp: nextGp } }))
-    }
+    const runPersonal = () =>
+      Promise.resolve(deductFromCharacterWalletAndBag(claimPayerCharId, 'gp', Math.ceil(costGp))).then((r) => {
+        if (!r.success) throw new Error(r.error || '扣除个人金币失败')
+      })
 
     const runXp = () => {
       if (totalXp <= 0 || !makerId) return Promise.resolve()
@@ -375,7 +553,12 @@ export default function MagicCraftingPanel() {
 
     payPromise
       .then(() => runXp())
-      .then(() => updateCraftingProject(currentModuleId, idx, { 已领取: true }))
+      .then(() =>
+        updateCraftingProject(currentModuleId, idx, {
+          已领取: true,
+          领取结算时间: new Date().toISOString(),
+        }),
+      )
       .then(() => {
         if (user?.name) {
           const src = claimCostSource === 'vault' ? '团队金库' : `角色「${getCharacter(claimPayerCharId)?.name || '未命名'}」个人金币`
@@ -436,25 +619,37 @@ export default function MagicCraftingPanel() {
       alert('请先在下方「已完成物品列表」中点击「领取结算」，支付制作成本与经验后，再存入物品。')
       return
     }
-    const name = p.物品名称?.trim() || '未命名魔法物品'
-    const desc = p.详细介绍?.trim() ?? ''
-    const finishDeposit = () =>
-      Promise.resolve(removeCraftingProject(currentModuleId, depositProjectIndex)).then(() => {
+    if (isCraftDeposited(p)) {
+      alert('该物品已入库，列表中仅保留灰色记录。')
+      setDepositProjectIndex(null)
+      return
+    }
+    const craftedEntry = buildCraftedInventoryEntry(p)
+    const nowIso = new Date().toISOString()
+    const finishDeposit = (去向) =>
+      Promise.resolve(
+        updateCraftingProject(currentModuleId, depositProjectIndex, {
+          已入库: true,
+          入库时间: nowIso,
+          入库去向: 去向,
+          ...(去向 === 'character' && depositCharId ? { 入库角色Id: depositCharId } : {}),
+        }),
+      ).then(() => {
         refresh()
         setDepositProjectIndex(null)
         setDepositCharId('')
       })
 
     if (depositToWarehouse) {
-      Promise.resolve(addToWarehouse(currentModuleId, { name, 详细介绍: desc, qty: 1 })).then(() => {
+      Promise.resolve(addToWarehouse(currentModuleId, craftedEntry)).then(() => {
         if (user?.name) {
           logTeamActivity({
             actor: user.name,
             moduleId: currentModuleId,
-            summary: `玩家 ${user.name} 将制作的「${name}」放入团队仓库`,
+            summary: `玩家 ${user.name} 将制作的「${craftedEntry.name}」放入团队仓库`,
           })
         }
-        return finishDeposit()
+        return finishDeposit('warehouse')
       })
     } else {
       if (!depositCharId) return
@@ -466,17 +661,17 @@ export default function MagicCraftingPanel() {
       const inv = char.inventory ?? []
       Promise.resolve(
         updateCharacter(depositCharId, {
-          inventory: [...inv, { id: 'inv_' + Date.now(), name, 详细介绍: desc, qty: 1 }],
+          inventory: [...inv, { id: 'inv_' + Date.now(), ...craftedEntry }],
         })
       ).then(() => {
         if (user?.name) {
           logTeamActivity({
             actor: user.name,
             moduleId: currentModuleId,
-            summary: `玩家 ${user.name} 将制作的「${name}」存入了角色「${char.name || '未命名'}」的背包`,
+            summary: `玩家 ${user.name} 将制作的「${craftedEntry.name}」存入了角色「${char.name || '未命名'}」的背包`,
           })
         }
-        return finishDeposit()
+        return finishDeposit('character')
       })
     }
   }
@@ -517,54 +712,160 @@ export default function MagicCraftingPanel() {
                 <label className="block text-dnd-text-muted text-xs mb-1">详细描述（可选）</label>
                 <textarea value={new详细介绍} onChange={(e) => setNew详细介绍(e.target.value)} placeholder="效果、说明等" rows={2} className={textareaClass + ' w-full'} />
               </div>
+              {new类型 === 'wand' && (
+                <div className="space-y-1.5 min-w-0">
+                  <label className="block text-dnd-text-muted text-xs">附魔（内含法术）</label>
+                  <div className="rounded-lg border border-white/10 bg-gray-800/40 p-2 min-w-0">
+                    <EffectValueEditor
+                      module={wandContainedSpellModule}
+                      onChange={(mod) => {
+                        const v = mod.value && typeof mod.value === 'object' && !Array.isArray(mod.value) ? mod.value : { ...EMPTY_CONTAINED_SPELL }
+                        setNewWandContainedSpell({ ...v, charges: new充能次数 })
+                      }}
+                      catData={BUFF_TYPES.mobility_casting}
+                      useWandScrollTable
+                      containedSpellPrimaryOnly
+                      containedSpellHideChargesInPrimary
+                      hideSectionLabel
+                    />
+                  </div>
+                </div>
+              )}
+              {new类型 === 'staff' && (
+                <div className="space-y-2 min-w-0">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <label className="block text-dnd-text-muted text-xs">附魔（内含法术）</label>
+                    <span className="text-dnd-text-muted text-[10px]">
+                      法术数量 {staffCraftEffectiveSpellCount(newStaffContainedSpells)}（{newStaffContainedSpells.filter(isCraftContainedSpellFilled).length} 条已填）
+                    </span>
+                  </div>
+                  <div className="space-y-2">
+                    {newStaffContainedSpells.map((sp, i) => (
+                      <div
+                        key={`staff-spell-${i}`}
+                        className={`relative rounded-lg border border-white/10 bg-gray-800/40 p-2 min-w-0 ${newStaffContainedSpells.length > 1 ? 'pr-9' : ''}`}
+                      >
+                        {newStaffContainedSpells.length > 1 && (
+                          <button
+                            type="button"
+                            title="移除此法术"
+                            onClick={() => setNewStaffContainedSpells((rows) => rows.filter((_, j) => j !== i))}
+                            className="absolute top-2 right-2 p-1 rounded text-gray-400 hover:text-dnd-red hover:bg-white/5"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        )}
+                        <EffectValueEditor
+                          module={{
+                            id: `craft-staff-spell-${i}`,
+                            category: 'mobility_casting',
+                            effectType: 'contained_spell',
+                            value: { ...sp, charges: new充能次数 },
+                          }}
+                          onChange={(mod) => {
+                            const v = mod.value && typeof mod.value === 'object' && !Array.isArray(mod.value) ? mod.value : { ...EMPTY_CONTAINED_SPELL }
+                            setNewStaffContainedSpells((rows) => rows.map((row, j) => (j === i ? { ...v, charges: new充能次数 } : row)))
+                          }}
+                          catData={BUFF_TYPES.mobility_casting}
+                          useWandScrollTable
+                          containedSpellPrimaryOnly
+                          containedSpellHideChargesInPrimary
+                          containedSpellRowPrefix={`${i + 1}.`}
+                          hideSectionLabel
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setNewStaffContainedSpells((rows) => [...rows, { ...EMPTY_CONTAINED_SPELL }])}
+                    className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg border border-dashed border-white/20 text-dnd-text-muted text-xs hover:border-dnd-gold/50 hover:text-dnd-gold-light"
+                  >
+                    <Plus size={14} /> 内含法术
+                  </button>
+                </div>
+              )}
               {new类型 === 'potion' && (
-                <div className="flex flex-wrap items-end gap-2">
-                  <div><label className="block text-dnd-text-muted text-xs mb-1">所含法术环级</label><input type="number" min={1} max={4} value={new所含法术环级} onChange={(e) => setNew所含法术环级(Math.max(1, Math.min(4, parseInt(e.target.value, 10) || 1)))} className={inputClass + ' h-9 w-16'} /></div>
-                  <div><label className="block text-dnd-text-muted text-xs mb-1">施法者等级</label><input type="text" value={calcMinCasterLevel(new所含法术环级) + '（自动）'} readOnly className={inputClass + ' h-9 w-20 ' + autoCalcClass} /></div>
-                  <div><label className="block text-dnd-text-muted text-xs mb-1">材料费用</label><input type="text" value={new材料费用} onChange={(e) => setNew材料费用(e.target.value)} placeholder="如：100 GP" className={inputClass + ' h-9 w-24'} /></div>
-                  <div><label className="block text-dnd-text-muted text-xs mb-1">交易价格</label><input type="text" value={`${calcPotionMarketPrice(new所含法术环级)} GP`} readOnly className={inputClass + ' h-9 w-20 ' + autoCalcClass} /></div>
-                  <div><label className="block text-dnd-text-muted text-xs mb-1">制作成本</label><input type="text" value={`${calcPotionCraftCost(calcPotionMarketPrice(new所含法术环级))} GP`} readOnly className={inputClass + ' h-9 w-20 ' + autoCalcClass} /></div>
-                  <div><label className="block text-dnd-text-muted text-xs mb-1">制作天数</label><input type="text" value={calcCraftingDays(String(calcPotionCraftCost(calcPotionMarketPrice(new所含法术环级))))} readOnly className={inputClass + ' h-9 w-14 ' + autoCalcClass} /></div>
-                  <div><label className="block text-dnd-text-muted text-xs mb-1">消耗经验</label><input type="text" value={calcPotionXpCost(calcPotionMarketPrice(new所含法术环级))} readOnly className={inputClass + ' h-9 w-14 ' + autoCalcClass} /></div>
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-end gap-2">
+                    <div><label className="block text-dnd-text-muted text-xs mb-1">所含法术环级</label><input type="number" min={1} max={4} value={new所含法术环级} onChange={(e) => setNew所含法术环级(Math.max(1, Math.min(4, parseInt(e.target.value, 10) || 1)))} className={inputClass + ' h-9 w-16'} /></div>
+                    <div><label className="block text-dnd-text-muted text-xs mb-1">施法者等级</label><input type="text" value={calcMinCasterLevel(new所含法术环级) + '（自动）'} readOnly className={inputClass + ' h-9 w-20 ' + autoCalcClass} /></div>
+                    <div><label className="block text-dnd-text-muted text-xs mb-1">材料费用</label><input type="text" value={new材料费用} onChange={(e) => setNew材料费用(e.target.value)} placeholder="如：100 GP" className={inputClass + ' h-9 w-24'} /></div>
+                  </div>
+                  <CraftingAutoStatsRow
+                    tradePrice={`${calcPotionMarketPrice(new所含法术环级)} GP`}
+                    craftCost={`${calcPotionCraftCost(calcPotionMarketPrice(new所含法术环级))} GP`}
+                    days={calcCraftingDays(String(calcPotionCraftCost(calcPotionMarketPrice(new所含法术环级))))}
+                    xp={calcPotionXpCost(calcPotionMarketPrice(new所含法术环级))}
+                  />
                 </div>
               )}
-              {(new类型 === 'wand' || new类型 === 'staff') && (
-                <div className="flex flex-wrap items-end gap-2">
-                  <div><label className="block text-dnd-text-muted text-xs mb-1">所含法术环级</label><input type="number" min={1} max={new类型 === 'wand' ? 4 : 9} value={new所含法术环级} onChange={(e) => setNew所含法术环级(Math.max(1, Math.min(new类型 === 'wand' ? 4 : 9, parseInt(e.target.value, 10) || 1)))} className={inputClass + ' h-9 w-16'} /></div>
-                  {new类型 === 'staff' && <div><label className="block text-dnd-text-muted text-xs mb-1">法术数量</label><input type="number" min={1} value={new法术数量} onChange={(e) => setNew法术数量(Math.max(1, parseInt(e.target.value, 10) || 1))} className={inputClass + ' h-9 w-16'} /></div>}
-                  <div><label className="block text-dnd-text-muted text-xs mb-1">单次材料费(gp)</label><input type="number" min={0} value={new单次材料费} onChange={(e) => setNew单次材料费(parseFloat(e.target.value) || 0)} className={inputClass + ' h-9 w-20'} /></div>
-                  <div><label className="block text-dnd-text-muted text-xs mb-1">充能次数</label><select value={new充能次数} onChange={(e) => setNew充能次数(parseInt(e.target.value, 10))} className={inputClass + ' h-9 w-24'}><option value={50}>50 发 (100%)</option><option value={40}>40 发 (80%)</option><option value={30}>30 发 (60%)</option><option value={20}>20 发 (40%)</option><option value={10}>10 发 (20%)</option></select></div>
-                  <div><label className="block text-dnd-text-muted text-xs mb-1">交易价格</label><input type="text" value={`${new类型 === 'wand' ? calcWandMarketPrice(new所含法术环级, new单次材料费, new充能次数) : calcStaffMarketPrice(new所含法术环级, new法术数量, new单次材料费, new充能次数)} GP`} readOnly className={inputClass + ' h-9 w-24 ' + autoCalcClass} /></div>
-                  <div><label className="block text-dnd-text-muted text-xs mb-1">制作成本</label><input type="text" value={`${Math.floor((new类型 === 'wand' ? calcWandMarketPrice(new所含法术环级, new单次材料费, new充能次数) : calcStaffMarketPrice(new所含法术环级, new法术数量, new单次材料费, new充能次数)) / 2)} GP`} readOnly className={inputClass + ' h-9 w-20 ' + autoCalcClass} /></div>
-                  <div><label className="block text-dnd-text-muted text-xs mb-1">制作天数</label><input type="text" value={calcCraftingDays(String(Math.floor((new类型 === 'wand' ? calcWandMarketPrice(new所含法术环级, new单次材料费, new充能次数) : calcStaffMarketPrice(new所含法术环级, new法术数量, new单次材料费, new充能次数)) / 2)))} readOnly className={inputClass + ' h-9 w-14 ' + autoCalcClass} /></div>
-                  <div><label className="block text-dnd-text-muted text-xs mb-1">消耗经验</label><input type="text" value={calcXpFromCraftCostGp(Math.floor((new类型 === 'wand' ? calcWandMarketPrice(new所含法术环级, new单次材料费, new充能次数) : calcStaffMarketPrice(new所含法术环级, new法术数量, new单次材料费, new充能次数)) / 2))} readOnly className={inputClass + ' h-9 w-14 ' + autoCalcClass} /></div>
-                </div>
-              )}
+              {(new类型 === 'wand' || new类型 === 'staff') && (() => {
+                const market =
+                  new类型 === 'wand'
+                    ? calcWandMarketPrice(spellLevelFromContainedForCraft(newWandContainedSpell, 'wand'), new单次材料费, new充能次数)
+                    : calcStaffMarketPrice(
+                        staffCraftPricingLevel(newStaffContainedSpells),
+                        staffCraftEffectiveSpellCount(newStaffContainedSpells),
+                        new单次材料费,
+                        new充能次数,
+                      )
+                const half = Math.floor(market / 2)
+                return (
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-end gap-2">
+                      <div><label className="block text-dnd-text-muted text-xs mb-1">单次材料费(gp)</label><input type="number" min={0} value={new单次材料费} onChange={(e) => setNew单次材料费(parseFloat(e.target.value) || 0)} className={inputClass + ' h-9 w-20'} /></div>
+                      <div><label className="block text-dnd-text-muted text-xs mb-1">充能次数</label><select value={new充能次数} onChange={(e) => setNew充能次数(parseInt(e.target.value, 10))} className={inputClass + ' h-9 w-24'}><option value={50}>50 发 (100%)</option><option value={40}>40 发 (80%)</option><option value={30}>30 发 (60%)</option><option value={20}>20 发 (40%)</option><option value={10}>10 发 (20%)</option></select></div>
+                    </div>
+                    <CraftingAutoStatsRow
+                      tradePrice={`${market} GP`}
+                      craftCost={`${half} GP`}
+                      days={calcCraftingDays(String(half))}
+                      xp={calcXpFromCraftCostGp(half)}
+                    />
+                  </div>
+                )
+              })()}
               {new类型 === 'scroll' && (
-                <div className="flex flex-wrap items-end gap-2">
-                  <div><label className="block text-dnd-text-muted text-xs mb-1">所含法术环级</label><input type="number" min={1} max={9} value={new所含法术环级} onChange={(e) => setNew所含法术环级(Math.max(1, Math.min(9, parseInt(e.target.value, 10) || 1)))} className={inputClass + ' h-9 w-16'} /></div>
-                  <div><label className="block text-dnd-text-muted text-xs mb-1">数量</label><input type="number" min={1} value={new数量} onChange={(e) => setNew数量(Math.max(1, parseInt(e.target.value, 10) || 1))} className={inputClass + ' h-9 w-14'} /></div>
-                  <div><label className="block text-dnd-text-muted text-xs mb-1">交易价格</label><input type="text" value={`${calcScrollMarketPrice(new所含法术环级, new数量)} GP`} readOnly className={inputClass + ' h-9 w-20 ' + autoCalcClass} /></div>
-                  <div><label className="block text-dnd-text-muted text-xs mb-1">制作成本</label><input type="text" value={`${Math.floor(calcScrollMarketPrice(new所含法术环级, new数量) / 2)} GP`} readOnly className={inputClass + ' h-9 w-20 ' + autoCalcClass} /></div>
-                  <div><label className="block text-dnd-text-muted text-xs mb-1">制作天数</label><input type="text" value={calcCraftingDays(String(Math.floor(calcScrollMarketPrice(new所含法术环级, new数量) / 2)))} readOnly className={inputClass + ' h-9 w-14 ' + autoCalcClass} /></div>
-                  <div><label className="block text-dnd-text-muted text-xs mb-1">消耗经验</label><input type="text" value={calcXpFromCraftCostGp(Math.floor(calcScrollMarketPrice(new所含法术环级, new数量) / 2))} readOnly className={inputClass + ' h-9 w-14 ' + autoCalcClass} /></div>
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-end gap-2">
+                    <div><label className="block text-dnd-text-muted text-xs mb-1">所含法术环级</label><input type="number" min={1} max={9} value={new所含法术环级} onChange={(e) => setNew所含法术环级(Math.max(1, Math.min(9, parseInt(e.target.value, 10) || 1)))} className={inputClass + ' h-9 w-16'} /></div>
+                    <div><label className="block text-dnd-text-muted text-xs mb-1">数量</label><input type="number" min={1} value={new数量} onChange={(e) => setNew数量(Math.max(1, parseInt(e.target.value, 10) || 1))} className={inputClass + ' h-9 w-14'} /></div>
+                  </div>
+                  <CraftingAutoStatsRow
+                    tradePrice={`${calcScrollMarketPrice(new所含法术环级, new数量)} GP`}
+                    craftCost={`${Math.floor(calcScrollMarketPrice(new所含法术环级, new数量) / 2)} GP`}
+                    days={calcCraftingDays(String(Math.floor(calcScrollMarketPrice(new所含法术环级, new数量) / 2)))}
+                    xp={calcXpFromCraftCostGp(Math.floor(calcScrollMarketPrice(new所含法术环级, new数量) / 2))}
+                  />
                 </div>
               )}
               {new类型 === 'weapon_armor' && (
-                <div className="flex flex-wrap items-end gap-2">
-                  <div><label className="block text-dnd-text-muted text-xs mb-1">成交价格(gp)</label><input type="text" value={new消耗金额} onChange={(e) => setNew消耗金额(e.target.value)} placeholder="如：500 GP" className={inputClass + ' h-9 w-24'} /></div>
-                  <div><label className="block text-dnd-text-muted text-xs mb-1">制作成本</label><input type="text" value={new消耗金额 ? `${Math.floor(parseCostFromString(new消耗金额) / 2)} GP` : '0 GP'} readOnly className={inputClass + ' h-9 w-20 ' + autoCalcClass} /></div>
-                  <div><label className="block text-dnd-text-muted text-xs mb-1">制作天数</label><input type="text" value={new消耗金额 ? calcCraftingDays(new消耗金额) : 0} readOnly className={inputClass + ' h-9 w-14 ' + autoCalcClass} /></div>
-                  <div><label className="block text-dnd-text-muted text-xs mb-1">消耗经验</label><input type="text" value={new消耗金额 ? calcXpFromCraftCostGp(Math.floor(parseCostFromString(new消耗金额) / 2)) : 0} readOnly className={inputClass + ' h-9 w-16 ' + autoCalcClass} /></div>
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-end gap-2">
+                    <div><label className="block text-dnd-text-muted text-xs mb-1">成交价格(gp)</label><input type="text" value={new消耗金额} onChange={(e) => setNew消耗金额(e.target.value)} placeholder="如：500 GP" className={inputClass + ' h-9 w-24'} /></div>
+                  </div>
+                  <CraftingAutoStatsRow
+                    tradePrice={new消耗金额?.trim() ? new消耗金额.trim() : '0 GP'}
+                    craftCost={new消耗金额 ? `${Math.floor(parseCostFromString(new消耗金额) / 2)} GP` : '0 GP'}
+                    days={new消耗金额 ? calcCraftingDays(new消耗金额) : 0}
+                    xp={new消耗金额 ? calcXpFromCraftCostGp(Math.floor(parseCostFromString(new消耗金额) / 2)) : 0}
+                  />
                 </div>
               )}
               {['rod', 'wondrous', 'ring'].includes(new类型) && (
-                <div className="flex flex-wrap items-end gap-2">
-                  <div><label className="block text-dnd-text-muted text-xs mb-1">交易价格(gp)</label><input type="text" value={new消耗金额} onChange={(e) => setNew消耗金额(e.target.value)} placeholder="如：500 GP" className={inputClass + ' h-9 w-24'} /></div>
-                  <div><label className="block text-dnd-text-muted text-xs mb-1">材料费用</label><input type="text" value={new材料费用} onChange={(e) => setNew材料费用(e.target.value)} placeholder="如：100 GP" className={inputClass + ' h-9 w-24'} /></div>
-                  <div><label className="block text-dnd-text-muted text-xs mb-1">制作成本</label><input type="text" value={new消耗金额 ? `${Math.floor(parseCostFromString(new消耗金额) / 2)} GP` : '0 GP'} readOnly className={inputClass + ' h-9 w-20 ' + autoCalcClass} /></div>
-                  <div><label className="block text-dnd-text-muted text-xs mb-1">制作天数</label><input type="text" value={new消耗金额 ? calcCraftingDays(new消耗金额) : 0} readOnly className={inputClass + ' h-9 w-14 ' + autoCalcClass} /></div>
-                  <div><label className="block text-dnd-text-muted text-xs mb-1">消耗经验</label><input type="number" min={0} value={new消耗经验} onChange={(e) => setNew消耗经验(parseInt(e.target.value, 10) || 0)} className={inputClass + ' h-9 w-16'} /></div>
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-end gap-2">
+                    <div><label className="block text-dnd-text-muted text-xs mb-1">交易价格(gp)</label><input type="text" value={new消耗金额} onChange={(e) => setNew消耗金额(e.target.value)} placeholder="如：500 GP" className={inputClass + ' h-9 w-24'} /></div>
+                    <div><label className="block text-dnd-text-muted text-xs mb-1">材料费用</label><input type="text" value={new材料费用} onChange={(e) => setNew材料费用(e.target.value)} placeholder="如：100 GP" className={inputClass + ' h-9 w-24'} /></div>
+                    <div><label className="block text-dnd-text-muted text-xs mb-1">消耗经验（可改）</label><input type="number" min={0} value={new消耗经验} onChange={(e) => setNew消耗经验(parseInt(e.target.value, 10) || 0)} className={inputClass + ' h-9 w-16'} /></div>
+                  </div>
+                  <CraftingAutoStatsRow
+                    tradePrice={new消耗金额 ? `${Math.round(parseCostFromString(new消耗金额))} GP` : '0 GP'}
+                    craftCost={new消耗金额 ? `${Math.floor(parseCostFromString(new消耗金额) / 2)} GP` : '0 GP'}
+                    days={new消耗金额 ? calcCraftingDays(new消耗金额) : 0}
+                    xp={new消耗经验 > 0 ? new消耗经验 : (new消耗金额 ? calcXpFromCraftCostGp(Math.floor(parseCostFromString(new消耗金额) / 2)) : 0)}
+                  />
                 </div>
               )}
               <div>
@@ -828,7 +1129,7 @@ export default function MagicCraftingPanel() {
         <div className="px-3 py-2 border-b border-white/10 bg-[#1b2738]/60">
           <h3 className="text-dnd-gold-light text-sm font-bold uppercase tracking-wider">已完成物品列表</h3>
           <p className="text-dnd-text-muted text-[10px] mt-1 leading-relaxed">
-            显示完成时间、委托角色、实际制作者。非 DM 仅能看到<strong className="text-dnd-text-body">委托角色为自己所建角色</strong>的条目（未填委托的旧数据全员可见）。请先<strong className="text-dnd-text-body">领取结算</strong>（扣制作成本与工匠经验，成本可选团队金库或个人金币），再<strong className="text-dnd-text-body">拖入上方「公家次元袋」</strong>或使用包裹按钮存入仓库/角色背包。
+            显示完成时间、委托角色、实际制作者。非 DM 仅能看到<strong className="text-dnd-text-body">委托角色为自己所建角色</strong>的条目（未填委托的旧数据全员可见）。请先<strong className="text-dnd-text-body">领取结算</strong>（扣制作成本与工匠经验，成本可选团队金库或个人金币），再<strong className="text-dnd-text-body">拖入上方「公家次元袋」</strong>或使用包裹按钮存入仓库/角色背包。<strong className="text-dnd-text-body">领取后条目会变灰保留</strong>；入库后仍以更深灰色显示记录，不会从列表消失。
           </p>
         </div>
         <div className="overflow-x-auto">
@@ -863,17 +1164,37 @@ export default function MagicCraftingPanel() {
                 })
                 .map(({ p, i }) => {
                   const claimed = isCraftFeeClaimed(p)
+                  const deposited = isCraftDeposited(p)
+                  const canDragToBag = claimed && !deposited
                   const delName = (p.委托角色 && characters.find((c) => c.id === p.委托角色)?.name) || '—'
                   const makerName = (p.实际制作者 && characters.find((c) => c.id === p.实际制作者)?.name) || '—'
                   const costGp = parseCostFromString(p.消耗金额)
                   const modId = currentModuleId ?? 'default'
+                  const rowMuted =
+                    deposited
+                      ? 'bg-gray-950/50 text-gray-500/95 border-t border-gray-800/90'
+                      : claimed
+                        ? 'bg-gray-900/35 text-gray-400/95 border-t border-gray-700/80'
+                        : 'border-t border-gray-700/80 text-dnd-text-body'
+                  const rowHover = deposited ? '' : 'hover:bg-gray-800/30'
+                  const grabClass = canDragToBag ? 'cursor-grab active:cursor-grabbing' : 'cursor-default'
                   return (
                     <tr
                       key={p.id ?? i}
-                      className="border-t border-gray-700/80 hover:bg-gray-800/30 cursor-grab active:cursor-grabbing"
-                      draggable
-                      title={claimed ? '按住拖入上方「公家次元袋」卡片（须已领取结算）' : '请先点击「领取结算」后再拖入次元袋'}
+                      className={`${rowMuted} ${rowHover} ${grabClass}`}
+                      draggable={canDragToBag}
+                      title={
+                        deposited
+                          ? '已入库，仅作记录（可从列表移除）'
+                          : claimed
+                            ? '按住拖入上方「公家次元袋」卡片（须已领取结算）'
+                            : '请先点击「领取结算」后再拖入次元袋'
+                      }
                       onDragStart={(e) => {
+                        if (!canDragToBag) {
+                          e.preventDefault()
+                          return
+                        }
                         e.dataTransfer.setData(
                           DND_CRAFT_COMPLETED_MIME,
                           JSON.stringify({ moduleId: modId, projectId: p.id, index: i }),
@@ -885,17 +1206,26 @@ export default function MagicCraftingPanel() {
                       onDragEnd={(e) => e.currentTarget.classList.remove('opacity-60')}
                     >
                       <td className="py-2 px-2 text-center align-middle text-dnd-text-muted">
-                        <GripVertical className="w-4 h-4 mx-auto opacity-70" aria-hidden />
+                        <GripVertical className={`w-4 h-4 mx-auto ${canDragToBag ? 'opacity-70' : 'opacity-25'}`} aria-hidden />
                       </td>
-                      <td className="py-2 px-3 text-dnd-text-body tabular-nums whitespace-nowrap">{formatCompleteTime(p.完成时间)}</td>
-                      <td className="py-2 px-3 text-white font-medium">{p.物品名称 || '—'}</td>
-                      <td className="py-2 px-3 text-dnd-text-body">{MAGIC_ITEM_TYPES.find((t) => t.id === p.类型)?.label ?? p.类型}</td>
-                      <td className="py-2 px-3 text-dnd-text-body">{delName}</td>
-                      <td className="py-2 px-3 text-dnd-text-body">{makerName}</td>
-                      <td className="py-2 px-3 text-right tabular-nums text-dnd-text-body">{Math.ceil(costGp)}</td>
-                      <td className="py-2 px-3 text-right tabular-nums text-dnd-text-body">{p.消耗经验 ?? 0}</td>
+                      <td className="py-2 px-3 tabular-nums whitespace-nowrap">{formatCompleteTime(p.完成时间)}</td>
+                      <td className={`py-2 px-3 font-medium ${deposited ? 'text-gray-500' : claimed ? 'text-gray-300' : 'text-white'}`}>{p.物品名称 || '—'}</td>
+                      <td className="py-2 px-3">{MAGIC_ITEM_TYPES.find((t) => t.id === p.类型)?.label ?? p.类型}</td>
+                      <td className="py-2 px-3">{delName}</td>
+                      <td className="py-2 px-3">{makerName}</td>
+                      <td className="py-2 px-3 text-right tabular-nums">{Math.ceil(costGp)}</td>
+                      <td className="py-2 px-3 text-right tabular-nums">{p.消耗经验 ?? 0}</td>
                       <td className="py-2 px-3 text-xs">
-                        {claimed ? <span className="text-emerald-400/95">已结算</span> : <span className="text-amber-400/95">待领取</span>}
+                        {deposited ? (
+                          <span className="text-gray-500">
+                            {getCraftDepositDestLabel(p)}
+                            {p.入库时间 ? <span className="block text-[10px] text-gray-600 mt-0.5 tabular-nums">{formatCompleteTime(p.入库时间)}</span> : null}
+                          </span>
+                        ) : claimed ? (
+                          <span className="text-gray-500">已结算</span>
+                        ) : (
+                          <span className="text-amber-400/95">待领取</span>
+                        )}
                       </td>
                       <td className="py-2 px-2 text-right whitespace-nowrap">
                         {!claimed && (
@@ -903,8 +1233,8 @@ export default function MagicCraftingPanel() {
                             领取结算
                           </button>
                         )}
-                        {claimed && (
-                          <button type="button" onClick={() => { setDepositProjectIndex(i); setDepositToWarehouse(true); setDepositCharId(''); }} title="存入" className="p-1.5 rounded text-emerald-400 hover:bg-emerald-400/20 align-middle mr-1">
+                        {claimed && !deposited && (
+                          <button type="button" onClick={() => { setDepositProjectIndex(i); setDepositToWarehouse(true); setDepositCharId(''); }} title="存入" className="p-1.5 rounded text-emerald-400/90 hover:bg-emerald-400/15 align-middle mr-1">
                             <Package size={16} />
                           </button>
                         )}
@@ -959,7 +1289,7 @@ export default function MagicCraftingPanel() {
                     <option value="">— 选择 —</option>
                     {delegateCharacterOptions.map((c) => (
                       <option key={c.id} value={c.id}>
-                        {c.name || '未命名'}（GP {Math.round(getCharacterWallet(c.id).gp ?? 0)}）
+                        {c.name || '未命名'}（GP {Math.round(getCharacterWalletIncludingBag(c.id).gp ?? 0)}）
                       </option>
                     ))}
                   </select>

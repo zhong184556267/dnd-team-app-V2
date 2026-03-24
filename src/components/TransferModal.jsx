@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { X } from 'lucide-react'
 import { useModule } from '../contexts/ModuleContext'
 import { CURRENCY_CONFIG, getCurrencyDisplayName } from '../data/currencyConfig'
-import { getCharacterWallet, transferCurrency, loadTeamVaultIntoCache } from '../lib/currencyStore'
+import { getCharacterWallet, getCharacterWalletIncludingBag, transferCurrency, loadTeamVaultIntoCache } from '../lib/currencyStore'
 import { getEffectiveTeamVaultBalances, transferFromTeamToWallet } from '../lib/teamCurrencyPublicBags'
 
 export default function TransferModal({ open, onClose, direction, characterId, characterName, onSuccess }) {
@@ -19,8 +19,11 @@ export default function TransferModal({ open, onClose, direction, characterId, c
   }, [open, currentModuleId])
 
   const vault = open ? getEffectiveTeamVaultBalances(currentModuleId) : {}
+  /** 存入金库：可动用身上钱包 + 次元袋内钱币；从金库取出仍只进身上钱包 */
   const wallet = open && characterId ? getCharacterWallet(characterId) : {}
-  const maxSource = direction === 'toVault' ? (wallet[currencyId] ?? 0) : (vault[currencyId] ?? 0)
+  const walletMax =
+    open && characterId && direction === 'toVault' ? getCharacterWalletIncludingBag(characterId) : wallet
+  const maxSource = direction === 'toVault' ? (walletMax[currencyId] ?? 0) : (vault[currencyId] ?? 0)
   const canAll = maxSource > 0
 
   useEffect(() => {
@@ -75,7 +78,12 @@ export default function TransferModal({ open, onClose, direction, characterId, c
             <X size={20} />
           </button>
         </div>
-        <form onSubmit={handleSubmit} className="p-4 space-y-4">
+          <form onSubmit={handleSubmit} className="p-4 space-y-4">
+          {!isWithdraw && (
+            <p className="text-dnd-text-muted text-[10px] leading-relaxed">
+              可存入上限含<strong className="text-dnd-text-body">身上钱包与次元袋内钱币</strong>；将先扣袋内堆叠再扣钱包。
+            </p>
+          )}
           {isWithdraw && (
             <p className="text-dnd-text-muted text-[10px] leading-relaxed">
               「金库」余额已含各角色<strong className="text-dnd-text-body">公家次元袋</strong>内钱币堆；取出时优先扣账面，再扣袋内。

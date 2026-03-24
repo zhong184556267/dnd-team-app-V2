@@ -16,6 +16,7 @@ export function RollProvider({ children }) {
       label,
       modifier: Number(modifier) ?? 0,
       advantage: options.advantage ?? null, // 'advantage' | 'disadvantage' | 'normal' from buffs
+      quickRoll: !!options.quickRoll,
     })
     setOpen(true)
   }, [])

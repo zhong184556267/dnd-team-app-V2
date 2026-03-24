@@ -666,3 +666,51 @@ export const MARTIAL_TECHNIQUES = [
     description: '本回合内近战攻击造成 3d6 + 每武道家等级 1 点额外火系伤害。超自然能力。',
   },
 ]
+
+/**
+ * 各流派介绍（与《九剑之书》英文流派名对应；key 须与 MARTIAL_TECHNIQUES[].style 一致）
+ */
+export const MARTIAL_STYLE_INTRODUCTIONS = {
+  虎爪流: {
+    title: '虎爪流招数一览',
+    paragraphs: [
+      '虎爪流即《九剑之书》中的 Tiger Claw。',
+      '此流派拥戴深藏于武技家心中的野性狂暴，在战斗中像野生动物般咆哮，以野蛮而凶残的攻击消灭敌人。',
+      '偏好武器：反曲刀、单镰、手斧、爪子、巨斧、徒手攻击。关键技能：跳跃。',
+      '以下招数等级为贤者之剑/军道之刃职业等级；除非通过武道修行专长学习，虎爪流招数为特定职业所独有。',
+    ],
+  },
+  焚风: {
+    title: '焚风招数一览',
+    paragraphs: [
+      '焚风即《九剑之书》中的 Desert Wind。',
+      '招数主要由快速移动与跃动火焰结合，许多复杂动作与弯刀刀法实为召唤火焰的精妙手势，须正确使用方有收效。',
+      '偏好武器：细剑、弯刀、轻型硬头锤、轻镐、矛、大砍刀。关键技能：翻滚。',
+      '以下招数等级为职业等级；除非通过武道修行专长学习，焚风招数为特定职业所独有。',
+    ],
+  },
+  明心流: {
+    title: '明心流招数一览',
+    paragraphs: [
+      '明心流即《九剑之书》中的 Diamond Mind（钢魂流）。',
+      '以下招数适用于贤者之剑（Swordsage）与军道之剑（Warblade），等级为各自职业等级。',
+    ],
+  },
+}
+
+/** 取某流派介绍文案；无收录时返回 null */
+export function getMartialStyleIntroduction(styleName) {
+  if (!styleName) return null
+  return MARTIAL_STYLE_INTRODUCTIONS[styleName] ?? null
+}
+
+/** 武技库中出现的流派（去重、中文排序），供按流派筛选 */
+export const MARTIAL_TECHNIQUE_STYLES = [...new Set(MARTIAL_TECHNIQUES.map((t) => t.style).filter(Boolean))].sort((a, b) =>
+  a.localeCompare(b, 'zh-CN')
+)
+
+/** 按 id 从武技库取一条（供角色卡战斗区等调用） */
+export function getMartialTechniqueById(id) {
+  if (!id) return null
+  return MARTIAL_TECHNIQUES.find((t) => t.id === id) || null
+}

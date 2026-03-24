@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Plus, User, Star, Trash2, Copy, ChevronDown, ChevronRight } from 'lucide-react'
+import { Plus, User, Star, Trash2, Copy, ChevronDown, ChevronRight, Unlink, Layers } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useModule } from '../contexts/ModuleContext'
 import { getModules } from '../lib/moduleStore'
@@ -446,57 +446,106 @@ export default function Characters({ embedded = false, embeddedModuleId = null }
                 return out
               })()
 
+              const hpLine = (
+                <p
+                  className={`font-mono font-semibold shrink-0 tabular-nums ${compactSubordinate ? 'text-[10px]' : isSubordinate ? 'text-[10px]' : 'text-xs'} ${isLowHp ? 'text-dnd-red' : 'text-dnd-text-muted'}`}
+                  title={`生命值 ${cur}/${max}${hp.temp ? `，临时 ${hp.temp}` : ''}`}
+                >
+                  HP {cur}/{max}
+                  {hp.temp ? ` +${hp.temp} 临时` : ''}
+                </p>
+              )
               const summaryBlock = (
                 <>
                   <div className="min-w-0 flex-1">
-                    {c.codename ? (
-                      <p className={`font-semibold text-white truncate mb-0.5 ${compactSubordinate ? 'text-[11px] mb-0' : isSubordinate ? 'text-xs' : 'text-[15px]'}`}>{c.codename}</p>
-                    ) : null}
                     {compactSubordinate ? (
-                      <p className="text-dnd-text-muted text-[10px] truncate">
-                        {c.name || '未命名'}
-                      </p>
+                      <>
+                        <div className="flex items-center justify-between gap-2 min-w-0">
+                          <p className="font-semibold text-white truncate flex-1 min-w-0 text-[11px]">
+                            {c.codename || c.name || '未命名'}
+                          </p>
+                          {hpLine}
+                        </div>
+                        {c.codename ? (
+                          <p className="text-dnd-text-muted text-[10px] truncate mt-0.5">{c.name || '未命名'}</p>
+                        ) : null}
+                      </>
                     ) : isSubordinate ? (
-                      <p className="text-dnd-text-muted text-[11px] truncate min-w-0">
-                        {c.name || '未命名'}
-                      </p>
+                      <>
+                        <div className="flex items-center justify-between gap-2 min-w-0">
+                          {c.codename ? (
+                            <p className="font-semibold text-white truncate flex-1 min-w-0 text-xs">{c.codename}</p>
+                          ) : (
+                            <p className="text-dnd-text-muted text-[11px] truncate flex-1 min-w-0">{c.name || '未命名'}</p>
+                          )}
+                          {hpLine}
+                        </div>
+                        {c.codename ? (
+                          <p className="text-dnd-text-muted text-[11px] truncate min-w-0 mt-0.5">{c.name || '未命名'}</p>
+                        ) : null}
+                        <div className={`rounded-full bg-black/30 overflow-hidden mt-1 h-1`}>
+                          <div
+                            className={`h-full rounded-full transition-all ${barColor}`}
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                        <p className="text-dnd-text-muted truncate min-w-0 text-[10px] mt-0.5">
+                          {isAdmin && !adminModuleOnly ? (
+                            <>
+                              玩家 <span className="text-dnd-gold-light/90 font-medium">{c.owner ?? '—'}</span>
+                              {' · 模组 '}
+                              <span className="text-emerald-400/90">{moduleLabel(c.moduleId)}</span>
+                              {' · 修改 '}
+                              {formatDateTime(c.updatedAt ?? c.createdAt)}
+                            </>
+                          ) : (
+                            <>创建 {c.owner ?? '—'} · 修改 {formatDateTime(c.updatedAt ?? c.createdAt)}</>
+                          )}
+                        </p>
+                      </>
                     ) : (
                       <>
-                        <p className="text-[11px] text-dnd-text-muted truncate">
-                          {c.name || '未命名'}
-                        </p>
-                        <p className="text-dnd-text-muted text-[13px]">
-                          {classLevelText} · 等级 {level}
+                        <div className="flex items-center justify-between gap-2 min-w-0 mb-0.5">
+                          {c.codename ? (
+                            <p className="font-semibold text-white truncate flex-1 min-w-0 text-[15px]">{c.codename}</p>
+                          ) : (
+                            <p className="text-[11px] text-dnd-text-muted truncate flex-1 min-w-0">{c.name || '未命名'}</p>
+                          )}
+                          {hpLine}
+                        </div>
+                        {c.codename ? (
+                          <>
+                            <p className="text-[11px] text-dnd-text-muted truncate">{c.name || '未命名'}</p>
+                            <p className="text-dnd-text-muted text-[13px]">
+                              {classLevelText} · 等级 {level}
+                            </p>
+                          </>
+                        ) : (
+                          <p className="text-dnd-text-muted text-[13px]">
+                            {classLevelText} · 等级 {level}
+                          </p>
+                        )}
+                        <div className="rounded-full bg-black/30 overflow-hidden mt-1 h-1.5">
+                          <div
+                            className={`h-full rounded-full transition-all ${barColor}`}
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                        <p className="text-dnd-text-muted truncate min-w-0 text-xs mt-0.5">
+                          {isAdmin && !adminModuleOnly ? (
+                            <>
+                              玩家 <span className="text-dnd-gold-light/90 font-medium">{c.owner ?? '—'}</span>
+                              {' · 模组 '}
+                              <span className="text-emerald-400/90">{moduleLabel(c.moduleId)}</span>
+                              {' · 修改 '}
+                              {formatDateTime(c.updatedAt ?? c.createdAt)}
+                            </>
+                          ) : (
+                            <>创建 {c.owner ?? '—'} · 修改 {formatDateTime(c.updatedAt ?? c.createdAt)}</>
+                          )}
                         </p>
                       </>
                     )}
-                    {!compactSubordinate && (
-                      <div className={`rounded-full bg-black/30 overflow-hidden ${isSubordinate ? 'mt-1 h-1' : 'mt-1 h-1.5'}`}>
-                        <div
-                          className={`h-full rounded-full transition-all ${barColor}`}
-                          style={{ width: `${pct}%` }}
-                        />
-                      </div>
-                    )}
-                    <div className={`flex items-end justify-between gap-2 min-w-0 ${compactSubordinate ? 'mt-0 min-h-[0.75rem]' : isSubordinate ? 'mt-0.5 min-h-[1rem]' : 'mt-0 min-h-[1.1rem]'}`}>
-                      <p className={`text-dnd-text-muted truncate min-w-0 ${compactSubordinate ? 'hidden' : isSubordinate ? 'text-[10px]' : 'text-xs'}`}>
-                        {isAdmin && !adminModuleOnly ? (
-                          <>
-                            玩家 <span className="text-dnd-gold-light/90 font-medium">{c.owner ?? '—'}</span>
-                            {' · 模组 '}
-                            <span className="text-emerald-400/90">{moduleLabel(c.moduleId)}</span>
-                            {' · 修改 '}
-                            {formatDateTime(c.updatedAt ?? c.createdAt)}
-                          </>
-                        ) : (
-                          <>创建 {c.owner ?? '—'} · 修改 {formatDateTime(c.updatedAt ?? c.createdAt)}</>
-                        )}
-                      </p>
-                      <p className={`font-mono font-semibold shrink-0 ${compactSubordinate ? 'text-[10px]' : isSubordinate ? 'text-[10px]' : 'text-xs'} ${isLowHp ? 'text-dnd-red' : 'text-dnd-text-muted'}`}>
-                        HP {cur}/{max}
-                        {hp.temp ? ` +${hp.temp} 临时` : ''}
-                      </p>
-                    </div>
                   </div>
                 </>
               )
@@ -523,10 +572,11 @@ export default function Characters({ embedded = false, embeddedModuleId = null }
                         <button
                           type="button"
                           onClick={(e) => { e.preventDefault(); e.stopPropagation(); setGroupingSubId(c.id); setGroupDraftName('') }}
-                          title="设置分组"
-                          className="px-2 py-1 rounded-md text-[10px] text-dnd-gold-light bg-dnd-gold/15 hover:bg-dnd-gold/25 border border-dnd-gold/35"
+                          title="设置分组：调整此附属卡所在分组"
+                          aria-label="设置分组"
+                          className="rounded-lg p-2 text-dnd-gold-light bg-dnd-gold/15 hover:bg-dnd-gold/25 border border-dnd-gold/35 transition-colors"
                         >
-                          分组
+                          <Layers className="w-5 h-5" strokeWidth={2} />
                         </button>
                       )}
                       <button
@@ -538,7 +588,7 @@ export default function Characters({ embedded = false, embeddedModuleId = null }
                         <span className={isSubordinate ? 'w-4 h-4 inline-flex items-center justify-center text-[14px]' : 'w-5 h-5 inline-flex items-center justify-center text-[16px]'}>⋯</span>
                       </button>
                       {openActionId === c.id && (
-                        <div ref={actionMenuRef} className="absolute right-0 top-full mt-1 z-20 rounded-lg border border-white/10 bg-[#1b2738] p-1.5 flex flex-wrap items-center justify-end gap-1 max-w-[min(100vw-1rem,20rem)] shadow-xl">
+                        <div ref={actionMenuRef} className="absolute right-0 top-full mt-1 z-50 rounded-lg border border-white/10 bg-[#1b2738] p-1.5 flex flex-wrap items-center justify-end gap-1 max-w-[min(100vw-1rem,20rem)] shadow-xl">
                           {isSubordinate && (
                             <button
                               type="button"
@@ -548,10 +598,11 @@ export default function Characters({ embedded = false, embeddedModuleId = null }
                                 applyUnattach(c)
                                 setOpenActionId(null)
                               }}
-                              title="解除归属"
-                              className="px-2 py-1 rounded-md text-[10px] text-gray-300 hover:text-white bg-gray-700/50 hover:bg-gray-700 border border-gray-600"
+                              title="解除归属：将此附属卡从主卡分离"
+                              aria-label="解除归属"
+                              className="rounded-lg p-1.5 text-gray-300 border border-gray-600 bg-gray-700/50 hover:text-white hover:bg-gray-700 transition-colors"
                             >
-                              解除
+                              <Unlink className="w-4 h-4" strokeWidth={2} />
                             </button>
                           )}
                           {(!isSubordinate || !compactSubordinate) && (
@@ -591,10 +642,11 @@ export default function Characters({ embedded = false, embeddedModuleId = null }
                             <button
                               type="button"
                               onClick={(e) => { e.preventDefault(); e.stopPropagation(); setGroupingSubId(c.id); setGroupDraftName(''); setOpenActionId(null) }}
-                              title="设置分组"
-                              className="px-2 py-1 rounded-md text-[10px] text-dnd-gold-light bg-dnd-gold/15 hover:bg-dnd-gold/25 border border-dnd-gold/35"
+                              title="设置分组：调整此附属卡所在分组"
+                              aria-label="设置分组"
+                              className="rounded-lg p-1.5 text-dnd-gold-light bg-dnd-gold/15 hover:bg-dnd-gold/25 border border-dnd-gold/35 transition-colors"
                             >
-                              分组
+                              <Layers className="w-4 h-4" strokeWidth={2} />
                             </button>
                           )}
                           <button
@@ -756,7 +808,7 @@ export default function Characters({ embedded = false, embeddedModuleId = null }
                 <div key={c.id} className={depth > 0 ? (compactSubordinate ? 'mt-0.5' : 'mt-1') : ''} style={{ marginLeft: depth > 1 ? `${(depth - 1) * (compactSubs ? 10 : 14)}px` : 0 }}>
                   {!isSubordinate ? (
                     <div
-                      className="flex flex-col rounded-xl shadow-dnd-card transition-shadow overflow-hidden bg-dnd-card border border-white/10 hover:shadow-dnd-card-hover"
+                      className="flex flex-col rounded-xl shadow-dnd-card transition-shadow bg-dnd-card border border-white/10 hover:shadow-dnd-card-hover"
                     >
                       <div className="flex items-center gap-3 p-3">
                         {rowToolbar}
@@ -810,7 +862,7 @@ export default function Characters({ embedded = false, embeddedModuleId = null }
                 )
               }
               return (
-                <li key={moduleId} className="rounded-xl border border-white/10 bg-gradient-to-b from-[#2a3952]/20 to-[#222f45]/16 overflow-hidden">
+                <li key={moduleId} className="rounded-xl border border-white/10 bg-gradient-to-b from-[#2a3952]/20 to-[#222f45]/16">
                   <div className="px-3 py-2 border-b border-white/10 bg-black/20 flex items-center justify-between">
                     <p className="text-dnd-gold-light text-xs font-semibold tracking-wide">模组 · {moduleLabel(moduleId)}</p>
                     <span className="text-[10px] text-dnd-text-muted">{moduleRoots.length} 张主卡</span>

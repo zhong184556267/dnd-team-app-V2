@@ -2,15 +2,23 @@
  * 战斗状态（重写版）
  * 显示：HP、AC、先攻、死亡豁免、状态效果、力竭、其它职业资源、战斗手段
  */
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { Plus, Minus, Trash2, Dices, Pencil } from 'lucide-react'
 import { useRoll } from '../contexts/RollContext'
-import { abilityModifier, proficiencyBonus, getAC, calcMaxHP, getHPBuffSum } from '../lib/formulas'
+import {
+  abilityModifier,
+  proficiencyBonus,
+  getAC,
+  calcMaxHP,
+  getHPBuffSum,
+  getACModeOptionsForCharacter,
+  getEffectiveACCalculationMode,
+} from '../lib/formulas'
 import { useBuffCalculator } from '../hooks/useBuffCalculator'
 import { getBuffsFromEquipmentAndInventory } from '../lib/effects/effectMapping'
 import { skillProfFactor } from '../data/dndSkills'
-import { CONDITION_OPTIONS, CONDITION_DESCRIPTIONS, EXHAUSTION_DESCRIPTIONS, DAMAGE_TYPES, ABILITY_NAMES_ZH, getDamageTypeLabel } from '../data/buffTypes'
-import { inputClass } from '../lib/inputStyles'
+import { CONDITION_OPTIONS, CONDITION_DESCRIPTIONS, EXHAUSTION_DESCRIPTIONS, DAMAGE_TYPES, ABILITY_NAMES_ZH, getDamageTypeLabel, formatDamageForAttack } from '../data/buffTypes'
+import { inputClass, inputClassInline } from '../lib/inputStyles'
 
 /** 战斗手段弹窗用：伤害类型选项（与 buffTypes 统一简称）；排除 雷鸣 */
 const DAMAGE_TYPE_OPTIONS = DAMAGE_TYPES.filter((d) => d.label !== '雷鸣').map((d) => ({ value: d.label, label: d.label }))
@@ -23,6 +31,8 @@ import { getSpellById, getWandScrollSpellPower, getMergedSpells } from '../data/
 import { getSpellcastingLevel, getMaxSpellSlotsByRing } from '../data/classDatabase'
 import { getSpellcastingCombatStats } from '../lib/spellcastingStats'
 import { rollDice } from '../data/weaponDatabase'
+import { MARTIAL_TECHNIQUES, MARTIAL_TECHNIQUE_STYLES, getMartialTechniqueById } from '../data/martialTechniques'
+import MartialStyleIntroBlock from './MartialStyleIntroBlock'
 
 const EXHAUSTION_LEVELS = [0, 1, 2, 3, 4, 5, 6]
 
@@ -125,20 +135,142 @@ function getScrollsFromInventory(inventory = []) {
     .filter(Boolean)
 }
 
-/** 解析武器 攻击 字符串如 "1d6 穿刺"、"5+2d6 钝击" → { dice: '1d6', type: '穿刺' }；带前导加值的只取骰子与类型 */
+/** 匹配 XdY / XDY / 全角ｄ 等骰子片段（不含前导加值数字） */
+const WEAPON_DICE_CHUNK_RE = /\d+[dD\uFF44]\d+/gi
+
+/**
+ * 解析武器「攻击」字符串：支持多段伤害骰如 "2d8+1d6+5 贯通"
+ * - diceList：全部骰段（统一小写 d）；dice：首段（兼容旧逻辑）
+ * - type：去掉所有骰子与独立数值加值后的余下文案（多为伤害类型）
+ */
 function parseWeaponAttack(attackStr) {
-  if (!attackStr || typeof attackStr !== 'string') return { dice: null, type: '—' }
+  if (!attackStr || typeof attackStr !== 'string') return { dice: null, diceList: [], type: '—' }
   const s = attackStr.trim()
-  const simple = s.match(/^(\d+d\d+)\s*(.*)$/i)
-  if (simple) return { dice: simple[1], type: (simple[2] || '—').trim() || '—' }
-  const withPrefix = s.match(/\d+d\d+\s*(.*)$/i)
-  if (withPrefix) {
-    const diceMatch = s.match(/(\d+d\d+)/i)
-    return diceMatch
-      ? { dice: diceMatch[1], type: (withPrefix[1] || '—').trim() || '—' }
-      : { dice: null, type: s }
+  if (!s || s === '—') return { dice: null, diceList: [], type: '—' }
+  const rawMatches = s.match(WEAPON_DICE_CHUNK_RE)
+  const diceList = rawMatches ? rawMatches.map((d) => d.replace(/\uFF44/g, 'd').replace(/D/g, 'd').toLowerCase()) : []
+  const dice = diceList[0] ?? null
+  let rest = s
+  for (const raw of rawMatches || []) {
+    rest = rest.replace(new RegExp(String(raw).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), ' ')
   }
-  return { dice: null, type: s }
+  rest = rest.replace(/\s+/g, ' ').trim()
+  /** 去掉与骰子混写的纯数字加值（如 2d8+1d6+5 贯通 中的 +5），保留文字类型 */
+  rest = rest
+    .split(/\s+/)
+    .filter((tok) => tok && !/^\+*\d+$/.test(tok))
+    .join(' ')
+    .trim()
+  const type = rest && rest !== '' ? rest : '—'
+  if (diceList.length === 0) {
+    return { dice: null, diceList: [], type: s }
+  }
+  return { dice, diceList, type }
+}
+
+/** 战斗行内展示：多骰用 + 连接，如 2D8+1D6 */
+function formatWeaponAttackDiceDisplay(attackParsed) {
+  const list = attackParsed?.diceList?.length
+    ? attackParsed.diceList
+    : attackParsed?.dice
+      ? [attackParsed.dice]
+      : []
+  if (!list.length) return '—'
+  return list.join('+').toUpperCase()
+}
+
+/**
+ * 合并背包武器「攻击」与「伤害」/「附注」中的骰子（多段骰有时只写在伤害栏或附注里）
+ */
+function getWeaponAttackStringForParsing(weaponOpt) {
+  if (!weaponOpt) return ''
+  let attack = String(weaponOpt.攻击 ?? '').trim()
+  const appendDiceFromText = (text) => {
+    if (!text || String(text).trim() === '' || String(text).trim() === '—') return
+    const extra = String(text).match(WEAPON_DICE_CHUNK_RE) || []
+    for (const seg of extra) {
+      const segNorm = seg.replace(/\uFF44/g, 'd').replace(/D/g, 'd').toLowerCase()
+      if (!attack.toLowerCase().includes(segNorm)) {
+        attack = attack ? `${attack.replace(/\s+$/, '')}+${segNorm}` : segNorm
+      }
+    }
+  }
+  appendDiceFromText(weaponOpt.伤害)
+  appendDiceFromText(weaponOpt.entry?.附注)
+  appendDiceFromText(weaponOpt.proto?.附注)
+  return attack
+}
+
+/** 非零时输出 +N / -N；为 0 时输出空串（避免出现「2d6+」后无数字） */
+function formatSignedModifier(n) {
+  const m = Number(n)
+  if (Number.isNaN(m) || m === 0) return ''
+  return m > 0 ? `+${m}` : `${m}`
+}
+
+/**
+ * 从武器背包条目的附魔 effects 读取：命中/伤害加值（仅平加值）、额外伤害骰文案
+ * magicBonus 已在 enhancement 中体现，此处不重复读取 attack_melee
+ */
+function getWeaponEntryDamageExtras(entry) {
+  if (!entry || !Array.isArray(entry.effects)) return { flatBonus: 0, extraDiceStrings: [] }
+  let flatBonus = 0
+  const extraDiceStrings = []
+  for (const e of entry.effects) {
+    if (!e) continue
+    if (e.effectType === 'attack_damage_bonus') {
+      const raw = e.value
+      const v = typeof raw === 'object' && raw && 'val' in raw ? Number(raw.val) : Number(raw)
+      if (!Number.isNaN(v)) flatBonus += v
+      if (typeof raw === 'string') {
+        const dmgMatch = raw.match(/伤害\s*[+＋]?\s*(\d+)/i)
+        if (dmgMatch) flatBonus += parseInt(dmgMatch[1], 10) || 0
+      }
+    }
+    if (e.effectType === 'extra_damage_dice') {
+      const raw = e.value
+      if (typeof raw === 'string' && raw.trim()) {
+        extraDiceStrings.push(raw.trim())
+      } else if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+        const line = formatDamageForAttack(raw)
+        if (line) extraDiceStrings.push(line)
+      }
+    }
+  }
+  return { flatBonus, extraDiceStrings }
+}
+
+function getMergedWeaponExtraDiceStrings(cm, weaponOpt) {
+  const fromMean = Array.isArray(cm?.extraDamageDice) ? [...cm.extraDamageDice] : []
+  const fromEntry = weaponOpt?.entry ? getWeaponEntryDamageExtras(weaponOpt.entry).extraDiceStrings : []
+  const seen = new Set()
+  const out = []
+  for (const d of [...fromMean, ...fromEntry]) {
+    const s = typeof d === 'string' ? d.trim() : ''
+    if (!s) continue
+    const key = s.toLowerCase().replace(/\s+/g, ' ')
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(s)
+  }
+  return out
+}
+
+/** 与主武器任一段骰+类型完全相同时不重复展示额外一行 */
+function filterExtraDiceAgainstMain(attackParsed, rawDamageType, lines) {
+  const mainDiceList = attackParsed?.diceList?.length
+    ? attackParsed.diceList
+    : attackParsed?.dice
+      ? [attackParsed.dice]
+      : []
+  const mainLower = mainDiceList.map((x) => x.toLowerCase())
+  return lines.filter((d) => {
+    const p = parseWeaponAttack(d)
+    const extraDice = (p.dice || '').toLowerCase()
+    const sameDice = extraDice && mainLower.includes(extraDice)
+    const sameType = (p.type || '').trim() === (rawDamageType || '').trim()
+    return !(sameDice && sameType)
+  })
 }
 
 /** 武器是否使用敏捷（灵巧） */
@@ -167,6 +299,9 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   const buffStats = useBuffCalculator(char, mergedBuffs)
   const acResult = getAC(char)
   const acTotal = buffStats?.ac != null ? buffStats.ac : (acResult.total + (buffStats?.acBonus ?? 0))
+  const acModeOptions = useMemo(() => getACModeOptionsForCharacter(char), [char?.['class'], char?.multiclass, char?.prestige])
+  const acModeEffective = getEffectiveACCalculationMode(char)
+  const showAcModeSelect = canEdit && acModeOptions.length > 1
   const isCreatureTemplate = char?.subordinateTemplate === 'creature'
   const maxHpBase = calcMaxHP(char) + getHPBuffSum(char) + (buffStats?.maxHpBonus ?? 0)
   const maxHpMult = buffStats?.maxHpMultiplier ?? 1
@@ -229,6 +364,18 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   const [showExtraSlotsModal, setShowExtraSlotsModal] = useState(false)
   const [explosiveUsePending, setExplosiveUsePending] = useState(null) // { inventoryIndex, name, diceExpr, damageType }
   const [focusUsePending, setFocusUsePending] = useState(null) // { inventoryIndex, name } 法器投掷待确认
+  /** 战斗区·武技：引用武技库 id 列表 */
+  const [martialSlots, setMartialSlots] = useState(() => {
+    const arr = Array.isArray(char?.combatMartialTechniques) ? char.combatMartialTechniques : []
+    return arr.map((m) => ({
+      id: m.id ?? 'mt_' + Math.random().toString(36).slice(2),
+      techniqueId: m.techniqueId || '',
+    })).filter((m) => m.techniqueId)
+  })
+  const [showAddMartialModal, setShowAddMartialModal] = useState(false)
+  const [martialSearch, setMartialSearch] = useState('')
+  /** 武技库弹窗：按流派筛选，空字符串表示全部 */
+  const [martialStyleFilter, setMartialStyleFilter] = useState('')
 
   useEffect(() => {
     setShowSpellModule(char?.showSpellModule !== false)
@@ -277,8 +424,25 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   }, [char?.id, char?.combatMeans])
 
   useEffect(() => {
+    const arr = Array.isArray(char?.combatMartialTechniques) ? char.combatMartialTechniques : []
+    setMartialSlots(
+      arr.map((m) => ({
+        id: m.id ?? 'mt_' + Math.random().toString(36).slice(2),
+        techniqueId: m.techniqueId || '',
+      })).filter((m) => m.techniqueId)
+    )
+  }, [char?.id, char?.combatMartialTechniques])
+
+  useEffect(() => {
     if (hpCurrent > maxHp) setHpCurrent(maxHp)
   }, [maxHp, hpCurrent])
+
+  const saveCombatMartialSlots = (next) => {
+    setMartialSlots(next)
+    onSave({
+      combatMartialTechniques: next.map((m) => ({ id: m.id, techniqueId: m.techniqueId })),
+    })
+  }
 
   const saveCombatMeans = (next) => {
     setCombatMeans(next)
@@ -307,21 +471,19 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     const first = weaponsFromInv[0]
     if (first) {
       setAddWeaponIndex(first.index)
-      const parsed = parseWeaponAttack(first.攻击)
-      setAddDamageType(parsed.type && parsed.type !== '—' ? parsed.type : '')
     } else {
       setAddWeaponIndex(null)
-      setAddDamageType('')
     }
+    setAddDamageType('')
     setAddWeaponNameSuffix('')
     setAddWeaponExtraDice([])
+    setShowWeaponExtraDiceEditor(false)
     setAddAbility('str')
     setAddWeaponProficient(true)
     setShowAddCombatMeanModal(true)
   }
   const confirmAddWeaponMean = () => {
-    const newMean = {
-      id: 'cm_' + Date.now(),
+    const patch = {
       type: 'physical',
       weaponInventoryIndex: addWeaponIndex,
       spellId: null,
@@ -331,7 +493,13 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       weaponProficient: addWeaponProficient,
       weaponNameSuffix: (addWeaponNameSuffix || '').trim(),
     }
-    saveCombatMeans([...combatMeans, newMean])
+    if (editingCombatMeanId) {
+      updateCombatMean(editingCombatMeanId, patch)
+      setEditingCombatMeanId(null)
+    } else {
+      saveCombatMeans([...combatMeans, { id: 'cm_' + Date.now(), ...patch }])
+    }
+    setShowWeaponExtraDiceEditor(false)
     setShowAddCombatMeanModal(false)
   }
   const confirmAddItemMean = () => {
@@ -449,18 +617,35 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   }
 
   const [lastDamageRoll, setLastDamageRoll] = useState(null) // { byType: { [type]: { rolls, modifier } } } 或旧格式 { total, rolls, modifier }
+  useEffect(() => {
+    if (!lastDamageRoll || typeof window === 'undefined') return
+    window.dispatchEvent(new CustomEvent('dnd-external-roll', { detail: lastDamageRoll }))
+  }, [lastDamageRoll])
   const [addWeaponExtraDice, setAddWeaponExtraDice] = useState([]) // 添加武器时的额外伤害骰，如 ['1d6 电']
   const [addWeaponExtraCount, setAddWeaponExtraCount] = useState(1)
   const [addWeaponExtraSides, setAddWeaponExtraSides] = useState(6)
   const [addWeaponExtraType, setAddWeaponExtraType] = useState('钝击')
+  /** 额外伤害骰：默认折叠，点「添加」后展开编辑（类似附魔） */
+  const [showWeaponExtraDiceEditor, setShowWeaponExtraDiceEditor] = useState(false)
 
   /** 物理武器：汇总主伤+所有额外骰，按伤害类型分组投掷并展示 */
-  const rollAllWeaponDamage = (cm, weaponOpt, attackParsed, damageMod, displayDamageType, isCrit) => {
+  const rollAllWeaponDamage = (cm, weaponOpt, attackParsed, totalDamageMod, displayDamageType, isCrit) => {
     const sources = []
-    if (attackParsed?.dice) {
-      sources.push({ dice: attackParsed.dice, modifier: Number(damageMod) || 0, type: displayDamageType || '钝击' })
-    }
-    ;(cm.extraDamageDice || []).forEach((d) => {
+    const mainDiceList = attackParsed?.diceList?.length
+      ? attackParsed.diceList
+      : attackParsed?.dice
+        ? [attackParsed.dice]
+        : []
+    mainDiceList.forEach((oneDice, i) => {
+      sources.push({
+        dice: oneDice,
+        modifier: i === 0 ? Number(totalDamageMod) || 0 : 0,
+        type: displayDamageType || '钝击',
+      })
+    })
+    const rawT = cm.damageType || attackParsed.type
+    const extras = filterExtraDiceAgainstMain(attackParsed, rawT, getMergedWeaponExtraDiceStrings(cm, weaponOpt))
+    extras.forEach((d) => {
       const parts = typeof d === 'string' && d.includes(' ') ? d.split(' ') : [d, displayDamageType || '钝击']
       const dice = parts[0]
       const type = parts[1] || displayDamageType || '钝击'
@@ -495,6 +680,35 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   }
 
   const weaponsFromInv = useMemo(() => getWeaponsFromInventory(char?.inventory ?? []), [char?.inventory])
+
+  const filteredMartialTechniques = useMemo(() => {
+    let list = martialStyleFilter
+      ? MARTIAL_TECHNIQUES.filter((t) => t.style === martialStyleFilter)
+      : MARTIAL_TECHNIQUES
+    const q = martialSearch.trim().toLowerCase()
+    if (!q) return list
+    return list.filter(
+      (t) =>
+        (t.name && t.name.toLowerCase().includes(q)) ||
+        (t.style && String(t.style).toLowerCase().includes(q)) ||
+        (t.type && String(t.type).toLowerCase().includes(q)) ||
+        (t.id && t.id.toLowerCase().includes(q))
+    )
+  }, [martialSearch, martialStyleFilter])
+
+  const openEditWeaponMean = useCallback((cm) => {
+    setEditingCombatMeanId(cm.id)
+    setAddWeaponIndex(cm.weaponInventoryIndex ?? null)
+    setAddWeaponNameSuffix(cm.weaponNameSuffix ?? '')
+    setAddAbility(cm.abilityForAttack === 'dex' ? 'dex' : cm.abilityForAttack === 'spell' ? 'spell' : 'str')
+    setAddDamageType(cm.damageType ? String(cm.damageType) : '')
+    setAddWeaponProficient(cm.weaponProficient !== false)
+    setAddWeaponExtraDice(Array.isArray(cm.extraDamageDice) ? [...cm.extraDamageDice] : [])
+    setShowWeaponExtraDiceEditor(false)
+    setAddMeanStep('weapon')
+    setShowAddCombatMeanModal(true)
+  }, [])
+
   const explosivesFromInv = useMemo(() => getExplosivesFromInventory(char?.inventory ?? []), [char?.inventory])
   const focusFromInv = useMemo(() => getFocusItemsFromInventory(char?.inventory ?? []), [char?.inventory])
   const scrollsFromInv = useMemo(() => getScrollsFromInventory(char?.inventory ?? []), [char?.inventory])
@@ -532,20 +746,81 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     }
     return []
   }, [char?.extraSpellSlots])
-  const effectiveMaxByRing = useMemo(() => {
+  const baseMaxByRing = useMemo(() => {
     const out = {}
-    const fromExtra = extraSpellSlotsMode === 'slots' ? extraSpellSlotsList : []
     for (let ring = 1; ring <= 9; ring++) {
-      const base = spellSlotsMaxOverride[ring] != null ? Math.max(0, Number(spellSlotsMaxOverride[ring]) || 0) : (maxSlotsByRing[ring] ?? 0)
-      out[ring] = base + fromExtra.filter((e) => e.ring === ring).reduce((s, e) => s + (e.max || 0), 0)
+      out[ring] = spellSlotsMaxOverride[ring] != null
+        ? Math.max(0, Number(spellSlotsMaxOverride[ring]) || 0)
+        : (maxSlotsByRing[ring] ?? 0)
     }
     return out
-  }, [maxSlotsByRing, spellSlotsMaxOverride, extraSpellSlotsList, extraSpellSlotsMode])
-  const spellSlotsCurrent = char?.spellSlots ?? {}
-  const setSpellSlotCurrent = (ring, remaining) => {
+  }, [maxSlotsByRing, spellSlotsMaxOverride])
+  const extraMaxByRing = useMemo(() => {
+    const out = {}
+    for (let ring = 1; ring <= 9; ring++) out[ring] = 0
+    if (extraSpellSlotsMode !== 'slots') return out
+    for (const e of extraSpellSlotsList) {
+      const ring = Math.min(9, Math.max(1, Number(e.ring) || 1))
+      out[ring] += Math.max(0, Number(e.max) || 0)
+    }
+    return out
+  }, [extraSpellSlotsList, extraSpellSlotsMode])
+  const effectiveMaxByRing = useMemo(() => {
+    const out = {}
+    for (let ring = 1; ring <= 9; ring++) {
+      out[ring] = (baseMaxByRing[ring] ?? 0) + (extraMaxByRing[ring] ?? 0)
+    }
+    return out
+  }, [baseMaxByRing, extraMaxByRing])
+  const visibleBaseRings = useMemo(
+    () => [1, 2, 3, 4, 5, 6, 7, 8, 9].filter((r) => (baseMaxByRing[r] ?? 0) > 0),
+    [baseMaxByRing],
+  )
+  const visibleExtraRings = useMemo(
+    () => [1, 2, 3, 4, 5, 6, 7, 8, 9].filter((r) => (extraMaxByRing[r] ?? 0) > 0),
+    [extraMaxByRing],
+  )
+  const [spellSlotsCurrentLocal, setSpellSlotsCurrentLocal] = useState(char?.spellSlots ?? {})
+  const spellSlotsSaveTimerRef = useRef(null)
+  useEffect(() => {
+    setSpellSlotsCurrentLocal(char?.spellSlots ?? {})
+  }, [char?.spellSlots])
+  useEffect(() => () => {
+    if (spellSlotsSaveTimerRef.current) clearTimeout(spellSlotsSaveTimerRef.current)
+  }, [])
+  const saveSpellSlotsDebounced = useCallback((next) => {
+    if (spellSlotsSaveTimerRef.current) clearTimeout(spellSlotsSaveTimerRef.current)
+    spellSlotsSaveTimerRef.current = setTimeout(() => {
+      onSave({ spellSlots: next })
+      spellSlotsSaveTimerRef.current = null
+    }, 140)
+  }, [onSave])
+  const setSpellSlotCurrentTotal = (ring, remaining) => {
     const max = effectiveMaxByRing[ring] ?? 0
-    const next = { ...spellSlotsCurrent, [ring]: Math.max(0, Math.min(max, remaining)) }
-    onSave({ spellSlots: next })
+    setSpellSlotsCurrentLocal((prev) => {
+      const next = { ...(prev ?? {}), [ring]: Math.max(0, Math.min(max, remaining)) }
+      saveSpellSlotsDebounced(next)
+      return next
+    })
+  }
+  const getSlotSplit = useCallback((ring) => {
+    const baseMax = baseMaxByRing[ring] ?? 0
+    const extraMax = extraMaxByRing[ring] ?? 0
+    const effectiveMax = Math.max(0, baseMax + extraMax)
+    const totalCur = Math.min(effectiveMax, Math.max(0, spellSlotsCurrentLocal[ring] ?? effectiveMax))
+    const baseCur = Math.min(baseMax, totalCur)
+    const extraCur = Math.max(0, totalCur - baseMax)
+    return { baseMax, extraMax, effectiveMax, baseCur, extraCur, totalCur }
+  }, [baseMaxByRing, extraMaxByRing, spellSlotsCurrentLocal])
+  const setBaseSlotCurrent = (ring, remainingBase) => {
+    const { extraCur, baseMax } = getSlotSplit(ring)
+    const nextBase = Math.max(0, Math.min(baseMax, remainingBase))
+    setSpellSlotCurrentTotal(ring, nextBase + extraCur)
+  }
+  const setExtraSlotCurrent = (ring, remainingExtra) => {
+    const { baseCur, extraMax } = getSlotSplit(ring)
+    const nextExtra = Math.max(0, Math.min(extraMax, remainingExtra))
+    setSpellSlotCurrentTotal(ring, baseCur + nextExtra)
   }
   const saveExtraSpellSlots = (next) => {
     onSave({ extraSpellSlots: next.map((e) => ({ id: e.id, ring: e.ring, max: e.max })) })
@@ -822,30 +1097,50 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <div
-          className="rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 p-3 min-h-[4rem] flex items-center justify-center gap-2"
-          title={buffStats?.ac != null
-            ? `由 Buff 计算器得出: ${acTotal}`
-            : [
-                `基础AC ${acResult.base ?? '—'}`,
-                `+ 敏调 ${(acResult.dexContrib ?? 0) >= 0 ? '+' : ''}${acResult.dexContrib ?? 0}`,
-                (acResult.shieldBase ?? acResult.shield) > 0 ? `+ 盾AC ${acResult.shieldBase ?? acResult.shield}` : null,
-                (acResult.shieldMagic ?? 0) > 0 ? `+ 盾牌增强 ${acResult.shieldMagic}` : null,
-                (acResult.armorMagic ?? 0) > 0 ? `+ 盔甲增强 ${acResult.armorMagic}` : null,
-                (acResult.outerMagic ?? 0) > 0 ? `+ 外袍 ${acResult.outerMagic}` : null,
-                (acResult.other ?? 0) !== 0 ? `+ 其他 ${(acResult.other ?? 0) >= 0 ? '+' : ''}${acResult.other}` : null,
-                `+ BUFF ${(acResult.buff ?? 0) >= 0 ? '+' : ''}${acResult.buff ?? 0}`,
-                (buffStats?.acBonus ?? 0) !== 0 ? `+ Buff加值 ${(buffStats?.acBonus ?? 0) >= 0 ? '+' : ''}${buffStats?.acBonus}` : null,
-              ].filter(Boolean).join(' → ') + ` = ${acTotal}`}
+          className="rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 p-2 sm:p-3 min-h-[4rem] flex flex-row flex-nowrap items-center justify-center gap-1.5 sm:gap-2 min-w-0"
+          title={[
+            buffStats?.ac != null ? `由 Buff 计算器得出: ${acTotal}` : null,
+            acResult.acFormulaNote ? `职业特性：${acResult.acFormulaNote}` : null,
+            [
+              acResult.acFormulaNote ? `特性基准 ${acResult.base ?? '—'}` : `基础AC ${acResult.base ?? '—'}`,
+              !acResult.acFormulaNote ? `+ 敏调 ${(acResult.dexContrib ?? 0) >= 0 ? '+' : ''}${acResult.dexContrib ?? 0}` : null,
+              (acResult.shieldBase ?? acResult.shield) > 0 ? `+ 盾AC ${acResult.shieldBase ?? acResult.shield}` : null,
+              (acResult.shieldMagic ?? 0) > 0 ? `+ 盾牌增强 ${acResult.shieldMagic}` : null,
+              (acResult.armorMagic ?? 0) > 0 ? `+ 盔甲增强 ${acResult.armorMagic}` : null,
+              (acResult.outerMagic ?? 0) > 0 ? `+ 外袍 ${acResult.outerMagic}` : null,
+              (acResult.other ?? 0) !== 0 ? `+ 其他 ${(acResult.other ?? 0) >= 0 ? '+' : ''}${acResult.other}` : null,
+              `+ BUFF ${(acResult.buff ?? 0) >= 0 ? '+' : ''}${acResult.buff ?? 0}`,
+              (buffStats?.acBonus ?? 0) !== 0 ? `+ Buff加值 ${(buffStats?.acBonus ?? 0) >= 0 ? '+' : ''}${buffStats?.acBonus}` : null,
+            ].filter(Boolean).join(' → ') + ` = ${acTotal}`,
+          ].filter(Boolean).join('\n')}
         >
-          <span className="text-gray-400 text-2xl font-medium">AC</span>
-          <span className="text-gray-600 text-2xl">|</span>
-          <span className="text-white font-bold text-4xl font-mono">{acTotal}</span>
+          {showAcModeSelect ? (
+            <select
+              value={acModeEffective}
+              onChange={(e) => onSave({ acCalculationMode: e.target.value || 'equipment' })}
+              className={inputClass + ' !w-[8.75rem] max-w-[9.5rem] shrink-0 h-7 text-xs py-0 pl-2 pr-7 box-border'}
+              title="AC 计算方式"
+            >
+              {acModeOptions.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          ) : acModeEffective !== 'equipment' ? (
+            <span className="text-xs text-gray-400 leading-tight inline-block min-w-0 max-w-[9.5rem] shrink-0 text-left whitespace-nowrap">
+              {acModeOptions.find((o) => o.value === acModeEffective)?.label ?? ''}
+            </span>
+          ) : null}
+          <div className="flex items-center justify-center gap-1 sm:gap-2 shrink-0">
+            <span className="text-gray-400 text-xl sm:text-2xl font-medium">AC</span>
+            <span className="text-gray-600 text-xl sm:text-2xl">|</span>
+            <span className="text-white font-bold text-3xl sm:text-4xl font-mono tabular-nums">{acTotal}</span>
+          </div>
         </div>
         <div className="rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 p-3 min-h-[4rem] flex items-center justify-center gap-2">
           <span className="text-gray-400 text-2xl font-medium">先攻</span>
           <span className="text-gray-600 text-2xl">|</span>
           <span className="text-white font-bold text-4xl font-mono">{init}</span>
-          <button type="button" onClick={() => openForCheck('先攻', init)} title="投掷先攻" className="w-7 h-7 flex items-center justify-center rounded bg-dnd-red hover:bg-dnd-red-hover text-white shrink-0">
+          <button type="button" onClick={() => openForCheck('先攻', init, { quickRoll: true })} title="投掷先攻" className="w-7 h-7 flex items-center justify-center rounded bg-dnd-red hover:bg-dnd-red-hover text-white shrink-0">
             <Dices className="w-3.5 h-3.5" aria-hidden />
           </button>
         </div>
@@ -984,7 +1279,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
             <span className="text-dnd-text-muted shrink-0">法术攻击加值</span>
             <span className="text-white font-mono tabular-nums shrink-0">{spellAttackBonus != null ? (spellAttackBonus >= 0 ? '+' : '') + spellAttackBonus : '—'}</span>
             {spellAttackBonus != null && (
-              <button type="button" onClick={() => openForCheck('法术攻击', spellAttackBonus)} className="w-7 h-7 flex items-center justify-center rounded bg-dnd-red hover:bg-dnd-red-hover text-white shrink-0" title="投掷法术攻击">
+              <button type="button" onClick={() => openForCheck('法术攻击', spellAttackBonus, { quickRoll: true })} className="w-7 h-7 flex items-center justify-center rounded bg-dnd-red hover:bg-dnd-red-hover text-white shrink-0" title="投掷法术攻击">
                 <Dices className="w-3.5 h-3.5" />
               </button>
             )}
@@ -1003,72 +1298,280 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
               </button>
             )}
           </div>
-          {/* 第二行：法术环位+额外环位占整行全宽，均分平铺；额外环位在法术环位层级下 */}
+          {char?.psychicCollapseEcho && (
+            <div className="w-full rounded-lg border border-dnd-gold/45 bg-dnd-gold/10 px-3 py-2 text-xs">
+              <p className="text-dnd-gold-light font-bold uppercase tracking-wide mb-0.5">灵崩回响 · 下回合</p>
+              <p className="text-gray-300 leading-snug">
+                原目标原地点再结算「{char.psychicCollapseEcho.spellName}」（{char.psychicCollapseEcho.ring}环）
+                {char.psychicCollapseEcho.source === 'extraPoints' ? ' · 上次为额外点数' : ''}
+              </p>
+              {canEdit && (
+                <button
+                  type="button"
+                  onClick={() => onSave({ psychicCollapseEcho: null })}
+                  className="mt-1.5 touch-manipulation rounded border border-dnd-gold/40 px-2 py-1 text-[11px] text-dnd-gold-light hover:bg-dnd-gold/15"
+                >
+                  已执行 / 清除
+                </button>
+              )}
+            </div>
+          )}
+          {/* 法术环位 | 圆点… 组间竖线；同一行内所有圆点 flex-1 均分剩余宽度 */}
           <div className="w-full">
-            <div className="w-full min-w-0 flex flex-wrap items-center gap-x-2 gap-y-1.5 rounded border border-white/10 bg-[#233148]/25 p-1.5 text-sm">
-              <span className="text-dnd-gold-light font-bold uppercase tracking-wider shrink-0">法术环位</span>
-              <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                {[1, 2, 3, 4, 5, 6, 7, 8, 9].filter((ring) => (effectiveMaxByRing[ring] ?? 0) > 0).map((ring) => {
-                  const max = effectiveMaxByRing[ring] ?? 0
-                  const cur = Math.min(max, Math.max(0, spellSlotsCurrent[ring] ?? max))
-                  return (
-                    <span key={ring} className="inline-flex items-center gap-0.5">
-                      <span className="text-gray-400">{ring}环</span>
-                      {canEdit ? (
-                        <span className="flex gap-0.5">
-                          {Array.from({ length: max }, (_, i) => {
-                            const remainingIfClick = i + 1
-                            const isFilled = i < cur
-                            return (
-                              <button
-                                key={i}
-                                type="button"
-                                onClick={() => {
-                                  if (remainingIfClick === 1 && cur === 1) setSpellSlotCurrent(ring, 0)
-                                  else setSpellSlotCurrent(ring, remainingIfClick)
-                                }}
-                                className={`w-3.5 h-3.5 rounded-full border shrink-0 ${
-                                  isFilled ? 'bg-dnd-gold/80 border-dnd-gold-light' : 'bg-transparent border-gray-500'
+            <div className="w-full min-w-0 flex flex-col gap-2 rounded border border-white/10 bg-[#233148]/25 p-2 sm:p-2.5 text-sm">
+              <div className="flex min-w-0 w-full items-stretch gap-2 sm:gap-3">
+                <div className="flex shrink-0 flex-col justify-center border-r border-white/15 pr-2 sm:pr-3">
+                  <span className="text-dnd-gold-light text-xs font-bold uppercase tracking-wide sm:text-sm">法术环位</span>
+                </div>
+                <div className="flex min-w-0 flex-1 flex-col justify-center gap-1">
+                  <div
+                    className="flex min-h-9 min-w-0 flex-row items-center"
+                    role="group"
+                    aria-label="1 至 9 环法术位，圆点均分宽度"
+                  >
+                    {visibleBaseRings.flatMap((ring, ringIdx) => {
+                      const { baseMax: max, baseCur: cur } = getSlotSplit(ring)
+                      const sep =
+                        ringIdx > 0 ? (
+                          <div
+                            key={`sep-dot-${ring}`}
+                            className="mx-0.5 h-5 w-px shrink-0 self-center bg-white/20 sm:mx-1"
+                            aria-hidden
+                          />
+                        ) : null
+                      const out = []
+                      if (sep) out.push(sep)
+                      const numeralClass = 'text-[8px] sm:text-[9px] tabular-nums'
+                      if (canEdit) {
+                        for (let i = 0; i < max; i++) {
+                          const remainingIfClick = i + 1
+                          const isFilled = i < cur
+                          const tip =
+                            remainingIfClick === 1 && cur === 1
+                              ? '点击后剩余 0（实心=剩余，空心=已用）'
+                              : `点击后剩余 ${remainingIfClick}/${max}（实心=剩余，空心=已用）`
+                          out.push(
+                            <button
+                              key={`${ring}-${i}`}
+                              type="button"
+                              onClick={() => {
+                                if (remainingIfClick === 1 && cur === 1) setBaseSlotCurrent(ring, 0)
+                                else setBaseSlotCurrent(ring, remainingIfClick)
+                              }}
+                              className="touch-manipulation flex min-h-9 min-w-0 flex-1 basis-0 items-center justify-center px-0.5"
+                              title={`${ring}环 · ${tip}`}
+                              aria-label={`${ring}环 · ${tip}`}
+                            >
+                              <span
+                                className={`flex aspect-square max-h-7 w-full max-w-full min-w-[10px] items-center justify-center rounded-full border-2 px-px font-bold leading-none tracking-tight ${numeralClass} ${
+                                  isFilled
+                                    ? 'border-dnd-gold-light bg-dnd-gold/85 text-[#141820] shadow-[0_0_6px_rgba(212,184,120,0.35)]'
+                                    : 'border-gray-500 bg-transparent text-gray-400'
                                 }`}
-                                title={remainingIfClick === 1 && cur === 1 ? '点击后剩余 0（实心=剩余，空心=已用）' : `点击后剩余 ${remainingIfClick}/${max}（实心=剩余，空心=已用）`}
+                              >
+                                {ring}
+                              </span>
+                            </button>,
+                          )
+                        }
+                      } else {
+                        for (let i = 0; i < max; i++) {
+                          const isFilled = i < cur
+                          out.push(
+                            <div
+                              key={`${ring}-${i}`}
+                              className="flex min-h-9 min-w-0 flex-1 basis-0 items-center justify-center px-0.5"
+                              aria-hidden
+                            >
+                              <span
+                                className={`flex aspect-square max-h-7 w-full max-w-full min-w-[10px] items-center justify-center rounded-full border-2 px-px font-bold leading-none tracking-tight ${numeralClass} ${
+                                  isFilled
+                                    ? 'border-dnd-gold-light bg-dnd-gold/85 text-[#141820]'
+                                    : 'border-gray-500 bg-transparent text-gray-400'
+                                }`}
+                              >
+                                {ring}
+                              </span>
+                            </div>,
+                          )
+                        }
+                      }
+                      return out
+                    })}
+                  </div>
+                </div>
+              </div>
+              <div className="flex min-w-0 w-full flex-wrap items-stretch gap-2 border-t border-white/10 pt-2 sm:gap-3">
+                <div className="flex shrink-0 flex-col justify-center border-r border-white/15 pr-2 sm:pr-3">
+                  <span className="text-dnd-text-muted text-xs font-bold uppercase tracking-wide sm:text-sm">额外环位</span>
+                </div>
+                <div className="flex min-w-0 flex-1 flex-col justify-center gap-1">
+                  {extraSpellSlotsMode === 'points' && extraSpellSlotsPoints.max > 0 && (
+                    <div className="flex min-w-0 flex-row flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className="shrink-0 font-mono text-sm tabular-nums text-gray-300">
+                        {extraSpellSlotsPoints.current}/{extraSpellSlotsPoints.max}
+                      </span>
+                      <div
+                        className="flex min-h-9 min-w-0 flex-1 flex-row items-center basis-[min(100%,24rem)] sm:basis-auto"
+                        role="group"
+                        aria-label="额外环位点数：按环阶扣除"
+                      >
+                        {[1, 2, 3, 4, 5, 6, 7, 8, 9].flatMap((r, idx) => {
+                          const numeralClass = 'text-[8px] sm:text-[9px] tabular-nums'
+                          const canPay = extraSpellSlotsPoints.current >= r
+                          const sep =
+                            idx > 0 ? (
+                              <div
+                                key={`extra-sep-${r}`}
+                                className="mx-0.5 h-5 w-px shrink-0 self-center bg-white/20 sm:mx-1"
+                                aria-hidden
                               />
-                            )
-                          })}
-                        </span>
-                      ) : (
-                        <span className="text-white font-mono tabular-nums text-sm">{cur}/{max}</span>
+                            ) : null
+                          const btn = (
+                            <button
+                              key={r}
+                              type="button"
+                              onClick={() => deductExtraSpellPoints(r)}
+                              disabled={!canPay}
+                              className="touch-manipulation flex min-h-9 min-w-0 flex-1 basis-0 items-center justify-center px-0.5 disabled:cursor-not-allowed"
+                              title={canPay ? `施放${r}环法术，扣 ${r} 点` : `点数不足（需 ${r} 点）`}
+                              aria-label={canPay ? `扣除 ${r} 点施放${r}环` : `点数不足，无法施放${r}环`}
+                            >
+                              <span
+                                className={`flex aspect-square max-h-7 w-full max-w-full min-w-[10px] items-center justify-center rounded-full border-2 px-px font-bold leading-none tracking-tight transition-colors ${numeralClass} ${
+                                  canPay
+                                    ? 'border-dnd-gold/55 bg-dnd-gold/15 text-dnd-gold-light shadow-[0_0_4px_rgba(212,184,120,0.12)] hover:border-dnd-gold-light hover:bg-dnd-gold/25'
+                                    : 'border-gray-600 bg-transparent text-gray-600 opacity-70'
+                                }`}
+                              >
+                                {r}
+                              </span>
+                            </button>
+                          )
+                          return sep ? [sep, btn] : [btn]
+                        })}
+                      </div>
+                      {canEdit && (
+                        <button
+                          type="button"
+                          onClick={() => setShowExtraSlotsModal(true)}
+                          className="touch-manipulation shrink-0 rounded-full border border-gray-500/80 bg-gray-800/40 px-3 py-1.5 text-xs text-gray-300 hover:border-dnd-gold/40 hover:bg-gray-700/60 hover:text-dnd-gold-light"
+                        >
+                          设置
+                        </button>
                       )}
-                    </span>
-                  )
-                })}
-                {[1, 2, 3, 4, 5, 6, 7, 8, 9].every((ring) => (effectiveMaxByRing[ring] ?? 0) === 0) && (
-                  <span className="text-gray-500">—</span>
-                )}
-              </span>
-              <span className="border-r border-white/10 h-4 self-center shrink-0" aria-hidden />
-              <span className="text-dnd-text-muted shrink-0">额外环位</span>
-              <span className="flex flex-wrap items-center justify-start gap-x-1.5 gap-y-1 min-w-0">
-                {extraSpellSlotsMode === 'points' && extraSpellSlotsPoints.max > 0 && (
-                  <>
-                    <span className="text-gray-300">{extraSpellSlotsPoints.current}/{extraSpellSlotsPoints.max}</span>
-                    <span className="inline-flex flex-wrap items-center gap-0.5">
-                      {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((r) => (
-                        <button key={r} type="button" onClick={() => deductExtraSpellPoints(r)} disabled={extraSpellSlotsPoints.current < r} className="w-6 h-6 rounded border border-gray-500 bg-gray-800/50 text-gray-300 hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed" title={`施放${r}环法术，扣${r}点`}>−{r}</button>
-                      ))}
-                    </span>
-                  </>
-                )}
-                {extraSpellSlotsMode === 'slots' && extraSpellSlotsList.length > 0 && (
-                  <span className="text-gray-400">已设 {extraSpellSlotsList.length} 项</span>
-                )}
-                {extraSpellSlotsMode === 'slots' && extraSpellSlotsList.length === 0 && !canEdit && <span className="text-gray-500">—</span>}
-                {extraSpellSlotsMode === 'points' && extraSpellSlotsPoints.max === 0 && !canEdit && <span className="text-gray-500">—</span>}
-                {canEdit && (
-                  <button type="button" onClick={() => setShowExtraSlotsModal(true)} className="px-1.5 py-0.5 rounded border border-gray-500 text-gray-400 hover:bg-gray-700 shrink-0">
-                    设置
-                  </button>
-                )}
-              </span>
+                    </div>
+                  )}
+                  {extraSpellSlotsMode === 'slots' && extraSpellSlotsList.length > 0 && (
+                    <div className="flex min-w-0 flex-row flex-wrap items-center gap-x-2 gap-y-1">
+                      <div
+                        className="flex min-h-9 min-w-0 flex-1 flex-row items-center basis-[min(100%,24rem)] sm:basis-auto"
+                        role="group"
+                        aria-label="额外环位，按环位分开展示"
+                      >
+                        {visibleExtraRings.flatMap((r, idx) => {
+                          const { extraMax, extraCur } = getSlotSplit(r)
+                          const numeralClass = 'text-[8px] sm:text-[9px] tabular-nums'
+                          const sep =
+                            idx > 0 ? (
+                              <div
+                                key={`extra-slot-sep-${r}`}
+                                className="mx-0.5 h-5 w-px shrink-0 self-center bg-white/20 sm:mx-1"
+                                aria-hidden
+                              />
+                            ) : null
+                          const out = []
+                          if (sep) out.push(sep)
+                          for (let i = 0; i < extraMax; i++) {
+                            const remainingIfClick = i + 1
+                            const isFilled = i < extraCur
+                            const tip =
+                              remainingIfClick === 1 && extraCur === 1
+                                ? '点击后额外环位剩余 0'
+                                : `点击后额外环位剩余 ${remainingIfClick}/${extraMax}`
+                            out.push(
+                              canEdit ? (
+                                <button
+                                  key={`extra-slot-${r}-${i}`}
+                                  type="button"
+                                  onClick={() => {
+                                    if (remainingIfClick === 1 && extraCur === 1) setExtraSlotCurrent(r, 0)
+                                    else setExtraSlotCurrent(r, remainingIfClick)
+                                  }}
+                                  className="touch-manipulation flex min-h-9 min-w-0 flex-1 basis-0 items-center justify-center px-0.5"
+                                  title={`${r}环额外 · ${tip}`}
+                                  aria-label={`${r}环额外 · ${tip}`}
+                                >
+                                  <span
+                                    className={`flex aspect-square max-h-7 w-full max-w-full min-w-[10px] items-center justify-center rounded-full border-2 px-px font-bold leading-none tracking-tight ${numeralClass} ${
+                                      isFilled
+                                        ? 'border-sky-300 bg-sky-400/35 text-sky-100 shadow-[0_0_6px_rgba(125,211,252,0.25)]'
+                                        : 'border-sky-700/70 bg-transparent text-sky-600/90'
+                                    }`}
+                                  >
+                                    {r}
+                                  </span>
+                                </button>
+                              ) : (
+                                <div
+                                  key={`extra-slot-${r}-${i}`}
+                                  className="flex min-h-9 min-w-0 flex-1 basis-0 items-center justify-center px-0.5"
+                                  aria-hidden
+                                >
+                                  <span
+                                    className={`flex aspect-square max-h-7 w-full max-w-full min-w-[10px] items-center justify-center rounded-full border-2 px-px font-bold leading-none tracking-tight ${numeralClass} ${
+                                      isFilled
+                                        ? 'border-sky-300 bg-sky-400/35 text-sky-100'
+                                        : 'border-sky-700/70 bg-transparent text-sky-600/90'
+                                    }`}
+                                  >
+                                    {r}
+                                  </span>
+                                </div>
+                              ),
+                            )
+                          }
+                          return out
+                        })}
+                      </div>
+                      {canEdit && (
+                        <button
+                          type="button"
+                          onClick={() => setShowExtraSlotsModal(true)}
+                          className="touch-manipulation shrink-0 rounded-full border border-gray-500/80 bg-gray-800/40 px-3 py-1.5 text-xs text-gray-300 hover:border-dnd-gold/40 hover:bg-gray-700/60 hover:text-dnd-gold-light"
+                        >
+                          设置
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {((extraSpellSlotsMode === 'slots' && extraSpellSlotsList.length === 0 && !canEdit) ||
+                    (extraSpellSlotsMode === 'points' && extraSpellSlotsPoints.max === 0 && !canEdit)) && (
+                    <span className="text-gray-500">—</span>
+                  )}
+                  {extraSpellSlotsMode === 'slots' && extraSpellSlotsList.length === 0 && canEdit && (
+                    <button
+                      type="button"
+                      onClick={() => setShowExtraSlotsModal(true)}
+                      className="touch-manipulation shrink-0 rounded-full border border-gray-500/80 bg-gray-800/40 px-3 py-1.5 text-xs text-gray-300 hover:border-dnd-gold/40 hover:bg-gray-700/60 hover:text-dnd-gold-light"
+                    >
+                      设置
+                    </button>
+                  )}
+                  {extraSpellSlotsMode === 'points' && extraSpellSlotsPoints.max === 0 && canEdit && (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-gray-500 text-sm">未启用点数额外环位</span>
+                      <button
+                        type="button"
+                        onClick={() => setShowExtraSlotsModal(true)}
+                        className="touch-manipulation shrink-0 rounded-full border border-gray-500/80 bg-gray-800/40 px-3 py-1.5 text-xs text-gray-300 hover:border-dnd-gold/40 hover:bg-gray-700/60 hover:text-dnd-gold-light"
+                      >
+                        设置
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -1078,49 +1581,19 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
         </button>
       ) : null}
 
-      <div className="flex gap-2 mt-2 flex-col sm:flex-row">
-        <div className="min-w-0 flex-[3]">
-      <div className="rounded-lg border border-gray-600 bg-gray-800/50 p-2 h-full">
+      <div className="flex gap-2 mt-2 flex-col sm:flex-row sm:items-start">
+        <div className="min-w-0 flex-[3] flex flex-col gap-2">
+      <div className="rounded-lg border border-gray-600 bg-gray-800/50 p-2 w-full min-w-0">
         <h3 className="text-dnd-gold-light text-sm font-bold uppercase tracking-wider mb-1">战斗手段</h3>
         <div className="space-y-2">
-          <div className="rounded-lg border border-dashed border-gray-500 bg-gray-800/30 px-2 py-1.5 min-h-[2rem] flex items-start sm:items-center justify-between gap-1.5 flex-wrap sm:flex-nowrap">
-              <div className="text-xs font-mono min-w-0 flex-1 break-words flex items-baseline gap-1.5 flex-wrap">
-                {lastDamageRoll ? (
-                  lastDamageRoll.byType ? (
-                    <>
-                      {Object.entries(lastDamageRoll.byType).map(([type, { rolls, modifier }]) => {
-                        const total = (rolls?.reduce((a, b) => a + b, 0) || 0) + (modifier || 0)
-                        const expr = (rolls?.length ? rolls.join('+') : '') + (modifier != null && modifier !== 0 ? (modifier >= 0 ? '+' : '') + modifier : '')
-                        return (
-                          <span key={type} className="text-dnd-gold-light/90">
-                            <span className="text-dnd-gold-light/70">{expr}=</span>
-                            <span className="text-dnd-gold-light font-bold">{total}</span>
-                            <span className="text-dnd-gold-light/70">{type}</span>
-                            {' '}
-                          </span>
-                        )
-                      })}
-                    </>
-                  ) : (
-                    <>
-                      <span className="text-dnd-gold-light font-bold text-sm">{lastDamageRoll.total}</span>
-                      {lastDamageRoll.rolls?.length ? (
-                        <span className="text-dnd-gold-light/70">({lastDamageRoll.rolls.join('+')}{lastDamageRoll.modifier != null && lastDamageRoll.modifier !== 0 ? (lastDamageRoll.modifier >= 0 ? '+' : '') + lastDamageRoll.modifier : ''})</span>
-                      ) : null}
-                    </>
-                  )
-                ) : null}
-              </div>
-              <button type="button" onClick={() => setLastDamageRoll(null)} className="shrink-0 px-2 py-1 rounded text-xs border border-gray-500 text-gray-400 hover:bg-gray-600 hover:text-white" title="清空">
-                清空
-              </button>
-            </div>
           {combatMeans.map((cm) => {
             const isPhysical = cm.type === 'physical'
             const isItem = cm.type === 'item'
             const itemMeanOpt = isItem && cm.itemInventoryIndex != null ? itemMeansFromInv.find((x) => x.index === cm.itemInventoryIndex) : null
             const weaponOpt = isPhysical && cm.weaponInventoryIndex != null ? weaponsFromInv.find((w) => w.index === cm.weaponInventoryIndex) : null
-            const attackParsed = weaponOpt ? parseWeaponAttack(weaponOpt.攻击) : { dice: null, type: '—' }
+            const attackParsed = weaponOpt
+              ? parseWeaponAttack(getWeaponAttackStringForParsing(weaponOpt))
+              : { dice: null, diceList: [], type: '—' }
             const enhancement = Number(weaponOpt?.entry?.magicBonus) || 0
             const abilityKey = cm.abilityForAttack === 'spell' ? spellAbility : (cm.abilityForAttack === 'dex' ? 'dex' : 'str')
             const abilityMod = abilityModifier(effectiveAbilities?.[abilityKey] ?? 10)
@@ -1129,6 +1602,8 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
             const weaponProficient = cm.weaponProficient !== false
             const physicalAttackBonus = enhancement + abilityMod + (weaponProficient ? prof : 0) + buffAttackBonus
             const damageMod = abilityMod + enhancement
+            const weaponEffectFlat = weaponOpt?.entry ? getWeaponEntryDamageExtras(weaponOpt.entry).flatBonus : 0
+            const totalDamageMod = damageMod + weaponEffectFlat
             const rawDamageType = cm.damageType || attackParsed.type
             const displayDamageType = rawDamageType ? getDamageTypeLabel(rawDamageType) : '—'
             const isSpellAttack = cm.type === 'spell_attack'
@@ -1272,7 +1747,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                         <div className={cell + ' flex items-center gap-x-1.5 min-w-0'}>
                           <span className="text-white text-sm truncate min-w-0">{hitText}</span>
                           {hitRes === 'spell_attack' && spellAttackBonus != null && (
-                            <button type="button" onClick={() => openForCheck((cm.spellName || '法术攻击') + ' 法术攻击', spellAttackBonus)} className="w-7 h-7 flex items-center justify-center rounded bg-dnd-red hover:bg-dnd-red-hover text-white shrink-0" title="投掷法术攻击">
+                            <button type="button" onClick={() => openForCheck((cm.spellName || '法术攻击') + ' 法术攻击', spellAttackBonus, { quickRoll: true })} className="w-7 h-7 flex items-center justify-center rounded bg-dnd-red hover:bg-dnd-red-hover text-white shrink-0" title="投掷法术攻击">
                               <Dices className="w-3.5 h-3.5" />
                             </button>
                           )}
@@ -1302,19 +1777,32 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                     )
                   })()
                 ) : isPhysical ? (
-                  <div className="grid grid-cols-[repeat(7,minmax(0,1fr))] items-center gap-x-1 w-full min-w-0 overflow-hidden">
-                    <span className="text-white font-medium text-sm truncate pr-2 min-w-0">{(weaponOpt?.name ?? '—') + (cm.weaponNameSuffix ? String(cm.weaponNameSuffix).trim() : '')}</span>
+                  <div className="grid grid-cols-[minmax(0,1.25fr)_minmax(0,0.9fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(5.25rem,auto)] items-center gap-x-1 w-full min-w-0">
+                    <div className="flex items-center gap-1 min-w-0 pr-2">
+                      <span className="text-white font-medium text-sm truncate min-w-0">{(weaponOpt?.name ?? '—') + (cm.weaponNameSuffix ? String(cm.weaponNameSuffix).trim() : '')}</span>
+                      {canEdit && (
+                        <button type="button" onClick={() => openEditWeaponMean(cm)} className="w-6 h-6 flex items-center justify-center rounded hover:bg-gray-600 text-gray-400 hover:text-dnd-gold-light shrink-0" title="编辑武器">
+                          <Pencil size={12} />
+                        </button>
+                      )}
+                    </div>
                     {weaponOpt && (
                       (() => {
                         const isRanged = weaponOpt.proto?.子类型 === '远程'
-                        const attackDist = (weaponOpt.entry?.攻击距离 ?? weaponOpt.proto?.攻击距离)?.toString?.()?.trim()
-                        const weaponNote = (weaponOpt.entry?.附注 ?? weaponOpt.proto?.附注 ?? '').trim()
-                        const { range: noteRange } = parseWeaponNoteToTraits(weaponNote)
-                        const 附注 = weaponNote
-                        const hasExplicitRange = attackDist || noteRange
-                        const rangeDisplay = hasExplicitRange
-                          ? (attackDist || noteRange || '—')
-                          : (isRanged ? '—' : (/触及/.test(附注) ? '触及10尺' : '触及'))
+                        const entryAttackDist = (weaponOpt.entry?.攻击距离 ?? '').toString().trim()
+                        const protoAttackDist = (weaponOpt.proto?.攻击距离 ?? '').toString().trim()
+                        const entryNote = (weaponOpt.entry?.附注 ?? '').trim()
+                        const protoNote = (weaponOpt.proto?.附注 ?? '').trim()
+                        const entryRangeMatch = entryNote.match(/(\d+\s*\/\s*\d+)/)
+                        const manualRangeFromNote = entryRangeMatch ? entryRangeMatch[1].replace(/\s+/g, '') : ''
+                        const { range: entryNoteRange } = parseWeaponNoteToTraits(entryNote)
+                        const { range: protoNoteRange } = parseWeaponNoteToTraits(protoNote)
+                        const mergedNote = (entryNote || protoNote || '').trim()
+                        // 射程显示优先手动输入（装备条目）→ 词条默认（武器库）→ 近战兜底
+                        const explicitRange = entryAttackDist || manualRangeFromNote || entryNoteRange || protoAttackDist || protoNoteRange
+                        const rangeDisplay = explicitRange
+                          ? (entryAttackDist || manualRangeFromNote || entryNoteRange || protoAttackDist || protoNoteRange || '—')
+                          : (isRanged ? '—' : (/触及/.test(mergedNote) ? '触及10尺' : '触及'))
                         return (
                       <>
                         <div className="pl-2 border-l border-gray-600 flex items-center gap-x-1 min-w-0 overflow-hidden">
@@ -1324,39 +1812,30 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                         <div className="pl-2 border-l border-gray-600 flex items-center gap-x-1.5 min-w-0 overflow-hidden">
                           <span className="text-dnd-text-muted text-sm shrink-0">攻击</span>
                           <span className="text-white font-mono text-sm tabular-nums truncate">{physicalAttackBonus >= 0 ? '+' : ''}{physicalAttackBonus}</span>
-                          <button type="button" onClick={() => openForCheck(weaponOpt.name + ' 攻击', physicalAttackBonus)} className="w-7 h-7 flex items-center justify-center rounded bg-dnd-red hover:bg-dnd-red-hover text-white shrink-0" title="投掷攻击">
+                          <button type="button" onClick={() => openForCheck(weaponOpt.name + ' 攻击', physicalAttackBonus, { quickRoll: true })} className="w-7 h-7 flex items-center justify-center rounded bg-dnd-red hover:bg-dnd-red-hover text-white shrink-0" title="投掷攻击">
                             <Dices className="w-3.5 h-3.5" />
                           </button>
                         </div>
-                        <div className="pl-2 border-l border-gray-600 flex items-center gap-x-1 min-w-0 overflow-hidden flex-nowrap col-span-3">
+                        <div className="pl-2 border-l border-gray-600 flex min-w-0 flex-wrap items-center gap-x-1 gap-y-1 col-span-3">
                           <span className="text-dnd-text-muted text-sm shrink-0">伤害</span>
-                          <span className="text-white font-mono text-sm tabular-nums truncate shrink-0 whitespace-nowrap">
-                            {(attackParsed.dice ?? '—').toUpperCase()}{damageMod >= 0 ? '+' : ''}{damageMod !== 0 ? damageMod : ''} {displayDamageType}
+                          <span className="min-w-0 flex-1 font-mono text-sm tabular-nums text-white whitespace-nowrap [overflow-wrap:anywhere] sm:truncate">
+                            {formatWeaponAttackDiceDisplay(attackParsed)}
+                            {formatSignedModifier(totalDamageMod)} {displayDamageType}
+                            {filterExtraDiceAgainstMain(attackParsed, rawDamageType, getMergedWeaponExtraDiceStrings(cm, weaponOpt)).map((d) => ` + ${d}`).join('')}
                           </span>
-                          {(cm.extraDamageDice || [])
-                            .filter((d) => {
-                              const p = parseWeaponAttack(d)
-                              const mainDice = (attackParsed.dice || '').toLowerCase()
-                              const extraDice = (p.dice || '').toLowerCase()
-                              const sameDice = mainDice && extraDice && mainDice === extraDice
-                              const sameType = (p.type || '').trim() === (rawDamageType || '').trim()
-                              return !(sameDice && sameType)
-                            })
-                            .map((d, i) => (
-                              <span key={i} className="text-white font-mono text-sm shrink-0">{d}</span>
-                            ))}
-                        </div>
-                        <div className="pl-2 border-l border-gray-600 flex items-center justify-end gap-1 shrink-0 min-w-0">
-                          {(attackParsed.dice || (cm.extraDamageDice?.length ?? 0) > 0) && (
+                          {((attackParsed.diceList?.length || attackParsed.dice)
+                            || filterExtraDiceAgainstMain(attackParsed, rawDamageType, getMergedWeaponExtraDiceStrings(cm, weaponOpt)).length > 0) && (
                             <>
-                              <button type="button" onClick={() => rollAllWeaponDamage(cm, weaponOpt, attackParsed, damageMod, displayDamageType, false)} className="w-7 h-7 flex items-center justify-center rounded bg-dnd-gold hover:bg-dnd-gold-light text-white shrink-0" title="投掷伤害">
+                              <button type="button" onClick={() => rollAllWeaponDamage(cm, weaponOpt, attackParsed, totalDamageMod, displayDamageType, false)} className="h-7 w-7 shrink-0 flex items-center justify-center rounded bg-dnd-gold hover:bg-dnd-gold-light text-white" title="投掷伤害">
                                 <Dices className="w-3.5 h-3.5" />
                               </button>
-                              <button type="button" onClick={() => rollAllWeaponDamage(cm, weaponOpt, attackParsed, damageMod, displayDamageType, true)} className="w-7 h-7 flex items-center justify-center rounded bg-red-700 hover:bg-red-600 text-white shrink-0" title="投掷伤害（重击）">
+                              <button type="button" onClick={() => rollAllWeaponDamage(cm, weaponOpt, attackParsed, totalDamageMod, displayDamageType, true)} className="h-7 w-7 shrink-0 flex items-center justify-center rounded bg-red-700 hover:bg-red-600 text-white" title="投掷伤害（重击）">
                                 <Dices className="w-3.5 h-3.5" />
                               </button>
                             </>
                           )}
+                        </div>
+                        <div className="flex min-w-0 items-center justify-end gap-1 pl-2 border-l border-gray-600 shrink-0">
                           {canEdit && (
                             <button type="button" onClick={() => removeCombatMean(cm.id)} className="w-6 h-6 flex items-center justify-center rounded hover:bg-red-900/50 text-gray-400 hover:text-dnd-red shrink-0" title="移除">
                               <Trash2 size={12} />
@@ -1407,7 +1886,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                             <span className="text-dnd-text-muted text-sm shrink-0">法术攻击</span>
                             <span className="text-white font-mono text-sm tabular-nums">{spellAttackBonus != null ? (spellAttackBonus >= 0 ? '+' : '') + spellAttackBonus : '—'}</span>
                             {spellAttackBonus != null && (
-                              <button type="button" onClick={() => openForCheck(spell.name + ' 法术攻击', spellAttackBonus)} className="w-7 h-7 flex items-center justify-center rounded bg-dnd-red hover:bg-dnd-red-hover text-white" title="投掷法术攻击">
+                              <button type="button" onClick={() => openForCheck(spell.name + ' 法术攻击', spellAttackBonus, { quickRoll: true })} className="w-7 h-7 flex items-center justify-center rounded bg-dnd-red hover:bg-dnd-red-hover text-white" title="投掷法术攻击">
                                 <Dices className="w-3.5 h-3.5" />
                               </button>
                             )}
@@ -1447,6 +1926,79 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
               + 添加战斗手段
             </button>
           )}
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-dashed border-gray-500/70 bg-gray-800/40 p-2 w-full min-w-0">
+        <h3 className="text-dnd-gold-light text-sm font-bold uppercase tracking-wider mb-1">武技</h3>
+        <div className="space-y-2">
+          {martialSlots.length === 0 ? (
+            <p className="text-dnd-text-muted text-xs">暂无武技，点击下方从武技库添加</p>
+          ) : (
+            martialSlots.map((slot) => {
+              const tech = getMartialTechniqueById(slot.techniqueId)
+              if (!tech) {
+                return (
+                  <div key={slot.id} className="flex items-center justify-between gap-2 rounded border border-gray-600 bg-gray-800/50 px-2 py-1.5 text-xs text-gray-500">
+                    <span className="truncate">未知武技（库中无此条目）</span>
+                    {canEdit && (
+                      <button
+                        type="button"
+                        onClick={() => saveCombatMartialSlots(martialSlots.filter((x) => x.id !== slot.id))}
+                        className="shrink-0 rounded p-1 text-gray-400 hover:bg-red-900/40 hover:text-dnd-red"
+                        title="移除"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    )}
+                  </div>
+                )
+              }
+              return (
+                <div key={slot.id} className="space-y-0.5 rounded border border-gray-600/80 bg-gray-800/60 px-2 py-1.5">
+                  <div className="flex items-start justify-between gap-2 min-w-0">
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-medium text-white">{tech.name}</div>
+                      <div className="mt-0.5 flex flex-wrap gap-x-1.5 gap-y-0.5 text-[10px] text-dnd-text-muted">
+                        {tech.style ? <span>{tech.style}</span> : null}
+                        {tech.type ? <span className="text-dnd-gold-light/90">{tech.type}</span> : null}
+                        {tech.action ? <span>{tech.action}</span> : null}
+                        {tech.range ? <span>{tech.range}</span> : null}
+                      </div>
+                    </div>
+                    {canEdit && (
+                      <button
+                        type="button"
+                        onClick={() => saveCombatMartialSlots(martialSlots.filter((x) => x.id !== slot.id))}
+                        className="shrink-0 rounded p-1 text-gray-400 hover:bg-red-900/40 hover:text-dnd-red"
+                        title="移除"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    )}
+                  </div>
+                  {tech.description ? (
+                    <p className="line-clamp-4 text-[11px] leading-snug text-dnd-text-body">{tech.description}</p>
+                  ) : null}
+                </div>
+              )
+            })
+          )}
+        </div>
+        {canEdit && (
+          <button
+            type="button"
+            onClick={() => {
+              setMartialSearch('')
+              setMartialStyleFilter('')
+              setShowAddMartialModal(true)
+            }}
+            className="mt-1 w-full rounded-lg border border-dashed border-gray-500 py-1.5 text-xs font-bold uppercase tracking-wider text-gray-400 hover:bg-gray-800/50"
+          >
+            + 添加武技
+          </button>
+        )}
+      </div>
 
           {explosiveUsePending && (
             <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50" onClick={() => setExplosiveUsePending(null)}>
@@ -1529,13 +2081,13 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
             </div>
           )}
           {showAddCombatMeanModal && (
-            <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50" onClick={() => { setEditingCombatMeanId(null); setShowAddCombatMeanModal(false); }}>
+            <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50" onClick={() => { setEditingCombatMeanId(null); setShowWeaponExtraDiceEditor(false); setShowAddCombatMeanModal(false); }}>
               <div className="rounded-lg border border-gray-600 bg-gray-800 p-4 shadow-xl max-w-sm w-full mx-2" onClick={(e) => e.stopPropagation()}>
                 {addMeanStep === 'type' ? (
                   <>
                     <h3 className="text-dnd-gold-light text-sm font-bold mb-3">添加战斗手段</h3>
                     <div className="flex flex-col gap-2">
-                      <button type="button" onClick={() => { const nextIdx = weaponsFromInv.length ? weaponsFromInv[0].index : null; setAddWeaponIndex(nextIdx); const w = weaponsFromInv.find((x) => x.index === nextIdx); setAddDamageType(w ? (parseWeaponAttack(w.攻击).type || '') : ''); setAddMeanStep('weapon'); }} className="w-full py-2.5 rounded bg-dnd-red hover:bg-dnd-red-hover text-white font-medium text-sm">
+                      <button type="button" onClick={() => { const nextIdx = weaponsFromInv.length ? weaponsFromInv[0].index : null; setAddWeaponIndex(nextIdx); setAddDamageType(''); setShowWeaponExtraDiceEditor(false); setAddMeanStep('weapon'); }} className="w-full py-2.5 rounded bg-dnd-red hover:bg-dnd-red-hover text-white font-medium text-sm">
                         武器攻击
                       </button>
                       <button type="button" onClick={() => { const first = itemMeansFromInv[0]; setAddItemIndex(first ? first.index : null); setAddMeanStep('item'); }} disabled={itemMeansFromInv.length === 0} className="w-full py-2.5 rounded bg-dnd-red hover:bg-dnd-red-hover disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium text-sm">
@@ -1638,12 +2190,12 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                   </>
                 ) : (
                   <>
-                    <h3 className="text-dnd-gold-light text-sm font-bold mb-3">武器攻击</h3>
+                    <h3 className="text-dnd-gold-light text-sm font-bold mb-3">{editingCombatMeanId ? '编辑武器' : '武器攻击'}</h3>
                     <div className="space-y-2.5 text-sm">
                       <div>
                         <label className="block text-dnd-text-muted text-xs mb-0.5">武器</label>
                         <div className="flex items-center gap-1.5 w-full min-w-0 flex-nowrap">
-                          <select value={addWeaponIndex ?? ''} onChange={(e) => { const v = e.target.value === '' ? null : parseInt(e.target.value, 10); setAddWeaponIndex(v); const w = weaponsFromInv.find((x) => x.index === v); if (w) setAddDamageType(parseWeaponAttack(w.攻击).type || addDamageType); }} className={inputClass + ' h-8 text-xs shrink-0 max-w-[10rem]'} disabled={!canEdit} style={{ width: 'auto', minWidth: '6rem' }}>
+                          <select value={addWeaponIndex ?? ''} onChange={(e) => { const v = e.target.value === '' ? null : parseInt(e.target.value, 10); setAddWeaponIndex(v); }} className={inputClass + ' h-8 text-xs shrink-0 max-w-[10rem]'} disabled={!canEdit} style={{ width: 'auto', minWidth: '6rem' }}>
                             <option value="">—</option>
                             {weaponsFromInv.map((w) => (
                               <option key={w.index} value={w.index}>{w.name}</option>
@@ -1652,71 +2204,203 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                           <input type="text" value={addWeaponNameSuffix} onChange={(e) => setAddWeaponNameSuffix(e.target.value)} placeholder="追加名称" className={inputClass + ' h-8 text-xs flex-1 min-w-0'} />
                         </div>
                       </div>
-                      <div>
-                        <label className="block text-dnd-text-muted text-xs mb-0.5">武器所用属性</label>
-                        <select value={addAbility} onChange={(e) => setAddAbility(e.target.value)} className={inputClass + ' w-full h-8 text-xs'}>
-                          <option value="str">力量</option>
-                          <option value="dex">敏捷</option>
-                          <option value="spell">施法属性</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-dnd-text-muted text-xs mb-0.5">伤害类型</label>
-                        <select value={addDamageType} onChange={(e) => setAddDamageType(e.target.value)} className={inputClass + ' w-full h-8 text-xs'}>
-                          <option value="">—</option>
-                          {DAMAGE_TYPE_OPTIONS.map((d) => (
-                            <option key={d.value} value={d.value}>{d.label}</option>
-                          ))}
-                        </select>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="min-w-0">
+                          <label className="block text-dnd-text-muted text-xs mb-0.5">武器所用属性</label>
+                          <select value={addAbility} onChange={(e) => setAddAbility(e.target.value)} className={inputClass + ' w-full h-8 text-xs'}>
+                            <option value="str">力量</option>
+                            <option value="dex">敏捷</option>
+                            <option value="spell">施法属性</option>
+                          </select>
+                        </div>
+                        <div className="min-w-0">
+                          <label className="block text-dnd-text-muted text-xs mb-0.5">伤害类型</label>
+                          <select value={addDamageType} onChange={(e) => setAddDamageType(e.target.value)} className={inputClass + ' w-full h-8 text-xs'}>
+                            <option value="">—</option>
+                            {DAMAGE_TYPE_OPTIONS.map((d) => (
+                              <option key={d.value} value={d.value}>{d.label}</option>
+                            ))}
+                          </select>
+                        </div>
                       </div>
                       <label className="flex items-center gap-2 cursor-pointer">
                         <input type="checkbox" checked={addWeaponProficient} onChange={(e) => setAddWeaponProficient(e.target.checked)} className="rounded border-gray-500" />
                         <span className="text-dnd-text-body text-xs">武器熟练</span>
                       </label>
-                      <div>
-                        <label className="block text-dnd-text-muted text-xs mb-0.5">额外攻击投掷</label>
+                      <div className="w-full border-t border-gray-600/80 pt-2">
+                        <div className="mb-1 flex items-center justify-between gap-2">
+                          <label className="text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider">额外伤害骰（可选）</label>
+                          {!showWeaponExtraDiceEditor && (
+                            <button
+                              type="button"
+                              onClick={() => setShowWeaponExtraDiceEditor(true)}
+                              className="flex shrink-0 items-center gap-0.5 rounded border border-dashed border-dnd-gold/50 px-2 py-0.5 text-[10px] font-medium text-dnd-gold-light hover:bg-dnd-gold/15"
+                            >
+                              <Plus className="h-3 w-3" />
+                              添加
+                            </button>
+                          )}
+                        </div>
                         {addWeaponExtraDice.length > 0 && (
-                          <ul className="space-y-1 mb-1.5">
+                          <ul className="mb-1.5 space-y-1">
                             {addWeaponExtraDice.map((d, i) => (
                               <li key={i} className="flex items-center gap-1.5 text-xs">
-                                <span className="text-white font-mono">{d}</span>
-                                <button type="button" onClick={() => setAddWeaponExtraDice((arr) => arr.filter((_, j) => j !== i))} className="px-1.5 py-0.5 rounded border border-gray-500 text-gray-400 hover:bg-gray-600 shrink-0">移除</button>
+                                <span className="font-mono text-white">{d}</span>
+                                <button type="button" onClick={() => setAddWeaponExtraDice((arr) => arr.filter((_, j) => j !== i))} className="shrink-0 rounded border border-gray-500 px-1.5 py-0.5 text-gray-400 hover:bg-gray-600">
+                                  移除
+                                </button>
                               </li>
                             ))}
                           </ul>
                         )}
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <input type="number" min={1} value={addWeaponExtraCount} onChange={(e) => setAddWeaponExtraCount(Math.max(1, parseInt(e.target.value, 10) || 1))} className={inputClass + ' h-8 w-12 text-xs text-center'} />
-                          <span className="text-dnd-text-muted text-xs">d</span>
-                          <select value={addWeaponExtraSides} onChange={(e) => setAddWeaponExtraSides(Number(e.target.value))} className={inputClass + ' h-8 text-xs w-16'}>
-                            <option value={4}>D4</option>
-                            <option value={6}>D6</option>
-                            <option value={8}>D8</option>
-                            <option value={12}>D12</option>
-                          </select>
-                          <select value={addWeaponExtraType} onChange={(e) => setAddWeaponExtraType(e.target.value)} className={inputClass + ' h-8 text-xs min-w-0'} style={{ width: '5.5rem' }}>
-                            {DAMAGE_TYPE_OPTIONS.map((opt) => (
-                              <option key={opt.value} value={opt.value}>{opt.label}</option>
-                            ))}
-                          </select>
-                          <button type="button" onClick={() => { setAddWeaponExtraDice((arr) => [...arr, `${addWeaponExtraCount}d${addWeaponExtraSides} ${addWeaponExtraType}`]); }} className="px-2 py-1 rounded bg-dnd-red hover:bg-dnd-red-hover text-white text-xs">添加</button>
-                        </div>
+                        {showWeaponExtraDiceEditor && (
+                          <div className="space-y-2 rounded border border-gray-600 bg-gray-700/30 p-2">
+                            <p className="text-[10px] leading-snug text-dnd-text-muted">设置数量、骰面与伤害类型后，点击「加入列表」；可多次添加。</p>
+                            <div className="flex w-full min-w-0 flex-wrap items-stretch gap-1.5">
+                              <div className="grid min-w-0 flex-1 grid-cols-[4rem_4rem_minmax(8rem,1fr)] items-center gap-1.5">
+                                <input
+                                  type="number"
+                                  min={1}
+                                  value={addWeaponExtraCount}
+                                  onChange={(e) => setAddWeaponExtraCount(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                                  className={'input-no-spin ' + inputClassInline + ' h-8 w-full min-w-0 px-2 text-xs text-center tabular-nums'}
+                                  title="骰子个数"
+                                />
+                                <select
+                                  value={addWeaponExtraSides}
+                                  onChange={(e) => setAddWeaponExtraSides(Number(e.target.value))}
+                                  className={inputClassInline + ' h-8 w-full min-w-0 px-1.5 text-xs text-center'}
+                                  title="骰面"
+                                >
+                                  <option value={4}>d4</option>
+                                  <option value={6}>d6</option>
+                                  <option value={8}>d8</option>
+                                  <option value={12}>d12</option>
+                                </select>
+                                <select
+                                  value={addWeaponExtraType}
+                                  onChange={(e) => setAddWeaponExtraType(e.target.value)}
+                                  className={inputClassInline + ' h-8 w-full min-w-0 text-xs'}
+                                  title={addWeaponExtraType}
+                                >
+                                  {DAMAGE_TYPE_OPTIONS.map((opt) => (
+                                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+                            <div className="flex justify-end gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => setShowWeaponExtraDiceEditor(false)}
+                                className="rounded border border-gray-500 px-2 py-1 text-[10px] text-gray-400 hover:bg-gray-700"
+                              >
+                                取消
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setAddWeaponExtraDice((arr) => [...arr, `${addWeaponExtraCount}d${addWeaponExtraSides} ${addWeaponExtraType}`])
+                                  setShowWeaponExtraDiceEditor(false)
+                                }}
+                                className="rounded bg-dnd-red px-2 py-1 text-[10px] font-medium text-white hover:bg-dnd-red-hover"
+                              >
+                                加入列表
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                     <div className="flex gap-2 mt-3">
-                      <button type="button" onClick={() => setAddMeanStep('type')} className="flex-1 py-1.5 rounded border border-gray-500 text-gray-400 text-xs">上一步</button>
-                      <button type="button" onClick={confirmAddWeaponMean} disabled={addWeaponIndex == null} className="flex-1 py-1.5 rounded bg-dnd-red hover:bg-dnd-red-hover disabled:opacity-50 text-white text-xs">确认</button>
+                      <button type="button" onClick={() => { setEditingCombatMeanId(null); setShowWeaponExtraDiceEditor(false); setAddMeanStep('type'); }} className="flex-1 py-1.5 rounded border border-gray-500 text-gray-400 text-xs">上一步</button>
+                      <button type="button" onClick={confirmAddWeaponMean} disabled={addWeaponIndex == null} className="flex-1 py-1.5 rounded bg-dnd-red hover:bg-dnd-red-hover disabled:opacity-50 text-white text-xs">{editingCombatMeanId ? '保存' : '确认'}</button>
                     </div>
                   </>
                 )}
               </div>
             </div>
           )}
-        </div>
-      </div>
+          {showAddMartialModal && (
+            <div
+              className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-2"
+              onClick={() => setShowAddMartialModal(false)}
+            >
+              <div
+                className="rounded-lg border border-gray-600 bg-gray-800 p-4 shadow-xl w-full max-w-md max-h-[85vh] flex flex-col min-h-0"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <h3 className="text-dnd-gold-light text-sm font-bold mb-2 shrink-0">从武技库添加武技</h3>
+                <p className="text-dnd-text-muted text-xs mb-2 shrink-0">先选流派缩小范围；下方可再按名称或类型搜索。点击一条加入战斗区（可重复添加）。</p>
+                <label className="block text-dnd-text-muted text-[11px] mb-1 shrink-0">流派</label>
+                <select
+                  value={martialStyleFilter}
+                  onChange={(e) => setMartialStyleFilter(e.target.value)}
+                  className={inputClass + ' w-full h-9 text-sm mb-2 shrink-0'}
+                  autoFocus
+                >
+                  <option value="">全部流派</option>
+                  {MARTIAL_TECHNIQUE_STYLES.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+                {martialStyleFilter ? (
+                  <div className="mb-2 shrink-0 max-h-[30vh] overflow-y-auto pr-0.5">
+                    <MartialStyleIntroBlock styleName={martialStyleFilter} compact />
+                  </div>
+                ) : null}
+                <label className="block text-dnd-text-muted text-[11px] mb-1 shrink-0">搜索（可选）</label>
+                <input
+                  type="search"
+                  value={martialSearch}
+                  onChange={(e) => setMartialSearch(e.target.value)}
+                  placeholder="在当前流派内搜索名称或类型…"
+                  className={inputClass + ' w-full h-9 text-sm mb-2 shrink-0'}
+                />
+                <div className="min-h-0 flex-1 overflow-y-auto space-y-1 pr-0.5">
+                  {filteredMartialTechniques.length === 0 ? (
+                    <p className="text-dnd-text-muted text-xs py-2">
+                      {martialStyleFilter ? '当前流派下无匹配武技，可换流派或清空搜索。' : '无匹配武技，请调整流派或搜索。'}
+                    </p>
+                  ) : (
+                    filteredMartialTechniques.map((t) => (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => {
+                          saveCombatMartialSlots([
+                            ...martialSlots,
+                            { id: 'mt_' + Math.random().toString(36).slice(2, 11), techniqueId: t.id },
+                          ])
+                          setShowAddMartialModal(false)
+                        }}
+                        className="w-full text-left rounded border border-gray-600 bg-gray-800/60 hover:border-dnd-gold/40 hover:bg-gray-800 px-2 py-1.5 text-xs text-dnd-text-body transition-colors"
+                      >
+                        <div className="font-medium text-white truncate">{t.name}</div>
+                        <div className="mt-0.5 flex flex-wrap gap-x-1.5 gap-y-0.5 text-[10px] text-dnd-text-muted">
+                          {t.style ? <span>{t.style}</span> : null}
+                          {t.type ? <span className="text-dnd-gold-light/90">{t.type}</span> : null}
+                          {t.action ? <span>{t.action}</span> : null}
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowAddMartialModal(false)}
+                  className="mt-3 w-full py-2 rounded border border-gray-500 text-gray-400 hover:bg-gray-700 text-sm shrink-0"
+                >
+                  关闭
+                </button>
+              </div>
+            </div>
+          )}
         </div>
         <div className="min-w-0 flex-[1]">
-          <div className="rounded-lg border border-gray-600 bg-gray-800/50 px-1.5 py-1 min-w-0 flex flex-col min-h-0 h-full">
+          <div className="rounded-lg border border-gray-600 bg-gray-800/50 px-1.5 py-1 min-w-0 flex flex-col min-h-0">
             <div className="flex items-center justify-between gap-1 mb-0.5 shrink-0">
               <h3 className="text-dnd-gold-light text-sm font-bold uppercase tracking-wider leading-tight">其它职业资源</h3>
               {canEdit && (

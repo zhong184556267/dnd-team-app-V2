@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
-import { abilityModifier, getAC, getHPBuffSum } from '../lib/formulas'
+import { abilityModifier, getAC, getHPBuffSum, proficiencyBonus } from '../lib/formulas'
+import { levelFromXP } from '../lib/xp5e'
 import { ABILITY_KEYS, getDamageTypeValue } from '../data/buffTypes'
 import { getFlatEffectEntries } from '../lib/effects/effectMapping'
 
@@ -171,6 +172,12 @@ export function useBuffCalculator(character, activeBuffs) {
     let spellRangeBonus = 0
     const ignoreResistanceTypes = []
 
+    const xpVal = character?.xp
+    const charLevel = xpVal != null && Number(xpVal) >= 0
+      ? levelFromXP(xpVal)
+      : Math.max(1, Math.min(20, Number(character?.level) || 1))
+    const initiativeProfBonus = proficiencyBonus(charLevel)
+
     for (const b of entries) {
       const raw = b.value
       const v = Number(typeof raw === 'object' && raw && 'val' in raw ? raw.val : raw)
@@ -182,6 +189,13 @@ export function useBuffCalculator(character, activeBuffs) {
       else if (b.effectType === 'speed_bonus') speedBonus += Number(raw) || 0
       else if (b.effectType === 'reach_bonus') reachBonus += v
       else if (b.effectType === 'init_bonus') initBonus += v
+      else if (b.effectType === 'initiative_buff' && raw && typeof raw === 'object' && !Array.isArray(raw)) {
+        const bon = Number(raw.bonus)
+        if (!Number.isNaN(bon)) initBonus += bon
+        if (raw.proficient === true || raw.proficient === 'true' || raw.proficient === 1) {
+          initBonus += initiativeProfBonus
+        }
+      }
       else if (b.effectType === 'save_dc_bonus') saveDcBonus += (typeof raw === 'object' && raw && 'val' in raw ? Number(raw.val) : Number(raw)) || 0
       else if (b.effectType === 'spell_attack_bonus') spellAttackBonus += (typeof raw === 'object' && raw && 'val' in raw ? Number(raw.val) : Number(raw)) || 0
       else if (b.effectType === 'proficiency_override' && !Number.isNaN(v)) profOverride = v

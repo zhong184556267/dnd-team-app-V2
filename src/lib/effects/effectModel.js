@@ -17,13 +17,14 @@ export const EFFECT_CATEGORY = {
   ABILITY: 'ability',
   OFFENSE: 'offense',
   DEFENSE: 'defense',
+  CUSTOM: 'custom',
   MOBILITY_CASTING: 'mobility_casting',
 }
 
 /**
  * 单条效果 - 与 BuffForm / ItemAddForm 当前保存格式一致
  * @typedef {Object} Effect
- * @property {string} category - 效果大类 (ability | offense | defense | mobility_casting)
+ * @property {string} category - 效果大类 (ability | offense | defense | custom | mobility_casting)
  * @property {string} effectType - 具体效果 key（如 attack_melee, ac_bonus）
  * @property {number|object|boolean|string|Array} value - 数值或复合值
  * @property {string} [customText] - 自由填写类效果的文案

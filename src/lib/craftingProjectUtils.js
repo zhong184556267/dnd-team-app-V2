@@ -20,6 +20,24 @@ export function isCraftFeeClaimed(p) {
   return false
 }
 
+/** 已领取结算且物品已写入仓库/角色背包/公家次元袋（列表保留为灰色记录） */
+export function isCraftDeposited(p) {
+  if (p.已入库 === true || p.已入库 === 1 || p.已入库 === '1') return true
+  return false
+}
+
+const DEPOSIT_DEST_LABEL = {
+  warehouse: '团队仓库',
+  character: '角色背包',
+  public_bag: '公家次元袋',
+}
+
+export function getCraftDepositDestLabel(p) {
+  const k = p.入库去向
+  if (k && DEPOSIT_DEST_LABEL[k]) return DEPOSIT_DEST_LABEL[k]
+  return '已入库'
+}
+
 /** 拖拽 MIME：JSON { moduleId, projectId?, index? } */
 export const DND_CRAFT_COMPLETED_MIME = 'text/dnd-craft-completed'
 

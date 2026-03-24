@@ -1,4 +1,57 @@
 import { normalizeBagOfHoldingVisibility } from './bagOfHoldingVisibility'
+import { CURRENCY_CONFIG } from '../data/currencyConfig'
+
+/** 袋内列表展示：钱币类置顶，并按货币配置顺序排列 */
+const CURRENCY_DISPLAY_ORDER = Object.fromEntries(CURRENCY_CONFIG.map((c, i) => [c.id, i]))
+
+export function compareBagInventoryDisplayOrder(entryA, idxA, entryB, idxB) {
+  const wa = !!entryA?.walletCurrencyId
+  const wb = !!entryB?.walletCurrencyId
+  if (wa && !wb) return -1
+  if (!wa && wb) return 1
+  if (wa && wb) {
+    const oa = CURRENCY_DISPLAY_ORDER[entryA.walletCurrencyId] ?? 999
+    const ob = CURRENCY_DISPLAY_ORDER[entryB.walletCurrencyId] ?? 999
+    if (oa !== ob) return oa - ob
+  }
+  return idxA - idxB
+}
+
+/**
+ * 袋内行补丁：非钱币数量至少 1；钱币可为 0（由调用方决定是否移除条目）。充能仅作用于非钱币。
+ */
+export function applyBagItemPatch(entry, patch) {
+  if (!entry) return entry
+  const next = { ...entry }
+  if ('charge' in patch && !entry.walletCurrencyId) {
+    next.charge = Math.max(0, Number(patch.charge) || 0)
+  }
+  if ('qty' in patch) {
+    if (entry.walletCurrencyId) {
+      const cid = entry.walletCurrencyId
+      if (cid === 'gem_lb') {
+        next.qty = Math.max(0, Number(patch.qty) || 0)
+      } else {
+        next.qty = Math.max(0, Math.floor(Number(patch.qty)) || 0)
+      }
+    } else {
+      next.qty = Math.max(1, Math.floor(Number(patch.qty)) || 1)
+    }
+  }
+  return next
+}
+
+/** 在完整 inventory 上应用袋内补丁（下标为全局 inventory 下标）；钱币数量为 0 时移除该行 */
+export function inventoryWithBagPatch(inventory, globalIndex, patch) {
+  const inv = Array.isArray(inventory) ? inventory : []
+  const entry = inv[globalIndex]
+  if (!entry?.inBagOfHolding) return inv
+  const next = applyBagItemPatch(entry, patch)
+  if (next.walletCurrencyId && Number(next.qty) <= 0) {
+    return inv.filter((_, i) => i !== globalIndex)
+  }
+  return inv.map((e, i) => (i === globalIndex ? next : e))
+}
 
 export const MAX_BAG_OF_HOLDING_TOTAL = 99
 
@@ -142,6 +195,7 @@ export function createInitialBagModule() {
   return {
     id: crypto.randomUUID(),
     bagCount: 1,
-    visibility: 'private',
+    /** 默认公家：团队仓库页对所有玩家列出袋内，便于队伍共享 */
+    visibility: 'public',
   }
 }

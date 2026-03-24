@@ -8,6 +8,9 @@ const base =
 export const inputClass =
   base + ' h-10 px-3 bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-main)] placeholder-[var(--text-muted)] focus:border-[var(--accent)] focus:ring-[var(--accent)]'
 
+/** 去掉 w-full，用于行内多列布局；避免与 w-8 / flex-1 等宽度类冲突导致控件被撑满一行 */
+export const inputClassInline = inputClass.replace(/\bw-full\b/, '').trim()
+
 /** 多行文本框 */
 export const textareaClass =
   base + ' px-3 py-2 resize-y min-h-[3rem] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-main)] placeholder-[var(--text-muted)] focus:border-[var(--accent)] focus:ring-[var(--accent)]'

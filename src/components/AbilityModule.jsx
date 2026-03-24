@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import { Dices, Circle, Shield, ShieldHalf } from 'lucide-react'
 import { useRoll } from '../contexts/RollContext'
 import { abilityModifier, proficiencyBonus } from '../lib/characterStore'
@@ -8,6 +8,8 @@ import { ITEM_DATABASE } from '../data/itemDatabase'
 
 const ABILITY_NAMES_ZH = { str: '力量', dex: '敏捷', con: '体质', int: '智力', wis: '感知', cha: '魅力' }
 const ABILITY_KEYS = ['str', 'dex', 'con', 'int', 'wis', 'cha']
+/** 规则书：创建角色时基础属性上限（不含魔法物品等带来的有效值提升） */
+const MAX_BASE_ABILITY_SCORE = 20
 const ARMOR_PROF_OPTIONS = ['轻甲', '中甲', '重甲', '盾牌']
 const LANGUAGE_OPTIONS = [
   { name: '深渊语', users: '恶魔、魔鬼', script: '地狱语' },
@@ -261,9 +263,34 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
   }, [proficiencies.weapons, simpleWeaponIds, martialWeaponIds, weaponLabelById])
 
   const updateAbility = useCallback((key, value) => {
-    const next = { ...abilities, [key]: Math.max(1, Math.min(30, Number(value) || 10)) }
+    const next = { ...abilities, [key]: Math.max(1, Math.min(MAX_BASE_ABILITY_SCORE, Number(value) || 10)) }
     onSave({ abilities: next })
   }, [abilities, onSave])
+
+  /** 旧存档若基础属性超过 20，自动钳制并写回 */
+  useEffect(() => {
+    if (!canEdit) return
+    const next = { ...abilities }
+    let changed = false
+    for (const k of ABILITY_KEYS) {
+      const n = Number(next[k])
+      if (!Number.isNaN(n) && n > MAX_BASE_ABILITY_SCORE) {
+        next[k] = MAX_BASE_ABILITY_SCORE
+        changed = true
+      }
+    }
+    if (changed) onSave({ abilities: next })
+  }, [
+    canEdit,
+    char?.id,
+    abilities?.str,
+    abilities?.dex,
+    abilities?.con,
+    abilities?.int,
+    abilities?.wis,
+    abilities?.cha,
+    onSave,
+  ])
 
   const setSave = useCallback((key, checked) => {
     onSave({ savingThrows: { ...saves, [key]: checked } })
@@ -423,7 +450,7 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
 
               {/* B. 核心区：3 列网格，紧凑排版 */}
               <div className="px-1.5 py-0.5">
-                <div className={`rounded-lg py-1 px-1.5 grid grid-cols-[1fr_1fr_1fr] grid-rows-[auto_auto] gap-x-1.5 gap-y-1 min-w-0 border ${saveProfLevel === 'prof' ? 'border-[#C79A42]/75' : 'border-white/[0.10]'}`} style={{ background: 'linear-gradient(180deg, rgba(67,78,98,0.28) 0%, rgba(35,44,58,0.22) 100%)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05)' }}>
+                <div className={`rounded-lg py-1 px-1.5 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] grid-rows-[auto_auto] gap-x-1.5 gap-y-1 min-w-0 border ${saveProfLevel === 'prof' ? 'border-[#C79A42]/75' : 'border-white/[0.10]'}`} style={{ background: 'linear-gradient(180deg, rgba(67,78,98,0.28) 0%, rgba(35,44,58,0.22) 100%)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05)' }}>
                   {/* 第一行：调整值文案 | 基础值输入 | 豁免文案 */}
                   <div className="col-start-1 row-start-1 flex items-center justify-center min-w-0 border-r border-white/[0.10] pr-1.5">
                     <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide leading-tight">调整值</span>
@@ -432,10 +459,11 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
                     {canEdit ? (
                       <NumberStepper
                         value={typeof baseScore === 'number' ? baseScore : (parseInt(baseScore, 10) || 10)}
-                        onChange={(v) => updateAbility(key, String(Math.max(1, Math.min(30, v))))}
+                        onChange={(v) => updateAbility(key, String(Math.max(1, Math.min(MAX_BASE_ABILITY_SCORE, v))))}
                         min={1}
-                        max={30}
+                        max={MAX_BASE_ABILITY_SCORE}
                         compact
+                        narrow
                       />
                     ) : (
                       <span className="text-sm font-medium font-mono text-white tabular-nums">{baseScore}</span>
@@ -534,6 +562,9 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
           )
         })}
       </div>
+      <p className="text-[11px] text-dnd-text-muted text-center px-1 pt-1 border-t border-white/[0.06] mt-1">
+        基于规则基础属性不能高于20
+      </p>
       {showProfModal && canEdit && (
         <div className="fixed inset-0 z-[210] flex items-center justify-center p-4 bg-black/60" onClick={() => setShowProfModal(false)}>
           <div className="w-full max-w-5xl max-h-[85vh] overflow-hidden rounded-xl border border-gray-600 bg-gray-800 shadow-2xl" onClick={(e) => e.stopPropagation()}>

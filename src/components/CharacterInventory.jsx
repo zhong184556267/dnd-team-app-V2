@@ -2,7 +2,8 @@ import { useState, useEffect, Fragment, useMemo } from 'react'
 import { ArrowDownToLine, ArrowUpFromLine, Pencil, Trash2, Package, GripVertical, Dices } from 'lucide-react'
 import { getItemById, getItemDisplayName } from '../data/itemDatabase'
 import { getCurrencyById, getCurrencyDisplayName } from '../data/currencyConfig'
-import { getCharacterWallet } from '../lib/currencyStore'
+import { getCharacterWallet, transferCurrency } from '../lib/currencyStore'
+import { getCharacter } from '../lib/characterStore'
 import { addToWarehouse } from '../lib/warehouseStore'
 import { CurrencyGrid } from './CurrencyDisplay'
 import { getItemWeightLb, parseWeightString, getWalletCurrencyStackWeightLb } from '../lib/encumbrance'
@@ -176,7 +177,10 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
   const moveEntryToBag = (fromIndex, moduleId) => {
     const entry = inv[fromIndex]
     if (!entry || entry.inBagOfHolding) return
-    if (entry.walletCurrencyId) return
+    if (entry.walletCurrencyId) {
+      moveWalletCurrencyToBag(entry.walletCurrencyId, moduleId)
+      return
+    }
     if (entry.itemId === 'bag_of_holding') return
     if (!moduleId || !bagModules.some((m) => m.id === moduleId)) return
     setEditingIndex(null)
@@ -220,12 +224,18 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
   }
 
   /** 将钱包中该币种全部移入次元袋（与袋内同币种合并） */
-  const moveWalletCurrencyToBag = (currencyId, moduleId) => {
+  const moveWalletCurrencyToBag = (currencyId, moduleId, qtyHint) => {
     if (!currencyId || !moduleId || !bagModules.some((m) => m.id === moduleId)) return
-    const amt = Number(wallet[currencyId]) || 0
+    const walletAmt = Number(wallet[currencyId]) || 0
+    const backpackAmt = inv
+      .filter((e) => e?.walletCurrencyId === currencyId && !e?.inBagOfHolding)
+      .reduce((s, e) => s + (Number(e?.qty) || 0), 0)
+    const amt = Math.max(walletAmt, backpackAmt)
     if (amt <= 0) return
     const isGem = currencyId === 'gem_lb'
-    const take = isGem ? amt : Math.floor(amt)
+    const hinted = Number(qtyHint)
+    const desired = Number.isFinite(hinted) && hinted > 0 ? Math.min(amt, hinted) : amt
+    const take = isGem ? desired : Math.floor(desired)
     if (take <= 0) return
     setEditingIndex(null)
     const mergeIdx = inv.findIndex(
@@ -280,8 +290,13 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
     if (tok?.startsWith('i:')) {
       const invIdx = resolveInvIndexFromItemToken(tok, inv)
       if (invIdx >= 0) {
+        const entry = inv[invIdx]
         e.dataTransfer.setData('text/dnd-character-inv', String(invIdx))
         e.dataTransfer.setData('text/plain', `inv:${invIdx}`)
+        if (entry?.walletCurrencyId) {
+          e.dataTransfer.setData('text/dnd-wallet-currency', String(entry.walletCurrencyId))
+          e.dataTransfer.setData('text/dnd-wallet-currency-qty', String(Number(entry.qty) || 0))
+        }
       }
     }
     e.dataTransfer.setData('text/dnd-backpack-layout', String(layoutIdx))
@@ -393,6 +408,36 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
     const q = Math.max(1, Number(e.qty) ?? 1)
     const toStore = Math.min(Math.max(1, storeToVaultQty), q)
     const moduleId = character?.moduleId ?? 'default'
+    if (e.walletCurrencyId && character?.id) {
+      Promise.resolve(
+        transferCurrency(moduleId, 'toVault', character.id, e.walletCurrencyId, toStore),
+      )
+        .then((res) => {
+          if (!res?.success) {
+            alert(res?.error || '存入团队货币失败')
+            return
+          }
+          const latest = getCharacter(character.id)
+          if (latest) {
+            onSave({
+              wallet: latest.wallet ?? {},
+              inventory: latest.inventory ?? inv,
+            })
+          } else {
+            setWallet(getCharacterWallet(character.id))
+          }
+          onWalletSuccess?.()
+        })
+        .catch((err) => {
+          console.error('[CharacterInventory] 存入团队货币失败', err)
+          alert('存入团队货币失败，请重试')
+        })
+        .finally(() => {
+          setStoreToVaultIndex(null)
+          setStoreToVaultQty(1)
+        })
+      return
+    }
     if (e.itemId) {
       addToWarehouse(moduleId, {
         itemId: e.itemId,
@@ -427,6 +472,11 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
 
   const setQty = (index, value) => {
     const n = Math.max(1, parseInt(value, 10) || 1)
+    const entry = inv[index]
+    if (entry?.walletCurrencyId) {
+      patchWalletCurrency(entry.walletCurrencyId, n)
+      return
+    }
     const next = inv.map((e, i) => (i === index ? { ...e, qty: n } : e))
     onSave({ inventory: next })
   }

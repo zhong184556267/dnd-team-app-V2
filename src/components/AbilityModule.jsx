@@ -362,7 +362,11 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
       buffStats?.advantage?.save,
       key === 'con' ? buffStats?.concentrationAdvantage : undefined,
     )
-    openForCheck(SAVE_NAMES[key], saveBonus, adv && adv !== 'normal' ? { advantage: adv } : undefined)
+    openForCheck(
+      SAVE_NAMES[key],
+      saveBonus,
+      adv && adv !== 'normal' ? { advantage: adv, quickRoll: true } : { quickRoll: true },
+    )
     setRollingId(`save-${key}`)
     setTimeout(() => setRollingId(null), 400)
   }, [saveMod, openForCheck, buffStats?.advantage?.save, buffStats?.concentrationAdvantage, exhaustionPenalty])
@@ -372,7 +376,11 @@ export default function AbilityModule({ char, abilities, buffStats, level, canEd
       buffStats?.advantage?.skill,
       skill.id === 'concentration' ? buffStats?.concentrationAdvantage : undefined,
     )
-    openForCheck(skill.name, total + exhaustionPenalty, adv && adv !== 'normal' ? { advantage: adv } : undefined)
+    openForCheck(
+      skill.name,
+      total + exhaustionPenalty,
+      adv && adv !== 'normal' ? { advantage: adv, quickRoll: true } : { quickRoll: true },
+    )
     setRollingId(skill.id)
     setTimeout(() => setRollingId(null), 400)
   }, [openForCheck, buffStats?.advantage?.skill, buffStats?.concentrationAdvantage, exhaustionPenalty])

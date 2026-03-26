@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { Home, User, BookOpen, Package, MoreHorizontal } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useModule } from '../contexts/ModuleContext'
 import { useRoll } from '../contexts/RollContext'
 import { getDefaultCharacterId, getLastEditedCharacterId } from '../lib/characterStore'
+import ThreeDiceOverlay from './ThreeDiceOverlay'
 
 const tabs = [
   { key: 'home', to: '/', label: '首页', icon: Home },
@@ -15,6 +16,8 @@ const tabs = [
 ]
 
 const DICE_SIDES = [4, 6, 8, 10, 12, 20, 100]
+const ROLL_ANIM_MS = 1800
+const RESULT_HOLD_MS = 1400
 
 function roll(sides) {
   return Math.floor(Math.random() * sides) + 1
@@ -31,39 +34,131 @@ function rollD20WithMode(mode) {
   return { result: Math.min(a, b), rolls: [a, b] }
 }
 
-function parseFormulaSegment(rawSegment) {
-  const s = String(rawSegment || '').trim().replace(/\s+/g, '')
-  if (!s) return null
-  const dice = /^(\d+)[dD](\d+)([+-]\d+)?$/.exec(s)
-  if (dice) {
-    const count = Number.parseInt(dice[1], 10)
-    const sides = Number.parseInt(dice[2], 10)
-    const modifier = dice[3] ? Number.parseInt(dice[3], 10) : 0
-    if (!Number.isFinite(count) || !Number.isFinite(sides) || !Number.isFinite(modifier)) return null
-    if (count < 1 || count > 100) return null
-    if (sides < 2 || sides > 1000) return null
-    return { kind: 'dice', count, sides, modifier, raw: s }
-  }
-  const flat = /^[+-]?\d+$/.exec(s)
-  if (flat) {
-    const value = Number.parseInt(s, 10)
-    if (!Number.isFinite(value)) return null
-    return { kind: 'flat', value, raw: s }
-  }
-  return null
-}
-
 function parseFormula(raw) {
   const normalized = String(raw || '').replace(/，/g, ',')
   const parts = normalized.split(',').map((p) => p.trim())
   if (!parts.length) return null
   const segments = []
   for (const p of parts) {
-    const seg = parseFormulaSegment(p)
-    if (!seg) return null
-    segments.push(seg)
+    const sub = parseCompoundPart(p)
+    if (!sub) return null
+    segments.push(...sub)
   }
   return segments
+}
+
+/** 解析逗号内一段，如 2d6+5、8d12+4d6（+ 后为下一颗骰而非修饰时拆开） */
+function parseCompoundPart(part) {
+  const s = String(part || '').replace(/\s+/g, '')
+  if (!s) return null
+  const segments = []
+  let i = 0
+  while (i < s.length) {
+    let sign = 1
+    if (s[i] === '+') {
+      i += 1
+      sign = 1
+    } else if (s[i] === '-') {
+      i += 1
+      sign = -1
+    }
+    const rest = s.slice(i)
+    const dice = /^(\d*)d(\d+)/i.exec(rest)
+    if (dice) {
+      const countRaw = dice[1]
+      const count = countRaw ? Number.parseInt(countRaw, 10) : 1
+      const sides = Number.parseInt(dice[2], 10)
+      if (!Number.isFinite(count) || !Number.isFinite(sides) || count < 1 || count > 100 || sides < 2 || sides > 1000) return null
+      const di = dice[0].length
+      const afterDice = rest.slice(di)
+      const possMod = /^([+-]\d+)/.exec(afterDice)
+      if (possMod) {
+        const afterMod = afterDice.slice(possMod[0].length)
+        if (afterMod === '' || /^[+-]/.test(afterMod)) {
+          const modifier = Number.parseInt(possMod[1], 10)
+          if (!Number.isFinite(modifier)) return null
+          i += di + possMod[0].length
+          segments.push({
+            kind: 'dice',
+            count,
+            sides,
+            modifier,
+            sign,
+            raw: dice[0] + possMod[0],
+          })
+          continue
+        }
+      }
+      i += di
+      segments.push({
+        kind: 'dice',
+        count,
+        sides,
+        modifier: 0,
+        sign,
+        raw: dice[0],
+      })
+      continue
+    }
+    const flat = /^(\d+)/.exec(rest)
+    if (flat) {
+      i += flat[0].length
+      const value = sign * Number.parseInt(flat[1], 10)
+      if (!Number.isFinite(value)) return null
+      segments.push({ kind: 'flat', value, sign: 1, raw: flat[0] })
+      continue
+    }
+    return null
+  }
+  return segments.length ? segments : null
+}
+
+function splitCommaTail(formula) {
+  const f = String(formula ?? '')
+  const idx = f.lastIndexOf(',')
+  if (idx < 0) return { prefix: '', tail: f }
+  return { prefix: f.slice(0, idx + 1), tail: f.slice(idx + 1) }
+}
+
+/** 键盘构建公式：与 splitCommaTail 的 tail 交互 */
+function mergeKeypadDieTail(tail, sides) {
+  const t = tail.trimEnd()
+  if (!t) return `d${sides}`
+  if (/^\d+$/.test(t)) return `${t}d${sides}`
+  const countOp = /^(.*)([+-])(\d+)$/.exec(t)
+  if (countOp) return `${countOp[1]}${countOp[2]}${countOp[3]}d${sides}`
+  const ndm = /^(.*?)(\d+)d(\d+)$/i.exec(t)
+  if (ndm) return `${ndm[1]}${ndm[2]}d${sides}`
+  const opD = /^(.+)([+-])d(\d+)$/i.exec(t)
+  if (opD) return `${opD[1]}${opD[2]}d${sides}`
+  if (/[+-]$/.test(t)) return `${t}d${sides}`
+  const dm = /^d(\d+)$/i.exec(t)
+  if (dm) return `d${sides}`
+  return `${t}1d${sides}`
+}
+
+function mergeKeypadDigitTail(tail, digit) {
+  const t = tail.trimEnd()
+  if (!t) return digit
+  if (/^d(\d+)$/i.test(t)) return t.replace(/^d(\d+)$/i, `${digit}d$1`)
+  const opD = /^(.+)([+-])d(\d+)$/i.exec(t)
+  if (opD) return `${opD[1]}${opD[2]}${digit}d${opD[3]}`
+  const ndm = /^(.*?)(\d+)d(\d+)$/i.exec(t)
+  if (ndm) return `${ndm[1]}${digit}d${ndm[3]}`
+  if (/[+-]$/.test(t)) return `${t}${digit}`
+  const trailFlat = /^(.+[+-])(\d+)$/.exec(t)
+  if (trailFlat) return `${trailFlat[1]}${trailFlat[2]}${digit}`
+  if (/^\d+$/.test(t)) return `${t}${digit}`
+  return `${t}${digit}`
+}
+
+function mergeKeypadOpTail(tail, op) {
+  let t = tail.trimEnd()
+  if (/^d(\d+)$/i.test(t)) t = t.replace(/^d(\d+)$/i, '1d$1')
+  if (!t) return op === '-' ? '-' : ''
+  const last = t[t.length - 1]
+  if (last === '+' || last === '-') return t.slice(0, -1) + op
+  return `${t}${op}`
 }
 
 /**
@@ -104,10 +199,125 @@ function renderDetailsWithNat20Highlight(text) {
   return nodes.length ? nodes : src
 }
 
+const MAX_ROLLING_DICE_RENDER = 12
+
+function buildRollingDiceSpecs(parsedSegments) {
+  const specs = []
+  let overflow = 0
+  for (const seg of parsedSegments) {
+    if (seg?.kind !== 'dice') continue
+    for (let i = 0; i < seg.count; i++) {
+      if (specs.length >= MAX_ROLLING_DICE_RENDER) {
+        overflow += 1
+        continue
+      }
+      const sides = Number(seg.sides) || 6
+      let shape = 'gem'
+      if (sides === 4) shape = 'd4'
+      else if (sides === 6) shape = 'cube'
+      else if (sides === 8) shape = 'd8'
+      else if (sides === 10) shape = 'd10'
+      else if (sides === 12) shape = 'd12'
+      else if (sides === 20) shape = 'd20'
+      const palette =
+        sides === 4 ? 'd4' :
+        sides === 6 ? 'd6' :
+        sides === 8 ? 'd8' :
+        sides === 10 ? 'd10' :
+        sides === 12 ? 'd12' :
+        sides === 20 ? 'd20' : 'small'
+      specs.push({ id: `${sides}-${i}-${specs.length}`, sides, shape, palette, delayMs: (specs.length % 6) * 90 })
+    }
+  }
+  return { specs, overflow }
+}
+
+function buildRollingDiceSpecsWithValues(parsedSegments, diceValues = []) {
+  const specs = []
+  let overflow = 0
+  let vi = 0
+  for (const seg of parsedSegments) {
+    if (seg?.kind !== 'dice') continue
+    for (let i = 0; i < seg.count; i++) {
+      const value = Number(diceValues?.[vi]) || undefined
+      vi += 1
+      if (specs.length >= MAX_ROLLING_DICE_RENDER) {
+        overflow += 1
+        continue
+      }
+      const sides = Number(seg.sides) || 6
+      let shape = 'gem'
+      if (sides === 4) shape = 'd4'
+      else if (sides === 6) shape = 'cube'
+      else if (sides === 8) shape = 'd8'
+      else if (sides === 10) shape = 'd10'
+      else if (sides === 12) shape = 'd12'
+      else if (sides === 20) shape = 'd20'
+      const palette =
+        sides === 4 ? 'd4' :
+        sides === 6 ? 'd6' :
+        sides === 8 ? 'd8' :
+        sides === 10 ? 'd10' :
+        sides === 12 ? 'd12' :
+        sides === 20 ? 'd20' : 'small'
+      specs.push({ id: `${sides}-${i}-${specs.length}`, sides, shape, palette, delayMs: (specs.length % 6) * 90, value })
+    }
+  }
+  return { specs, overflow }
+}
+
+function DiceVisual3D({ spec }) {
+  const cls = `dice3d-wrap dice3d-palette-${spec.palette}`
+  if (spec.shape === 'cube') {
+    return (
+      <div className={cls} style={{ animationDelay: `${spec.delayMs}ms` }}>
+        <div className="dice3d-shadow" />
+        <div className="dice3d-cube">
+          <span className="dice3d-face dice3d-front">1</span>
+          <span className="dice3d-face dice3d-back">6</span>
+          <span className="dice3d-face dice3d-right">3</span>
+          <span className="dice3d-face dice3d-left">4</span>
+          <span className="dice3d-face dice3d-top">5</span>
+          <span className="dice3d-face dice3d-bottom">2</span>
+        </div>
+      </div>
+    )
+  }
+  return (
+    <div className={cls} style={{ animationDelay: `${spec.delayMs}ms` }}>
+      <div className="dice3d-shadow" />
+      <div className={`dice3d-gem ${spec.shape === 'd20' ? 'dice3d-gem-d20' : `dice3d-gem-${spec.shape}`}`}>
+        <span className="dice3d-gem-text">d{spec.sides}</span>
+        <span className="dice3d-gem-glow" />
+      </div>
+    </div>
+  )
+}
+
+function DiceFallbackOverlay({ specs = [] }) {
+  return (
+    <div className="pointer-events-none fixed inset-0 z-[72] overflow-hidden">
+      {specs.map((spec, i) => {
+        const fromLeft = i % 2 === 0
+        const top = 18 + ((i * 13) % 52)
+        return (
+          <div
+            key={`${spec.id}-fly`}
+            className={`dice-fly-lane ${fromLeft ? 'dice-fly-from-left' : 'dice-fly-from-right'}`}
+            style={{ top: `${top}%`, animationDelay: `${(i % 6) * 70}ms` }}
+          >
+            <DiceVisual3D spec={spec} />
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 export default function BottomNav() {
   const { user, isAdmin } = useAuth()
   const { currentModuleId } = useModule()
-  const { pendingCheck } = useRoll()
+  const { pendingCheck, setPendingCheck } = useRoll()
   const defaultId = getDefaultCharacterId(user?.name, currentModuleId)
   const lastEditedId = getLastEditedCharacterId(user?.name, isAdmin, currentModuleId)
   const preferredId = defaultId || lastEditedId
@@ -118,42 +328,149 @@ export default function BottomNav() {
   const formulaInputRef = useRef(null)
   const [lastRoll, setLastRoll] = useState(null)
   const [checkResult, setCheckResult] = useState(null)
-  const [rollHistory, setRollHistory] = useState([])
-  const total = rollHistory.reduce((s, n) => s + n, 0)
-
-  const runQuickCheckRoll = useCallback((label, modifier, modeRaw) => {
-    const mode = modeRaw || 'normal'
-    const mod = Number(modifier) || 0
-    const { result, rolls } = rollD20WithMode(mode)
-    const totalValue = result + mod
-    const formula = `1d20${mod >= 0 ? '+' : ''}${mod}`
-    setLastRoll({
-      key: Date.now(),
-      label,
-      result: totalValue,
-    })
-    setCheckResult({
-      key: Date.now(),
-      label,
-      formula,
-      mode,
-      total: totalValue,
-      details: `D20(${rolls.join(',')})${mod >= 0 ? '+' : ''}${mod}=${totalValue}`,
-    })
-    setRollHistory((prev) => [...prev, totalValue])
-  }, [])
+  const [isRolling, setIsRolling] = useState(false)
+  const [rollingPreview, setRollingPreview] = useState(null) // { formula, specs, overflow }
+  const [showFinalFace, setShowFinalFace] = useState(false)
+  const rollingTimerRef = useRef(null)
+  const rollingStopRef = useRef(null)
+  const rollingFinalHoldRef = useRef(null)
+  /** 与本次投掷绑定的一份 specs 引用，避免父组件重渲染时 inline slice 导致 Three 场景被重建 */
+  const threeOverlaySpecs = useMemo(
+    () => (rollingPreview?.specs || []).slice(0, MAX_ROLLING_DICE_RENDER),
+    [rollingPreview?.specs],
+  )
 
   useEffect(() => {
+    return () => {
+      if (rollingTimerRef.current) clearInterval(rollingTimerRef.current)
+      if (rollingStopRef.current) clearTimeout(rollingStopRef.current)
+      if (rollingFinalHoldRef.current) clearTimeout(rollingFinalHoldRef.current)
+    }
+  }, [])
+
+  const performFormulaRoll = useCallback((formulaText, options = {}) => {
+    if (isRolling) return
+    const parsedSegments = parseFormula(formulaText)
+    if (!parsedSegments) {
+      setFormulaError('公式格式：XdN+N，可用逗号或+连接多段，如 8d12+4d6、2d6+5,5d6')
+      return
+    }
+    const mode = options.mode || formulaMeta?.mode || d20Mode || 'normal'
+    const parsed = parsedSegments.length === 1 ? parsedSegments[0] : null
+    let rolls = []
+    let finalTotal = 0
+    let d20Result = null
+    const segmentDetails = []
+    const diceValues = []
+    if (parsed?.kind === 'dice' && parsed.count === 1 && parsed.sides === 20 && mode !== 'normal') {
+      const r = rollD20WithMode(mode)
+      rolls = r.rolls
+      d20Result = r.result
+      finalTotal = r.result + (parsed.modifier || 0)
+      segmentDetails.push(`1d20(${r.rolls.join(',')})${parsed.modifier ? `${parsed.modifier >= 0 ? '+' : ''}${parsed.modifier}` : ''}=${finalTotal}`)
+      diceValues.push(r.result)
+    } else {
+      let detailIdx = 0
+      for (const seg of parsedSegments) {
+        if (seg.kind === 'flat') {
+          finalTotal += seg.value
+          const fp = seg.value >= 0 && detailIdx > 0 ? '+' : ''
+          segmentDetails.push(`${fp}${seg.value}`)
+          detailIdx += 1
+          continue
+        }
+        const segSign = seg.sign ?? 1
+        const segRolls = Array.from({ length: seg.count }, () => roll(seg.sides))
+        rolls.push(...segRolls)
+        diceValues.push(...segRolls)
+        const segDice = segRolls.reduce((sum, n) => sum + n, 0)
+        if (seg.count === 1 && seg.sides === 20) d20Result = segDice
+        const mod = seg.modifier || 0
+        const segTotal = segDice + mod
+        const signed = segSign * segTotal
+        finalTotal += signed
+        const modStr = mod ? `${mod >= 0 ? '+' : ''}${mod}` : ''
+        const dp = segSign < 0 ? '-' : detailIdx > 0 ? '+' : ''
+        segmentDetails.push(`${dp}${seg.count}d${seg.sides}(${segRolls.join(',')})${modStr}=${signed}`)
+        detailIdx += 1
+      }
+    }
+    const normalizedFormula = String(formulaText || '').replace(/，/g, ',').replace(/\s+/g, '')
+    const prepared = {
+      parsed,
+      mode,
+      rolls,
+      finalTotal,
+      d20Result,
+      segmentDetails,
+      normalizedFormula,
+    }
+    const { specs, overflow } = buildRollingDiceSpecsWithValues(parsedSegments, diceValues)
+    if (rollingTimerRef.current) clearInterval(rollingTimerRef.current)
+    if (rollingStopRef.current) clearTimeout(rollingStopRef.current)
+    if (rollingFinalHoldRef.current) clearTimeout(rollingFinalHoldRef.current)
+    // 新一轮开始时先清空旧结果，避免出现“未停稳就先显示结果”的观感。
+    setLastRoll(null)
+    setCheckResult(null)
+    setIsRolling(true)
+    setShowFinalFace(false)
+    setRollingPreview({
+      formula: normalizedFormula,
+      specs,
+      overflow,
+    })
+    rollingStopRef.current = setTimeout(() => {
+      setShowFinalFace(true)
+      rollingFinalHoldRef.current = setTimeout(() => {
+        rollingTimerRef.current = null
+        rollingStopRef.current = null
+        rollingFinalHoldRef.current = null
+        setIsRolling(false)
+        setShowFinalFace(false)
+        setRollingPreview(null)
+
+        setFormulaError('')
+        setLastRoll({
+          sides: prepared.parsed?.kind === 'dice' ? prepared.parsed.sides : 0,
+          count: prepared.parsed?.kind === 'dice' ? prepared.parsed.count : 0,
+          modifier: prepared.parsed?.kind === 'dice' ? prepared.parsed.modifier : 0,
+          result: prepared.finalTotal,
+          rawTotal: prepared.finalTotal,
+          rolls: prepared.rolls,
+          key: Date.now(),
+          label: prepared.normalizedFormula,
+        })
+        setCheckResult({
+          label: options.label || formulaMeta?.label || '通用投掷',
+          modifier: prepared.parsed?.kind === 'dice' ? prepared.parsed.modifier : 0,
+          d20Result: prepared.d20Result ?? null,
+          rolls: prepared.rolls,
+          total: prepared.finalTotal,
+          key: Date.now(),
+          formula: prepared.normalizedFormula,
+          mode: prepared.parsed?.kind === 'dice' && prepared.parsed.count === 1 && prepared.parsed.sides === 20 ? prepared.mode : 'normal',
+          details: prepared.segmentDetails.join(' ; '),
+        })
+        setFormulaMeta(null)
+      }, RESULT_HOLD_MS)
+    }, ROLL_ANIM_MS)
+  }, [isRolling, formulaMeta?.mode, formulaMeta?.label, d20Mode])
+
+  useLayoutEffect(() => {
     if (!pendingCheck) return
     const mod = Number(pendingCheck.modifier) || 0
     const nextFormula = `1d20${mod >= 0 ? '+' : ''}${mod}`
+    if (pendingCheck.quickRoll) {
+      setPendingCheck(null)
+      performFormulaRoll(nextFormula, {
+        label: pendingCheck.label,
+        mode: pendingCheck.advantage ?? d20Mode ?? '',
+      })
+      return
+    }
     setFormula(nextFormula)
     setFormulaMeta((prev) => ({ label: pendingCheck.label, mode: pendingCheck.advantage ?? prev?.mode ?? d20Mode ?? '' }))
     setFormulaError('')
-    if (pendingCheck.quickRoll) {
-      runQuickCheckRoll(pendingCheck.label, mod, pendingCheck.advantage ?? d20Mode ?? '')
-      return
-    }
     requestAnimationFrame(() => {
       const el = formulaInputRef.current
       if (!el) return
@@ -162,7 +479,7 @@ export default function BottomNav() {
       const pos = nextFormula.length
       el.setSelectionRange(pos, pos)
     })
-  }, [pendingCheck, d20Mode, runQuickCheckRoll])
+  }, [pendingCheck, d20Mode, performFormulaRoll, setPendingCheck])
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined
@@ -194,7 +511,6 @@ export default function BottomNav() {
           total: totalValue,
           details: detailParts.join(' ; '),
         })
-        setRollHistory((prev) => [...prev, totalValue])
         return
       }
       const totalValue = Number(detail.total)
@@ -215,7 +531,6 @@ export default function BottomNav() {
         total: totalValue,
         details: `${diceExpr}${rolls.length ? `(${rolls.join(',')})` : ''}${mod ? `${mod >= 0 ? '+' : ''}${mod}` : ''}=${totalValue}`,
       })
-      setRollHistory((prev) => [...prev, totalValue])
     }
     window.addEventListener('dnd-external-roll', onExternalRoll)
     return () => window.removeEventListener('dnd-external-roll', onExternalRoll)
@@ -227,218 +542,213 @@ export default function BottomNav() {
     return tab.to
   }
 
-  const appendDie = useCallback((sides) => {
-    const raw = String(formula || '').replace(/，/g, ',')
-    const sepIndex = raw.lastIndexOf(',')
-    const prefix = sepIndex >= 0 ? raw.slice(0, sepIndex + 1) : ''
-    const tail = sepIndex >= 0 ? raw.slice(sepIndex + 1) : raw
-    const parsedTail = parseFormulaSegment(tail)
-    if (parsedTail?.kind === 'dice') {
-      const nextCount = parsedTail.sides === sides ? Math.min(100, parsedTail.count + 1) : 1
-      const nextTail = `${nextCount}d${sides}${parsedTail.modifier ? `${parsedTail.modifier >= 0 ? '+' : ''}${parsedTail.modifier}` : ''}`
-      setFormula(`${prefix}${nextTail}`)
-      setFormulaError('')
-      return
-    }
-    setFormula(`${prefix}1d${sides}`)
-    setFormulaError('')
-  }, [formula])
-
-  const appendComma = useCallback(() => {
-    const raw = String(formula || '').replace(/，/g, ',').trim()
-    if (!raw || raw.endsWith(',')) return
-    setFormula(`${raw},`)
-    setFormulaError('')
-  }, [formula])
-
-  const rollByFormula = useCallback(() => {
-    const parsedSegments = parseFormula(formula)
-    if (!parsedSegments) {
-      setFormulaError('公式格式：XdN+N，可用逗号分段，如 2d6+5,5d6')
-      return
-    }
-    setFormulaError('')
-    const mode = formulaMeta?.mode || d20Mode || 'normal'
-    const parsed = parsedSegments.length === 1 ? parsedSegments[0] : null
-    let rolls = []
-    let finalTotal = 0
-    let d20Result = null
-    const segmentDetails = []
-    if (parsed?.kind === 'dice' && parsed.count === 1 && parsed.sides === 20 && mode !== 'normal') {
-      const r = rollD20WithMode(mode)
-      rolls = r.rolls
-      d20Result = r.result
-      finalTotal = r.result + (parsed.modifier || 0)
-      segmentDetails.push(`1d20(${r.rolls.join(',')})${parsed.modifier ? `${parsed.modifier >= 0 ? '+' : ''}${parsed.modifier}` : ''}=${finalTotal}`)
-    } else {
-      for (const seg of parsedSegments) {
-        if (seg.kind === 'flat') {
-          finalTotal += seg.value
-          segmentDetails.push(`${seg.value >= 0 ? '+' : ''}${seg.value}`)
-          continue
-        }
-        const segRolls = Array.from({ length: seg.count }, () => roll(seg.sides))
-        rolls.push(...segRolls)
-        const segDice = segRolls.reduce((sum, n) => sum + n, 0)
-        if (seg.count === 1 && seg.sides === 20) d20Result = segDice
-        const segTotal = segDice + (seg.modifier || 0)
-        finalTotal += segTotal
-        segmentDetails.push(`${seg.count}d${seg.sides}(${segRolls.join(',')})${seg.modifier ? `${seg.modifier >= 0 ? '+' : ''}${seg.modifier}` : ''}=${segTotal}`)
-      }
-    }
-    const normalizedFormula = String(formula || '').replace(/，/g, ',').replace(/\s+/g, '')
-    setLastRoll({
-      sides: parsed?.kind === 'dice' ? parsed.sides : 0,
-      count: parsed?.kind === 'dice' ? parsed.count : 0,
-      modifier: parsed?.kind === 'dice' ? parsed.modifier : 0,
-      result: finalTotal,
-      rawTotal: finalTotal,
-      rolls,
-      key: Date.now(),
-      label: normalizedFormula,
-    })
-    setRollHistory((prev) => [...prev, finalTotal])
-    setCheckResult({
-      label: formulaMeta?.label || '通用投掷',
-      modifier: parsed?.kind === 'dice' ? parsed.modifier : 0,
-      d20Result: d20Result ?? null,
-      rolls,
-      total: finalTotal,
-      key: Date.now(),
-      formula: normalizedFormula,
-      mode: parsed?.kind === 'dice' && parsed.count === 1 && parsed.sides === 20 ? mode : 'normal',
-      details: segmentDetails.join(' ; '),
+  const keypadDie = useCallback((sides) => {
+    setFormula((prev) => {
+      const { prefix, tail } = splitCommaTail(prev)
+      return prefix + mergeKeypadDieTail(tail, sides)
     })
     setFormulaMeta(null)
-  }, [formula, formulaMeta, d20Mode])
+    setFormulaError('')
+  }, [])
 
-  const clearHistory = () => {
-    setRollHistory([])
+  const keypadDigit = useCallback((digit) => {
+    setFormula((prev) => {
+      const { prefix, tail } = splitCommaTail(prev)
+      return prefix + mergeKeypadDigitTail(tail, digit)
+    })
+    setFormulaMeta(null)
+    setFormulaError('')
+  }, [])
+
+  const keypadOp = useCallback((op) => {
+    setFormula((prev) => {
+      const { prefix, tail } = splitCommaTail(prev)
+      return prefix + mergeKeypadOpTail(tail, op)
+    })
+    setFormulaMeta(null)
+    setFormulaError('')
+  }, [])
+
+  const keypadBackspace = useCallback(() => {
+    setFormula((prev) => (prev && prev.length > 0 ? prev.slice(0, -1) : ''))
+    setFormulaError('')
+  }, [])
+
+  const clearFormulaAndResult = useCallback(() => {
+    setFormula('')
+    setFormulaMeta(null)
+    setFormulaError('')
     setLastRoll(null)
     setCheckResult(null)
-    setFormulaError('')
-  }
+    requestAnimationFrame(() => formulaInputRef.current?.focus())
+  }, [])
+
+  const rollByFormula = useCallback(() => {
+    performFormulaRoll(formula)
+  }, [formula, performFormulaRoll])
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-40 w-full border-t border-white/10 bg-[#2D3748]/78 backdrop-blur-md safe-area-pb shadow-[0_-4px_20px_rgba(0,0,0,0.5)]">
+    <>
+      {isRolling ? <ThreeDiceOverlay diceSpecs={threeOverlaySpecs} showFinal={showFinalFace} /> : null}
+      {isRolling ? (
+        <div className="pointer-events-none fixed inset-x-0 top-[22%] z-[71] flex justify-center">
+          <div className="rounded-lg border border-white/20 bg-[#0f172acc] px-4 py-2 text-xs tracking-wide text-dnd-gold-light shadow-[0_8px_24px_rgba(0,0,0,0.45)] backdrop-blur-sm">
+            骰子滚动中... {rollingPreview?.formula || ''}
+            {rollingPreview?.overflow > 0 ? `  (+${rollingPreview.overflow} 颗未渲染)` : ''}
+          </div>
+        </div>
+      ) : null}
+      <nav className="fixed bottom-0 left-0 right-0 z-40 w-full border-t border-white/10 bg-[#2D3748]/78 backdrop-blur-md safe-area-pb shadow-[0_-4px_20px_rgba(0,0,0,0.5)]">
       <div className="border-b border-white/10 bg-[#2D3748]/78 backdrop-blur-md">
-          <div className="mx-auto w-[1180px] min-w-[1180px] px-2 py-2 sm:px-4">
-            <div className="flex items-stretch gap-2">
-              <div className="min-w-0 flex-1">
-                <div className="mb-1.5 flex flex-wrap items-center gap-2 text-xs">
-                  <div className="flex items-center gap-1 rounded-lg border border-white/15 bg-[#1E293B]/85 p-1">
-                    {[
-                      { value: 'advantage', label: '优势' },
-                      { value: 'disadvantage', label: '劣势' },
-                    ].map((m) => (
-                      <button
-                        key={m.value}
-                        type="button"
-                        onClick={() => setD20Mode((prev) => (prev === m.value ? '' : m.value))}
-                        className={`rounded px-2 py-1 text-[11px] font-medium transition-colors ${
-                          d20Mode === m.value
-                            ? 'bg-dnd-red text-white'
-                            : 'text-dnd-text-muted hover:bg-white/10 hover:text-white'
-                        }`}
-                      >
-                        {m.label}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="min-h-8 min-w-[12rem] flex-1 rounded border border-dashed border-white/25 bg-[#1E293B]/45 px-2 py-1">
-                    {checkResult ? (
-                      <span className="font-mono text-dnd-gold-light">
+          <div className="mx-auto w-full max-w-[1180px] min-w-0 px-2 py-1.5 sm:px-4">
+            <div className="flex items-stretch gap-1.5">
+              <div className="grid min-w-0 flex-1 grid-cols-[2.25rem_minmax(0,2fr)_minmax(0,3fr)] grid-rows-2 gap-x-1 gap-y-1.5">
+                <button
+                  type="button"
+                  onClick={() => setD20Mode((prev) => (prev === 'advantage' ? '' : 'advantage'))}
+                  className={`h-6 w-full min-w-0 rounded border border-white/20 px-0.5 text-[11px] font-medium transition-colors ${
+                    d20Mode === 'advantage'
+                      ? 'border-dnd-red bg-dnd-red text-white'
+                      : 'bg-[#1E293B]/90 text-dnd-text-muted hover:border-white/30 hover:text-white'
+                  }`}
+                  title="D20 优势"
+                >
+                  优势
+                </button>
+                <div className="grid min-h-6 min-w-0 grid-cols-10 gap-px">
+                  {['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'].map((d) => (
+                    <button
+                      key={`n-${d}`}
+                      type="button"
+                      onClick={() => keypadDigit(d)}
+                      className="h-6 min-w-0 rounded border border-white/20 bg-[#1E293B]/90 px-0 text-[10px] font-mono font-semibold leading-none text-white transition-colors hover:border-dnd-red hover:bg-dnd-red hover:text-white"
+                    >
+                      {d}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex h-6 min-w-0 items-center gap-0.5 overflow-hidden rounded border border-dashed border-white/25 bg-[#1E293B]/45 px-1.5 text-[11px]">
+                  <div
+                    className="min-w-0 flex-1 overflow-hidden"
+                    title={
+                      formulaError
+                        ? formulaError
+                        : checkResult
+                          ? String(checkResult.details || `${checkResult.formula}=${checkResult.total}`)
+                          : lastRoll
+                            ? `${lastRoll.label}: ${lastRoll.result}`
+                            : undefined
+                    }
+                  >
+                    {formulaError ? (
+                      <span className="block min-w-0 truncate font-mono text-red-300">{formulaError}</span>
+                    ) : isRolling && rollingPreview ? (
+                      <span className="block min-w-0 truncate animate-pulse font-mono text-dnd-gold-light">
+                        {rollingPreview.formula || '投掷中'}
+                      </span>
+                    ) : checkResult ? (
+                      <span className="block min-w-0 truncate font-mono text-dnd-gold-light">
                         {renderDetailsWithNat20Highlight(checkResult.details || `${checkResult.formula}=${checkResult.total}`)}
                       </span>
                     ) : lastRoll ? (
-                      <span className="text-gray-300">
+                      <span className="block min-w-0 truncate text-gray-300">
                         {lastRoll.label}: <span className="font-mono text-white">{lastRoll.result}</span>
                       </span>
-                    ) : null}
-                    {formulaError ? <span className="text-red-300">{formulaError}</span> : null}
+                    ) : (
+                      <span className="block truncate text-dnd-text-muted/80">计算结果</span>
+                    )}
                   </div>
-                  <div className="ml-auto flex items-center gap-2">
-                    <span className="text-gray-400">合计</span>
-                    <span className="font-mono font-bold text-dnd-red">{total}</span>
-                    <button
-                      type="button"
-                      onClick={clearHistory}
-                      className="rounded border border-white/15 px-2 py-1 text-[11px] text-dnd-text-muted hover:bg-white/10 hover:text-white"
-                    >
-                      清空
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={clearFormulaAndResult}
+                    className="h-6 shrink-0 rounded border border-white/15 px-1 text-[10px] text-dnd-text-muted hover:bg-white/10 hover:text-white"
+                    title="清空公式与计算结果"
+                  >
+                    清空
+                  </button>
                 </div>
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <div className="flex flex-wrap items-center gap-1">
-                    {DICE_SIDES.map((s) => (
-                      <button
-                        key={s}
-                        type="button"
-                        onClick={() => appendDie(s)}
-                        className="rounded border border-white/20 bg-[#1E293B]/90 px-2 py-1 text-xs font-mono font-semibold text-white transition-colors hover:border-dnd-red hover:bg-dnd-red hover:text-white"
-                      >
-                        d{s}
-                      </button>
-                    ))}
-                    <button
-                      type="button"
-                      onClick={appendComma}
-                      className="rounded border border-white/20 bg-[#1E293B]/90 px-2 py-1 text-xs font-mono font-semibold text-white transition-colors hover:border-dnd-red hover:bg-dnd-red hover:text-white"
-                      title="添加逗号分段"
-                      aria-label="添加逗号分段"
-                    >
-                      ,
-                    </button>
-                  </div>
-                  <div className="flex min-w-[14rem] flex-1 items-center gap-1">
-                    <input
-                      ref={formulaInputRef}
-                      type="text"
-                      value={formula}
-                      onChange={(e) => {
-                        setFormula(e.target.value)
-                        setFormulaMeta(null)
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault()
-                          rollByFormula()
-                        }
-                      }}
-                      className="h-8 min-w-0 flex-1 rounded border border-white/20 bg-[#1E293B]/90 px-2 text-xs font-mono text-white placeholder:text-dnd-text-muted/70 focus:border-dnd-red focus:outline-none"
-                      placeholder="XdN+N，例如 3d8+2"
-                      aria-label="骰子公式输入"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFormula('')
-                        setFormulaMeta(null)
-                        setFormulaError('')
-                        requestAnimationFrame(() => formulaInputRef.current?.focus())
-                      }}
-                      className="h-8 shrink-0 rounded border border-white/15 px-2 text-[11px] text-dnd-text-muted hover:bg-white/10 hover:text-white"
-                      title="清空公式输入"
-                    >
-                      清空
-                    </button>
-                  </div>
-                </div>
-              </div>
-              <div className="flex shrink-0 items-stretch gap-1.5">
                 <button
                   type="button"
-                  onClick={rollByFormula}
-                  className="h-[4.5rem] w-[4.5rem] shrink-0 self-stretch rounded-lg border border-[#ff4b5c] text-sm font-bold text-white shadow-[0_0_18px_rgba(224,28,47,0.35),inset_0_1px_0_rgba(255,255,255,0.2)] transition-all hover:brightness-110 active:scale-[0.98]"
-                  style={{
-                    background: 'linear-gradient(165deg, #E01C2F 0%, #9E2A2B 55%, #7A1F20 100%)',
-                  }}
-                  title="按当前公式投掷"
+                  onClick={() => setD20Mode((prev) => (prev === 'disadvantage' ? '' : 'disadvantage'))}
+                  className={`h-6 w-full min-w-0 rounded border border-white/20 px-0.5 text-[11px] font-medium transition-colors ${
+                    d20Mode === 'disadvantage'
+                      ? 'border-dnd-red bg-dnd-red text-white'
+                      : 'bg-[#1E293B]/90 text-dnd-text-muted hover:border-white/30 hover:text-white'
+                  }`}
+                  title="D20 劣势"
                 >
-                  投掷
+                  劣势
                 </button>
+                <div className="grid min-h-6 min-w-0 grid-cols-9 gap-px">
+                  {DICE_SIDES.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => keypadDie(s)}
+                      className="h-6 min-w-0 rounded border border-white/20 bg-[#1E293B]/90 px-0 text-[9px] font-mono font-semibold leading-none text-white transition-colors hover:border-dnd-red hover:bg-dnd-red hover:text-white"
+                    >
+                      D{s}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => keypadOp('+')}
+                    className="h-6 min-w-0 rounded border border-white/20 bg-[#1E293B]/90 px-0 text-[10px] font-mono font-semibold text-white transition-colors hover:border-dnd-red hover:bg-dnd-red hover:text-white"
+                    title="加号，开始新一段"
+                  >
+                    +
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => keypadOp('-')}
+                    className="h-6 min-w-0 rounded border border-white/20 bg-[#1E293B]/90 px-0 text-[10px] font-mono font-semibold text-white transition-colors hover:border-dnd-red hover:bg-dnd-red hover:text-white"
+                    title="减号"
+                  >
+                    -
+                  </button>
+                </div>
+                <div className="flex min-h-6 min-w-0 items-center gap-0.5">
+                  <input
+                    ref={formulaInputRef}
+                    type="text"
+                    value={formula}
+                    onChange={(e) => {
+                      setFormula(e.target.value)
+                      setFormulaMeta(null)
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        rollByFormula()
+                      }
+                    }}
+                    className="h-6 min-w-0 flex-1 rounded border border-white/20 bg-[#1E293B]/90 px-1.5 text-[11px] font-mono text-white placeholder:text-dnd-text-muted/70 focus:border-dnd-red focus:outline-none"
+                    placeholder="输入公式…"
+                    aria-label="骰子公式输入"
+                  />
+                  <button
+                    type="button"
+                    onClick={keypadBackspace}
+                    className="h-6 w-6 shrink-0 rounded border border-white/15 text-[10px] font-mono text-dnd-text-muted hover:bg-white/10 hover:text-white"
+                    title="回退一格"
+                    aria-label="回退"
+                  >
+                    ⌫
+                  </button>
+                </div>
               </div>
+              <button
+                type="button"
+                onClick={rollByFormula}
+                disabled={isRolling}
+                className="w-[3.75rem] shrink-0 self-stretch rounded-lg border border-[#ff4b5c] text-xs font-bold text-white shadow-[0_0_18px_rgba(224,28,47,0.35),inset_0_1px_0_rgba(255,255,255,0.2)] transition-all hover:brightness-110 active:scale-[0.98]"
+                style={{
+                  background: 'linear-gradient(165deg, #E01C2F 0%, #9E2A2B 55%, #7A1F20 100%)',
+                }}
+                title="按当前公式投掷"
+              >
+                {isRolling ? '滚动中' : '投掷'}
+              </button>
             </div>
           </div>
         </div>
@@ -475,6 +785,7 @@ export default function BottomNav() {
           )
         })}
       </div>
-    </nav>
+      </nav>
+    </>
   )
 }

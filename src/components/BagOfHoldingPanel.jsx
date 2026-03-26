@@ -96,8 +96,9 @@ export default function BagOfHoldingPanel({
     e.preventDefault()
     if (!canEdit || !mod || totalBags <= 0) return
     const wc = e.dataTransfer.getData('text/dnd-wallet-currency')
+    const wcQty = Number(e.dataTransfer.getData('text/dnd-wallet-currency-qty'))
     if (wc && onMoveCurrencyToBag) {
-      onMoveCurrencyToBag(wc, mod.id)
+      onMoveCurrencyToBag(wc, mod.id, Number.isFinite(wcQty) ? wcQty : undefined)
       return
     }
     if (!onMoveToBag) return

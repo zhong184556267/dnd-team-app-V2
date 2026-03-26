@@ -72,7 +72,9 @@ export function getCarriedInventoryWeightLb(inventory) {
   for (const entry of inventory) {
     if (entry?.inBagOfHolding) continue
     const qty = Math.max(0, Number(entry?.qty) ?? 1)
-    if (entry?.itemId) {
+    if (entry?.walletCurrencyId) {
+      total += getWalletCurrencyStackWeightLb(entry.walletCurrencyId, qty)
+    } else if (entry?.itemId) {
       const item = getItemById(entry.itemId)
       total += getItemWeightLb(item) * qty
     }
@@ -124,9 +126,12 @@ export function getWalletCurrencyStackWeightLb(currencyId, qty) {
  * 当前背负总重(磅)：背包内物品（不含袋内）+ 货币 + 次元袋自重（模块「次元袋个数」× 数据库次元袋单重）
  */
 export function getTotalWeightLb(inventory, wallet, bagOfHoldingCount = 0) {
+  const hasCurrencyStacks = Array.isArray(inventory)
+    ? inventory.some((e) => e?.walletCurrencyId && !e?.inBagOfHolding)
+    : false
   return (
     getCarriedInventoryWeightLb(inventory) +
-    getCoinWeightLb(wallet) +
+    (hasCurrencyStacks ? 0 : getCoinWeightLb(wallet)) +
     getBagOfHoldingSelfWeightLb(bagOfHoldingCount)
   )
 }

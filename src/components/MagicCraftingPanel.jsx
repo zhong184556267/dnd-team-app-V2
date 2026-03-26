@@ -44,6 +44,7 @@ import { addToWarehouse } from '../lib/warehouseStore'
 import { inputClass, textareaClass } from '../lib/inputStyles'
 import { BUFF_TYPES } from '../data/buffTypes'
 import { EffectValueEditor } from './BuffForm'
+import CharacterPickSelect from './CharacterPickSelect'
 
 /** 自动计算字段：无描边 */
 const autoCalcClass = 'border-0 bg-gray-700/50 cursor-default'
@@ -244,6 +245,8 @@ export default function MagicCraftingPanel() {
   const [vault, setVault] = useState({})
   /** 领取结算：公费 team vault gp / 个人某角色钱包 gp */
   const [claimProjectIndex, setClaimProjectIndex] = useState(null)
+  /** 与列表重排无关的稳定引用，避免索引错位导致领取静默失败 */
+  const [claimProjectId, setClaimProjectId] = useState(null)
   const [claimCostSource, setClaimCostSource] = useState('vault')
   const [claimPayerCharId, setClaimPayerCharId] = useState('')
   const [isClaiming, setIsClaiming] = useState(false)
@@ -425,16 +428,17 @@ export default function MagicCraftingPanel() {
     })
   }
 
-  const handleAdvanceDay = () => {
+  const handleAdvanceByDays = (deltaDays) => {
     if (selectedProjectIndex == null || isAdvancing) return
+    const d = Math.max(1, Math.floor(Number(deltaDays) || 1))
     const p = projects[selectedProjectIndex]
     const norm = normalizeProject(p)
     if (norm.状态 === 'COMPLETED') return
-    const daysTotal = norm.制作天数 || 1
-    const daysDone = norm.已制作天数 ?? 0
+    const daysTotal = Math.max(1, norm.制作天数 || 1)
+    const daysDone = Math.max(0, Number(norm.已制作天数) || 0)
     const crafterId = (craftZoneCrafterId || p.制作需求人 || '').trim()
     const prevProjects = projects
-    const nextDone = daysDone + 1
+    const nextDone = Math.min(daysTotal, daysDone + d)
     const isComplete = nextDone >= daysTotal
     const nowIso = new Date().toISOString()
 
@@ -476,23 +480,40 @@ export default function MagicCraftingPanel() {
       })
   }
 
+  const pickDefaultClaimPayer = (project) => {
+    const cost = parseCostFromString(project?.消耗金额)
+    const payers = delegateCharacterOptions.filter((c) => {
+      const gp = getCharacterWalletIncludingBag(c.id).gp ?? 0
+      return gp >= cost
+    })
+    return payers[0]?.id ?? delegateCharacterOptions[0]?.id ?? ''
+  }
+
   const openClaimModal = (index) => {
     const p = projects[index]
     if (!p || isCraftFeeClaimed(p)) return
     setClaimProjectIndex(index)
+    setClaimProjectId(p.id ?? null)
     setClaimCostSource('vault')
-    const payers = delegateCharacterOptions.filter((c) => {
-      const gp = getCharacterWalletIncludingBag(c.id).gp ?? 0
-      return gp >= parseCostFromString(p.消耗金额)
-    })
-    setClaimPayerCharId(payers[0]?.id ?? delegateCharacterOptions[0]?.id ?? '')
+    setClaimPayerCharId(pickDefaultClaimPayer(p))
   }
 
   const handleConfirmClaim = () => {
-    if (claimProjectIndex == null || isClaiming) return
-    const p = projects[claimProjectIndex]
-    if (!p || isCraftFeeClaimed(p)) {
+    if (isClaiming) return
+    let idx =
+      claimProjectId != null ? projects.findIndex((x) => x.id === claimProjectId) : claimProjectIndex
+    if (idx < 0 && claimProjectIndex != null) idx = claimProjectIndex
+    if (idx == null || idx < 0 || idx >= projects.length) {
+      alert('找不到该项目（列表可能已更新），请关闭弹窗后重试。')
       setClaimProjectIndex(null)
+      setClaimProjectId(null)
+      return
+    }
+    const p = projects[idx]
+    if (!p || isCraftFeeClaimed(p)) {
+      alert('该项目已领取或无效，请关闭弹窗后刷新页面。')
+      setClaimProjectIndex(null)
+      setClaimProjectId(null)
       return
     }
     const costGp = parseCostFromString(p.消耗金额)
@@ -502,6 +523,10 @@ export default function MagicCraftingPanel() {
 
     if (totalXp > 0 && !makerId) {
       alert('未记录实际制作者，无法扣除经验。请由 DM 在存档中补全「实际制作者」或重新制作。')
+      return
+    }
+    if (totalXp > 0 && makerId && !maker) {
+      alert('找不到工匠角色数据，无法扣除经验。请同步角色列表后重试或由 DM 检查「实际制作者」。')
       return
     }
     if (totalXp > 0 && maker && (Number(maker.xp) || 0) < totalXp) {
@@ -517,7 +542,7 @@ export default function MagicCraftingPanel() {
       }
     } else {
       if (!claimPayerCharId) {
-        alert('请选择支付金币的角色')
+        alert('请选择支付金币的角色（个人费用）。')
         return
       }
       const w = getCharacterWalletIncludingBag(claimPayerCharId)
@@ -530,7 +555,6 @@ export default function MagicCraftingPanel() {
     const name = p.物品名称?.trim() || '未命名物品'
     setIsClaiming(true)
     const prevVault = vault
-    const idx = claimProjectIndex
 
     const runVault = () =>
       Promise.resolve(deductTeamCurrency(currentModuleId, 'gp', Math.ceil(costGp))).then((r) => {
@@ -569,6 +593,7 @@ export default function MagicCraftingPanel() {
           })
         }
         setClaimProjectIndex(null)
+        setClaimProjectId(null)
         setVault(getEffectiveTeamVaultBalances(currentModuleId))
         refresh()
         refreshVault()
@@ -870,22 +895,28 @@ export default function MagicCraftingPanel() {
               )}
               <div>
                 <label className="block text-dnd-text-muted text-xs mb-1">委托角色（谁的需求）</label>
-                <select value={new委托角色} onChange={(e) => setNew委托角色(e.target.value)} className={inputClass + ' h-9 w-full'}>
-                  <option value="">— 可选 —</option>
-                  {delegateCharacterOptions.map((c) => (
-                    <option key={c.id} value={c.id}>{c.name || '未命名'}</option>
-                  ))}
-                </select>
+                <CharacterPickSelect
+                  value={new委托角色}
+                  onChange={setNew委托角色}
+                  characters={delegateCharacterOptions}
+                  allowEmpty
+                  emptyLabel="— 可选 —"
+                  triggerClassName={`${inputClass} h-9`}
+                  className="w-full"
+                />
                 <p className="text-dnd-text-muted text-[10px] mt-0.5">DM 可见全部角色；其他玩家仅可选自己创建的角色。完成后非 DM 仅能看到委托属于自己的条目。</p>
               </div>
               <div>
                 <label className="block text-dnd-text-muted text-xs mb-1">预定工匠（器魂术士或制作专长）</label>
-                <select value={new制作需求人} onChange={(e) => setNew制作需求人(e.target.value)} className={inputClass + ' h-9 w-full'}>
-                  <option value="">— 选择角色 —</option>
-                  {eligibleCrafters.map((c) => (
-                    <option key={c.id} value={c.id}>{c.name || '未命名'}</option>
-                  ))}
-                </select>
+                <CharacterPickSelect
+                  value={new制作需求人}
+                  onChange={setNew制作需求人}
+                  characters={eligibleCrafters}
+                  allowEmpty
+                  emptyLabel="— 选择角色 —"
+                  triggerClassName={`${inputClass} h-9`}
+                  className="w-full"
+                />
                 {eligibleCrafters.length === 0 && <p className="text-dnd-text-muted text-[10px] mt-0.5">推进时可在「制作中」区另选当前工匠；完成时记录为实际制作者。</p>}
               </div>
             </div>
@@ -918,14 +949,17 @@ export default function MagicCraftingPanel() {
         >
           <div className="flex flex-wrap items-center gap-3 mb-3">
             <h3 className="text-dnd-gold-light text-sm font-bold uppercase tracking-wider">制作中</h3>
-            <div className="flex items-center gap-2">
-              <label className="text-dnd-text-muted text-xs whitespace-nowrap">当前工匠</label>
-              <select value={craftZoneCrafterId} onChange={(e) => setCraftZoneCrafterId(e.target.value)} className={inputClass + ' h-9 min-w-[8rem]'}>
-                <option value="">— 选择角色 —</option>
-                {eligibleCrafters.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name || '未命名'}</option>
-                ))}
-              </select>
+            <div className="flex items-center gap-2 min-w-0">
+              <label className="text-dnd-text-muted text-xs whitespace-nowrap shrink-0">当前工匠</label>
+              <CharacterPickSelect
+                value={craftZoneCrafterId}
+                onChange={setCraftZoneCrafterId}
+                characters={eligibleCrafters}
+                allowEmpty
+                emptyLabel="— 选择角色 —"
+                triggerClassName={`${inputClass} h-9 min-h-9`}
+                className="min-w-[10rem] max-w-[14rem] flex-1"
+              />
               {eligibleCrafters.length === 0 && <span className="text-dnd-text-muted text-[10px]">仅器魂术士或拥有制作专长的角色可选</span>}
             </div>
           </div>
@@ -934,9 +968,28 @@ export default function MagicCraftingPanel() {
             const p = normalizeProject(projects[selectedProjectIndex])
             if (p.状态 === 'COMPLETED') return null
             return (
-              <div className="space-y-1">
-                <button type="button" onClick={handleAdvanceDay} disabled={isAdvancing} className="w-full h-14 rounded-lg font-bold text-base flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed bg-emerald-600/30 border border-emerald-500/50 text-emerald-200 hover:bg-emerald-500/40 hover:border-emerald-400 disabled:bg-gray-700/50 disabled:border-gray-600 disabled:text-gray-500">
-                  <Hammer size={18} /> {isAdvancing ? '保存中...' : `推进 1 天：${p.物品名称 || '未命名'}（完成后在下方领取时结算）`}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleAdvanceByDays(1)}
+                  disabled={isAdvancing}
+                  className="w-full min-h-[3.5rem] rounded-lg font-bold text-sm sm:text-base flex items-center justify-center gap-2 px-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed bg-emerald-600/30 border border-emerald-500/50 text-emerald-200 hover:bg-emerald-500/40 hover:border-emerald-400 disabled:bg-gray-700/50 disabled:border-gray-600 disabled:text-gray-500"
+                >
+                  <Hammer size={18} className="shrink-0" />
+                  <span className="text-left leading-tight">
+                    {isAdvancing ? '保存中...' : `推进 1 天：${p.物品名称 || '未命名'}（完成后在下方领取时结算）`}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleAdvanceByDays(10)}
+                  disabled={isAdvancing}
+                  className="w-full min-h-[3.5rem] rounded-lg font-bold text-sm sm:text-base flex items-center justify-center gap-2 px-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed bg-emerald-700/35 border border-emerald-400/60 text-emerald-100 hover:bg-emerald-600/45 hover:border-emerald-300 disabled:bg-gray-700/50 disabled:border-gray-600 disabled:text-gray-500"
+                >
+                  <Hammer size={18} className="shrink-0" />
+                  <span className="text-left leading-tight">
+                    {isAdvancing ? '保存中...' : `推进 10 天：${p.物品名称 || '未命名'}（完成后在下方领取时结算）`}
+                  </span>
                 </button>
               </div>
             )
@@ -976,7 +1029,14 @@ export default function MagicCraftingPanel() {
               if (norm.状态 === 'COMPLETED') return null
               const isSelected = selectedProjectIndex === i
               const typeLabel = MAGIC_ITEM_TYPES.find((t) => t.id === p.类型)?.label ?? p.类型
-              const progressPct = (norm.制作天数 || 0) > 0 ? Math.round((norm.已制作天数 ?? 0) / norm.制作天数 * 100) : 0
+              const totalDaysRaw = Math.max(0, Number(norm.制作天数) || 0)
+              const rawDone = Math.max(0, Number(norm.已制作天数) || 0)
+              const doneDays =
+                totalDaysRaw > 0 ? Math.min(rawDone, totalDaysRaw) : rawDone
+              const progressPct =
+                totalDaysRaw > 0 && Number.isFinite(doneDays)
+                  ? Math.min(100, Math.round((doneDays / totalDaysRaw) * 100))
+                  : 0
               return (
                 <Fragment key={p.id}>
                 <tr
@@ -992,13 +1052,24 @@ export default function MagicCraftingPanel() {
                   </td>
                   <td className="py-2 px-3 text-dnd-text-body align-middle">{typeLabel}</td>
                   <td className="py-2 px-3 text-white font-medium align-middle" title={p.物品名称 || '—'}>{p.物品名称 || '—'}</td>
-                  <td className="py-2 px-3 align-middle">
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1 min-w-[4rem]">
-                        <div className="h-2.5 rounded-full bg-gray-700 overflow-hidden">
-                          <div className="h-full rounded-full transition-all bg-amber-500" style={{ width: `${progressPct}%` }} />
+                  <td className="py-2 px-3 align-middle min-w-[7rem]">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="flex-1 min-w-0">
+                        <div
+                          className="h-2.5 w-full rounded-full bg-gray-700/90 overflow-hidden ring-1 ring-inset ring-black/20"
+                          role="progressbar"
+                          aria-valuenow={doneDays}
+                          aria-valuemin={0}
+                          aria-valuemax={totalDaysRaw || 1}
+                        >
+                          <div
+                            className="h-full min-w-0 rounded-full transition-[width] duration-300 bg-gradient-to-r from-emerald-600 to-emerald-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.15)]"
+                            style={{ width: `${progressPct}%` }}
+                          />
                         </div>
-                        <span className="text-xs text-dnd-text-muted">{norm.已制作天数 ?? 0}/{norm.制作天数} 天</span>
+                        <span className="text-xs text-dnd-text-muted tabular-nums">
+                          {totalDaysRaw > 0 ? `${doneDays}/${totalDaysRaw} 天` : '—'}
+                        </span>
                       </div>
                     </div>
                   </td>
@@ -1052,21 +1123,27 @@ export default function MagicCraftingPanel() {
                             <div className="sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
                               <div>
                                 <label className="block text-dnd-text-muted text-[10px] mb-0.5">委托角色（需求方）</label>
-                                <select value={p.委托角色 ?? ''} onChange={(e) => handleUpdate(i, { 委托角色: e.target.value })} className={inputClass + ' h-8 w-full'}>
-                                  <option value="">— 可选 —</option>
-                                  {delegateCharacterOptions.map((c) => (
-                                    <option key={c.id} value={c.id}>{c.name || '未命名'}</option>
-                                  ))}
-                                </select>
+                                <CharacterPickSelect
+                                  value={p.委托角色 ?? ''}
+                                  onChange={(id) => handleUpdate(i, { 委托角色: id })}
+                                  characters={delegateCharacterOptions}
+                                  allowEmpty
+                                  emptyLabel="— 可选 —"
+                                  triggerClassName={`${inputClass} h-8`}
+                                  className="w-full"
+                                />
                               </div>
                               <div>
                                 <label className="block text-dnd-text-muted text-[10px] mb-0.5">预定工匠</label>
-                                <select value={p.制作需求人 ?? ''} onChange={(e) => handleUpdate(i, { 制作需求人: e.target.value })} className={inputClass + ' h-8 w-full'}>
-                                  <option value="">— 选择角色 —</option>
-                                  {eligibleCrafters.map((c) => (
-                                    <option key={c.id} value={c.id}>{c.name || '未命名'}</option>
-                                  ))}
-                                </select>
+                                <CharacterPickSelect
+                                  value={p.制作需求人 ?? ''}
+                                  onChange={(id) => handleUpdate(i, { 制作需求人: id })}
+                                  characters={eligibleCrafters}
+                                  allowEmpty
+                                  emptyLabel="— 选择角色 —"
+                                  triggerClassName={`${inputClass} h-8`}
+                                  className="w-full"
+                                />
                               </div>
                             </div>
                           </>
@@ -1097,21 +1174,27 @@ export default function MagicCraftingPanel() {
                         )}
                         <div>
                           <label className="block text-dnd-text-muted text-[10px] mb-0.5">委托角色（需求方）</label>
-                          <select value={p.委托角色 ?? ''} onChange={(e) => handleUpdate(i, { 委托角色: e.target.value })} className={inputClass + ' h-8 w-full'}>
-                            <option value="">— 可选 —</option>
-                            {delegateCharacterOptions.map((c) => (
-                              <option key={c.id} value={c.id}>{c.name || '未命名'}</option>
-                            ))}
-                          </select>
+                          <CharacterPickSelect
+                            value={p.委托角色 ?? ''}
+                            onChange={(id) => handleUpdate(i, { 委托角色: id })}
+                            characters={delegateCharacterOptions}
+                            allowEmpty
+                            emptyLabel="— 可选 —"
+                            triggerClassName={`${inputClass} h-8`}
+                            className="w-full"
+                          />
                         </div>
                         <div>
                           <label className="block text-dnd-text-muted text-[10px] mb-0.5">预定工匠</label>
-                          <select value={p.制作需求人 ?? ''} onChange={(e) => handleUpdate(i, { 制作需求人: e.target.value })} className={inputClass + ' h-8 w-full'}>
-                            <option value="">— 选择角色 —</option>
-                            {eligibleCrafters.map((c) => (
-                              <option key={c.id} value={c.id}>{c.name || '未命名'}</option>
-                            ))}
-                          </select>
+                          <CharacterPickSelect
+                            value={p.制作需求人 ?? ''}
+                            onChange={(id) => handleUpdate(i, { 制作需求人: id })}
+                            characters={eligibleCrafters}
+                            allowEmpty
+                            emptyLabel="— 选择角色 —"
+                            triggerClassName={`${inputClass} h-8`}
+                            className="w-full"
+                          />
                         </div>
                       </div>
                     </td>
@@ -1251,66 +1334,132 @@ export default function MagicCraftingPanel() {
       </div>
 
       {/* 领取结算 */}
-      {claimProjectIndex != null && projects[claimProjectIndex] && !isCraftFeeClaimed(projects[claimProjectIndex]) && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/70" onClick={() => !isClaiming && setClaimProjectIndex(null)}>
-          <div className="rounded-xl bg-dnd-card border border-white/10 shadow-xl w-full max-w-md overflow-hidden" onClick={(e) => e.stopPropagation()}>
-            <div className="px-4 py-3 border-b border-white/10">
-              <h2 className="font-display font-semibold text-white">领取结算</h2>
-              <p className="text-dnd-text-muted text-sm mt-1">{projects[claimProjectIndex].物品名称 || '未命名'}</p>
-            </div>
-            <div className="p-4 space-y-3 text-sm">
-              <p className="text-dnd-text-body">
-                将扣除制作成本 <span className="text-dnd-gold-light font-bold tabular-nums">{Math.ceil(parseCostFromString(projects[claimProjectIndex].消耗金额))} GP</span>
-                {Number(projects[claimProjectIndex].消耗经验) > 0 && (
-                  <>
-                    {' '}与工匠经验 <span className="text-dnd-gold-light font-bold tabular-nums">{projects[claimProjectIndex].消耗经验} XP</span>
-                    （从「{(projects[claimProjectIndex].实际制作者 && getCharacter(projects[claimProjectIndex].实际制作者)?.name) || '实际制作者'}」）
-                  </>
-                )}
-                。
-              </p>
-              <div>
-                <span className="block text-dnd-text-muted text-xs mb-2">金币来源</span>
-                <div className="flex flex-col gap-2">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="radio" name="claim-cost" checked={claimCostSource === 'vault'} onChange={() => setClaimCostSource('vault')} />
-                    <span>公费（团队金库 GP）</span>
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="radio" name="claim-cost" checked={claimCostSource === 'personal'} onChange={() => setClaimCostSource('personal')} />
-                    <span>个人费用（指定角色钱包 GP）</span>
-                  </label>
+      {(() => {
+        const claimIdx =
+          claimProjectId != null ? projects.findIndex((x) => x.id === claimProjectId) : claimProjectIndex
+        const idx = claimIdx >= 0 ? claimIdx : claimProjectIndex
+        const claimRow = idx != null && idx >= 0 ? projects[idx] : null
+        return (
+          claimProjectIndex != null &&
+          claimRow &&
+          !isCraftFeeClaimed(claimRow) && (
+            <div
+              className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/70"
+              onClick={(e) => {
+                if (e.target !== e.currentTarget || isClaiming) return
+                setClaimProjectIndex(null)
+                setClaimProjectId(null)
+              }}
+            >
+              <div
+                className="pointer-events-auto rounded-xl bg-dnd-card border border-white/10 shadow-xl w-full max-w-md overflow-visible"
+                role="dialog"
+                aria-modal="true"
+                onClick={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                <div className="px-4 py-3 border-b border-white/10">
+                  <h2 className="font-display font-semibold text-white">领取结算</h2>
+                  <p className="text-dnd-text-muted text-sm mt-1">{claimRow.物品名称 || '未命名'}</p>
+                </div>
+                <div className="p-4 space-y-3 text-sm">
+                  <p className="text-dnd-text-body">
+                    将扣除制作成本{' '}
+                    <span className="text-dnd-gold-light font-bold tabular-nums">{Math.ceil(parseCostFromString(claimRow.消耗金额))} GP</span>
+                    {Number(claimRow.消耗经验) > 0 && (
+                      <>
+                        {' '}
+                        与工匠经验{' '}
+                        <span className="text-dnd-gold-light font-bold tabular-nums">{claimRow.消耗经验} XP</span>
+                        （从「
+                        {(claimRow.实际制作者 && getCharacter(claimRow.实际制作者)?.name) || '实际制作者'}」）
+                      </>
+                    )}
+                    。
+                  </p>
+                  <div>
+                    <span className="block text-dnd-text-muted text-xs mb-2">金币来源</span>
+                    <div className="flex flex-col gap-2">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="claim-cost"
+                          checked={claimCostSource === 'vault'}
+                          onChange={() => {
+                            setClaimCostSource('vault')
+                          }}
+                        />
+                        <span>公费（团队金库 GP）</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="claim-cost"
+                          checked={claimCostSource === 'personal'}
+                          onChange={() => {
+                            setClaimCostSource('personal')
+                            setClaimPayerCharId((prev) => prev || pickDefaultClaimPayer(claimRow))
+                          }}
+                        />
+                        <span>个人费用（指定角色钱包 GP）</span>
+                      </label>
+                    </div>
+                  </div>
+                  {claimCostSource === 'personal' && (
+                    <div>
+                      <label className="block text-dnd-text-muted text-xs mb-1">支付角色</label>
+                      <CharacterPickSelect
+                        value={claimPayerCharId}
+                        onChange={setClaimPayerCharId}
+                        characters={delegateCharacterOptions}
+                        allowEmpty
+                        emptyLabel="— 选择 —"
+                        triggerClassName={`${inputClass} h-10`}
+                        className="w-full"
+                        optionExtra={(c) => `${Math.round(getCharacterWalletIncludingBag(c.id).gp ?? 0)} GP`}
+                      />
+                      <p className="text-dnd-text-muted text-[10px] mt-1">玩家仅能看到自己创建的角色；DM 可选任意角色。</p>
+                      {delegateCharacterOptions.length === 0 && (
+                        <p className="text-amber-400/90 text-xs mt-1">当前无可选角色，请使用公费或由 DM 操作。</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <div className="flex justify-end gap-2 px-4 py-3 border-t border-white/10">
+                  <button
+                    type="button"
+                    disabled={isClaiming}
+                    onClick={() => {
+                      setClaimProjectIndex(null)
+                      setClaimProjectId(null)
+                    }}
+                    className="px-4 py-2 rounded-lg border border-gray-600 text-gray-300 hover:bg-gray-800 disabled:opacity-50"
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isClaiming}
+                    onClick={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      handleConfirmClaim()
+                    }}
+                    className="px-4 py-2 rounded-lg bg-dnd-red hover:bg-dnd-red-hover text-white font-bold disabled:opacity-50"
+                  >
+                    {isClaiming ? '处理中…' : '确认扣除并领取'}
+                  </button>
                 </div>
               </div>
-              {claimCostSource === 'personal' && (
-                <div>
-                  <label className="block text-dnd-text-muted text-xs mb-1">支付角色</label>
-                  <select value={claimPayerCharId} onChange={(e) => setClaimPayerCharId(e.target.value)} className={inputClass + ' h-10 w-full'}>
-                    <option value="">— 选择 —</option>
-                    {delegateCharacterOptions.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name || '未命名'}（GP {Math.round(getCharacterWalletIncludingBag(c.id).gp ?? 0)}）
-                      </option>
-                    ))}
-                  </select>
-                  <p className="text-dnd-text-muted text-[10px] mt-1">玩家仅能看到自己创建的角色；DM 可选任意角色。</p>
-                </div>
-              )}
             </div>
-            <div className="flex justify-end gap-2 px-4 py-3 border-t border-white/10">
-              <button type="button" disabled={isClaiming} onClick={() => setClaimProjectIndex(null)} className="px-4 py-2 rounded-lg border border-gray-600 text-gray-300 hover:bg-gray-800 disabled:opacity-50">取消</button>
-              <button type="button" disabled={isClaiming} onClick={handleConfirmClaim} className="px-4 py-2 rounded-lg bg-dnd-red hover:bg-dnd-red-hover text-white font-bold disabled:opacity-50">
-                {isClaiming ? '处理中…' : '确认扣除并领取'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+          )
+        )
+      })()}
 
       {/* 存入弹窗 */}
       {depositProjectIndex != null && projects[depositProjectIndex] && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70" onClick={() => setDepositProjectIndex(null)}>
-          <div className="rounded-xl bg-dnd-card border border-white/10 shadow-xl w-full max-w-md overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          <div className="rounded-xl bg-dnd-card border border-white/10 shadow-xl w-full max-w-md overflow-visible" onClick={(e) => e.stopPropagation()}>
             <div className="px-4 py-3 border-b border-white/10">
               <h2 className="font-display font-semibold text-white">存入</h2>
               <p className="text-dnd-text-muted text-sm mt-1">{projects[depositProjectIndex].物品名称 || '未命名'}</p>
@@ -1327,12 +1476,15 @@ export default function MagicCraftingPanel() {
               {!depositToWarehouse && (
                 <div>
                   <label className="block text-dnd-text-muted text-xs mb-1">选择角色</label>
-                  <select value={depositCharId} onChange={(e) => setDepositCharId(e.target.value)} className="w-full rounded-lg bg-gray-800 border border-gray-600 text-white px-3 py-2 focus:border-dnd-red focus:ring-1 focus:ring-dnd-red">
-                    <option value="">— 选择 —</option>
-                    {characters.map((c) => (
-                      <option key={c.id} value={c.id}>{c.name || '未命名'}</option>
-                    ))}
-                  </select>
+                  <CharacterPickSelect
+                    value={depositCharId}
+                    onChange={setDepositCharId}
+                    characters={characters}
+                    allowEmpty
+                    emptyLabel="— 选择 —"
+                    triggerClassName="h-10 rounded-lg border border-gray-600 bg-gray-800 px-2 focus:border-dnd-red focus:ring-1 focus:ring-dnd-red"
+                    className="w-full"
+                  />
                 </div>
               )}
             </div>

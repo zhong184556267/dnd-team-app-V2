@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { Dices } from 'lucide-react'
 import { useRoll } from '../contexts/RollContext'
 
@@ -31,36 +31,80 @@ export default function DiceRoller() {
   const [lastRoll, setLastRoll] = useState(null) // { sides, result, rolls?, key }
   const [checkResult, setCheckResult] = useState(null) // { label, modifier, d20Result, rolls, total, key }
   const [rollHistory, setRollHistory] = useState([])
+  const [rollingPreview, setRollingPreview] = useState(null) // { kind, sides, result, rolls?, mode? }
+  const [isRolling, setIsRolling] = useState(false)
+  const rollingTimerRef = useRef(null)
+  const rollingStopRef = useRef(null)
 
   const total = rollHistory.reduce((s, n) => s + n, 0)
 
+  useEffect(() => {
+    return () => {
+      if (rollingTimerRef.current) clearInterval(rollingTimerRef.current)
+      if (rollingStopRef.current) clearTimeout(rollingStopRef.current)
+    }
+  }, [])
+
+  const animateRolling = useCallback((kind, sides, mode = 'normal') => {
+    if (rollingTimerRef.current) clearInterval(rollingTimerRef.current)
+    if (rollingStopRef.current) clearTimeout(rollingStopRef.current)
+    setIsRolling(true)
+    setRollingPreview({ kind, sides, result: roll(sides), mode, rolls: mode === 'normal' ? undefined : [roll(sides), roll(sides)] })
+    return new Promise((resolve) => {
+      rollingTimerRef.current = setInterval(() => {
+        setRollingPreview({
+          kind,
+          sides,
+          result: roll(sides),
+          mode,
+          rolls: mode === 'normal' ? undefined : [roll(sides), roll(sides)],
+        })
+      }, 60)
+      rollingStopRef.current = setTimeout(() => {
+        if (rollingTimerRef.current) clearInterval(rollingTimerRef.current)
+        rollingTimerRef.current = null
+        rollingStopRef.current = null
+        setIsRolling(false)
+        setRollingPreview(null)
+        resolve()
+      }, 700)
+    })
+  }, [])
+
   const rollDice = useCallback((sides) => {
+    if (isRolling) return
     if (sides === 20) {
-      const { result, rolls } = rollD20WithMode(d20Mode)
-      setLastRoll({ sides: 20, result, rolls, key: Date.now() })
-      setRollHistory((prev) => [...prev, result])
-    } else {
+      void animateRolling('dice', 20, d20Mode).then(() => {
+        const { result, rolls } = rollD20WithMode(d20Mode)
+        setLastRoll({ sides: 20, result, rolls, key: Date.now() })
+        setRollHistory((prev) => [...prev, result])
+      })
+      return
+    }
+    void animateRolling('dice', sides).then(() => {
       const result = roll(sides)
       setLastRoll({ sides, result, key: Date.now() })
       setRollHistory((prev) => [...prev, result])
-    }
-  }, [d20Mode])
+    })
+  }, [d20Mode, animateRolling, isRolling])
 
   const rollCheck = useCallback(() => {
-    if (!pendingCheck) return
+    if (!pendingCheck || isRolling) return
     const mode = pendingCheck.advantage ?? d20Mode
-    const { result, rolls } = rollD20WithMode(mode)
-    const total = result + pendingCheck.modifier
-    setCheckResult({
-      label: pendingCheck.label,
-      modifier: pendingCheck.modifier,
-      d20Result: result,
-      rolls,
-      total,
-      key: Date.now(),
+    void animateRolling('check', 20, mode).then(() => {
+      const { result, rolls } = rollD20WithMode(mode)
+      const total = result + pendingCheck.modifier
+      setCheckResult({
+        label: pendingCheck.label,
+        modifier: pendingCheck.modifier,
+        d20Result: result,
+        rolls,
+        total,
+        key: Date.now(),
+      })
+      setRollHistory((prev) => [...prev, result])
     })
-    setRollHistory((prev) => [...prev, result])
-  }, [pendingCheck, d20Mode])
+  }, [pendingCheck, d20Mode, animateRolling, isRolling])
   const effectiveCheckMode = pendingCheck?.advantage ?? d20Mode
 
   const clearHistory = () => {
@@ -127,10 +171,23 @@ export default function DiceRoller() {
                 <button
                   type="button"
                   onClick={rollCheck}
+                  disabled={isRolling}
                   className="w-full py-2 rounded-lg border border-dnd-red bg-dnd-red/20 text-dnd-red hover:bg-dnd-red hover:text-white font-medium text-sm transition-colors"
                 >
-                  投掷检定 d20
+                  {isRolling ? '骰子滚动中…' : '投掷检定 d20'}
                 </button>
+                {isRolling && rollingPreview?.kind === 'check' ? (
+                  <div className="mt-2 pt-2 border-t border-white/10 text-center animate-pulse">
+                    <p className="text-dnd-text-muted text-xs">
+                      d20
+                      {rollingPreview.rolls?.length > 1
+                        ? `(${rollingPreview.rolls.join(', ')})`
+                        : `(${rollingPreview.result})`}
+                      {pendingCheck.modifier >= 0 ? '+' : ''}{pendingCheck.modifier}
+                    </p>
+                    <p className="text-xl font-mono font-bold text-dnd-gold-light">{rollingPreview.result}</p>
+                  </div>
+                ) : null}
                 {checkResult && (
                   <div key={checkResult.key} className="mt-2 pt-2 border-t border-white/10 text-center">
                     <p className="text-dnd-text-muted text-xs">
@@ -149,12 +206,21 @@ export default function DiceRoller() {
                   key={s}
                   type="button"
                   onClick={() => rollDice(s)}
+                  disabled={isRolling}
                   className="py-2.5 rounded-lg border border-white/20 bg-[#1E293B] hover:bg-dnd-red hover:text-white hover:border-dnd-red text-white font-mono font-semibold transition-colors"
                 >
                   d{s}
                 </button>
               ))}
             </div>
+            {isRolling && rollingPreview?.kind === 'dice' ? (
+              <div className="mt-3 pt-3 border-t border-white/10 text-center animate-pulse">
+                <p className="text-dnd-text-muted text-xs">d{rollingPreview.sides}</p>
+                <p className="text-2xl font-mono font-bold text-dnd-gold-light mt-0.5">
+                  {rollingPreview.result}
+                </p>
+              </div>
+            ) : null}
             {lastRoll && (
               <div
                 key={lastRoll.key}

@@ -7,8 +7,11 @@
 /** 1 奥拉 = 多少 gp（可在此修改；奥朗/奥拉与金币换算） */
 export const AURUM_PER_GP = 2
 
-/** 1 磅晶石 = 多少 奥拉（推导：1 lb = 5000 au；gp 价值 = 5000 × AURUM_PER_GP） */
-export const GEM_LB_PER_AURUM = 5000
+/** 房规：1 磅晶石兑换金币 = 2500 GP（金库/钱包换算与估值均用此 baseRate） */
+export const GEM_LB_PER_GP = 2500
+
+/** 与奥拉联动时：1 磅晶石等价的奥拉数量 = GEM_LB_PER_GP / AURUM_PER_GP */
+export const GEM_LB_PER_AURUM = GEM_LB_PER_GP / AURUM_PER_GP
 
 const gp = 1
 const pp = 10
@@ -16,7 +19,7 @@ const sp = 1 / 10
 const cp = 1 / 10
 const kr = 1 // 1 克朗 = 1 gp
 const au = AURUM_PER_GP
-const gemLb = AURUM_PER_GP * GEM_LB_PER_AURUM // 1 磅晶石 = 500000 gp
+const gemLb = GEM_LB_PER_GP
 
 /**
  * 货币配置：id, 名称, 缩写, 相对 gp 的 baseRate, 样式

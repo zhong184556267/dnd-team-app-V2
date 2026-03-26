@@ -6,6 +6,40 @@ import { getEffectiveTeamVaultBalances, deductTeamCurrency, convertEffectiveTeam
 import { CURRENCY_CONFIG, getCurrencyDisplayName } from '../data/currencyConfig'
 import { CurrencyGrid } from './CurrencyDisplay'
 
+/** 去掉千分位逗号（半角/全角）供解析 */
+function stripNumberGrouping(s) {
+  return String(s ?? '').replace(/,/g, '').replace(/，/g, '')
+}
+
+/**
+ * 数值输入时插入千分位逗号；金库兑换仍允许输入「全部」。
+ * 支持小数（如晶石磅数）。
+ */
+function formatAmountInputWithCommas(raw) {
+  const t = String(raw ?? '').trim()
+  if (/^全部$/i.test(t)) return t
+  let s = stripNumberGrouping(t).replace(/[^\d.]/g, '')
+  const dot = s.indexOf('.')
+  let intRaw = dot === -1 ? s : s.slice(0, dot)
+  let frac = dot === -1 ? '' : s.slice(dot + 1).replace(/\./g, '')
+  const trailingDot = dot !== -1 && dot === s.length - 1 && frac === ''
+
+  if (s === '') return ''
+  if (s === '.') return '0.'
+
+  let intDisp = ''
+  if (intRaw !== '') {
+    const n = parseInt(intRaw, 10)
+    intDisp = Number.isNaN(n) ? intRaw : n.toLocaleString('en-US')
+  } else if (frac !== '' || trailingDot) {
+    intDisp = '0'
+  }
+
+  if (trailingDot && frac === '') return `${intDisp}.`
+  if (frac !== '') return `${intDisp}.${frac}`
+  return intDisp
+}
+
 /** 团队仓库页用：金库兑换 + 金库 +/- 输入 + 团队金库展示 */
 export default function CurrencyPanel() {
   const { currentModuleId } = useModule()
@@ -46,7 +80,7 @@ export default function CurrencyPanel() {
 
   const handleApply = () => {
     setError('')
-    const num = parseFloat(String(amountInput).replace(/,/g, ''))
+    const num = parseFloat(stripNumberGrouping(amountInput))
     if (Number.isNaN(num) || num <= 0) {
       setError('请输入有效数量')
       return
@@ -72,7 +106,7 @@ export default function CurrencyPanel() {
     })
   }
 
-  const convertAmountNum = parseFloat(String(convertAmount).replace(/,/g, ''))
+  const convertAmountNum = parseFloat(stripNumberGrouping(convertAmount))
   const convertAmountValid = !Number.isNaN(convertAmountNum) && convertAmountNum > 0
   const convertMaxFrom = vault[convertFrom] ?? 0
   const convertPreview = convertAmountValid
@@ -116,7 +150,19 @@ export default function CurrencyPanel() {
                 <button type="button" onClick={() => setSign('+')} className={`h-9 w-9 shrink-0 flex items-center justify-center transition-colors ${sign === '+' ? 'bg-dnd-red text-white' : 'bg-gray-800 text-gray-400 hover:text-white'}`} title="增加"><Plus className="w-4 h-4" /></button>
                 <button type="button" onClick={() => setSign('-')} className={`h-9 w-9 shrink-0 flex items-center justify-center transition-colors ${sign === '-' ? 'bg-dnd-red text-white' : 'bg-gray-800 text-gray-400 hover:text-white'}`} title="减少"><Minus className="w-4 h-4" /></button>
               </div>
-              <input type="number" min="0" step="any" placeholder="数量" value={amountInput} onChange={(e) => { setAmountInput(e.target.value); setError(''); }} onKeyDown={(e) => e.key === 'Enter' && handleApply()} className={inputClass + ' w-20 font-mono placeholder:text-gray-500'} />
+              <input
+                type="text"
+                inputMode="decimal"
+                autoComplete="off"
+                placeholder="数量"
+                value={amountInput}
+                onChange={(e) => {
+                  setAmountInput(formatAmountInputWithCommas(e.target.value))
+                  setError('')
+                }}
+                onKeyDown={(e) => e.key === 'Enter' && handleApply()}
+                className={inputClass + ' w-[6.5rem] min-w-0 font-mono placeholder:text-gray-500 tabular-nums'}
+              />
               <select value={currencyId} onChange={(e) => setCurrencyId(e.target.value)} className={inputClass + ' min-w-[6rem]'}>
                 {CURRENCY_CONFIG.map((c) => (
                   <option key={c.id} value={c.id}>{getCurrencyDisplayName(c)}</option>
@@ -138,7 +184,26 @@ export default function CurrencyPanel() {
                   <option key={c.id} value={c.id}>{getCurrencyDisplayName(c)}</option>
                 ))}
               </select>
-              <input type="text" placeholder="数量或全部" value={convertAmount} onChange={(e) => { setConvertAmount(e.target.value); setConvertError(''); }} onKeyDown={(e) => e.key === 'Enter' && handleConvert()} className={inputClass + ' w-20 font-mono placeholder:text-gray-500'} />
+              <input
+                type="text"
+                inputMode="decimal"
+                autoComplete="off"
+                placeholder="数量或全部"
+                value={convertAmount}
+                onChange={(e) => {
+                  const v = e.target.value
+                  const t = v.trim()
+                  if (t.length <= 2 && '全部'.startsWith(t)) {
+                    setConvertAmount(t)
+                    setConvertError('')
+                    return
+                  }
+                  setConvertAmount(formatAmountInputWithCommas(v))
+                  setConvertError('')
+                }}
+                onKeyDown={(e) => e.key === 'Enter' && handleConvert()}
+                className={inputClass + ' w-[6.5rem] min-w-0 font-mono placeholder:text-gray-500 tabular-nums'}
+              />
               <span className="text-dnd-text-muted text-xs">→</span>
               <select value={convertTo} onChange={(e) => { setConvertTo(e.target.value); setConvertError(''); }} className={inputClass + ' min-w-[6rem]'}>
                 {CURRENCY_CONFIG.filter((c) => c.id !== convertFrom).map((c) => (

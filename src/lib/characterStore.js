@@ -1,8 +1,54 @@
 import { isSupabaseEnabled } from './supabase'
 import * as charSupabase from './characterStoreSupabase'
 import { getDefaultCharIdFromPrefs, setDefaultCharInPrefs } from './moduleStore'
+import { CURRENCY_CONFIG, getCurrencyById, getCurrencyDisplayName } from '../data/currencyConfig'
 
 const STORAGE_KEY = 'starlight_characters'
+
+function normalizeWalletAmount(currencyId, value) {
+  const n = Math.max(0, Number(value) || 0)
+  if (currencyId === 'gem_lb') return n
+  return Math.floor(n)
+}
+
+/**
+ * 钱包数字 -> 背包货币堆（walletCurrencyId，且不在次元袋）。
+ * 目标：货币始终可作为有重量的实体条目参与拖拽/负重。
+ */
+function syncWalletCurrencyEntries(wallet, inventory) {
+  const inv = Array.isArray(inventory) ? inventory : []
+  const nextWallet = wallet && typeof wallet === 'object' ? wallet : {}
+  const kept = inv.filter((e) => !(e?.walletCurrencyId && !e?.inBagOfHolding))
+  const out = [...kept]
+
+  for (const cfg of CURRENCY_CONFIG) {
+    const cid = cfg.id
+    const qty = normalizeWalletAmount(cid, nextWallet[cid])
+    if (qty <= 0) continue
+    const existing = inv.find((e) => e?.walletCurrencyId === cid && !e?.inBagOfHolding)
+    const label = getCurrencyDisplayName(getCurrencyById(cid)) || cfg.name || cid
+    out.push({
+      id: existing?.id || `inv_${crypto.randomUUID()}`,
+      name: label,
+      walletCurrencyId: cid,
+      qty,
+      inBagOfHolding: false,
+      bagModuleId: undefined,
+      bagSlotId: undefined,
+    })
+  }
+  return out
+}
+
+function normalizeCharacterCurrencyInventory(character) {
+  if (!character || typeof character !== 'object') return character
+  const wallet = character.wallet ?? {}
+  const inventory = character.inventory ?? []
+  return {
+    ...character,
+    inventory: syncWalletCurrencyEntries(wallet, inventory),
+  }
+}
 
 /** Supabase 启用时的内存缓存（按当前加载的 owner/module 过滤后列表） */
 let charactersCache = []
@@ -88,7 +134,7 @@ export function getCharacters(ownerName, isAdmin, moduleId) {
     let out = charactersCache
     if (!isAdmin && ownerName) out = out.filter((c) => c.owner === ownerName)
     if (moduleId != null && moduleId !== '') out = out.filter((c) => (c.moduleId ?? 'default') === moduleId)
-    return out
+    return out.map((c) => normalizeCharacterCurrencyInventory(c))
   }
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
@@ -97,7 +143,7 @@ export function getCharacters(ownerName, isAdmin, moduleId) {
     if (moduleId != null && moduleId !== '') {
       out = out.filter((c) => (c.moduleId ?? 'default') === moduleId)
     }
-    return out
+    return out.map((c) => normalizeCharacterCurrencyInventory(c))
   } catch {
     return []
   }
@@ -106,27 +152,33 @@ export function getCharacters(ownerName, isAdmin, moduleId) {
 /** 获取所有角色（可按模组过滤） */
 export function getAllCharacters(moduleId) {
   if (isSupabaseEnabled()) {
-    if (moduleId != null && moduleId !== '') return charactersCache.filter((c) => (c.moduleId ?? 'default') === moduleId)
-    return charactersCache
+    if (moduleId != null && moduleId !== '') {
+      return charactersCache.filter((c) => (c.moduleId ?? 'default') === moduleId).map((c) => normalizeCharacterCurrencyInventory(c))
+    }
+    return charactersCache.map((c) => normalizeCharacterCurrencyInventory(c))
   }
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     const list = raw ? JSON.parse(raw) : []
     if (moduleId != null && moduleId !== '') {
-      return list.filter((c) => (c.moduleId ?? 'default') === moduleId)
+      return list.filter((c) => (c.moduleId ?? 'default') === moduleId).map((c) => normalizeCharacterCurrencyInventory(c))
     }
-    return list
+    return list.map((c) => normalizeCharacterCurrencyInventory(c))
   } catch {
     return []
   }
 }
 
 export function getCharacter(id) {
-  if (isSupabaseEnabled()) return charactersCache.find((c) => c.id === id) ?? null
+  if (isSupabaseEnabled()) {
+    const c = charactersCache.find((x) => x.id === id) ?? null
+    return c ? normalizeCharacterCurrencyInventory(c) : null
+  }
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     const list = raw ? JSON.parse(raw) : []
-    return list.find((c) => c.id === id) ?? null
+    const c = list.find((x) => x.id === id) ?? null
+    return c ? normalizeCharacterCurrencyInventory(c) : null
   } catch {
     return null
   }
@@ -214,6 +266,7 @@ export function addCharacter(ownerName, data = {}) {
     createdAt: now,
     updatedAt: now,
   }
+  character.inventory = syncWalletCurrencyEntries(character.wallet, character.inventory)
   if (isSupabaseEnabled()) {
     return charSupabase.insertCharacter(character).then((inserted) => {
       charactersCache.push(inserted)
@@ -228,8 +281,20 @@ export function addCharacter(ownerName, data = {}) {
 }
 
 export function updateCharacter(id, patch) {
+  const buildNormalizedPatch = (base, p) => {
+    const nextPatch = { ...p }
+    if ('wallet' in p || 'inventory' in p) {
+      const wallet = p.wallet ?? base?.wallet ?? {}
+      const inventory = p.inventory ?? base?.inventory ?? []
+      nextPatch.inventory = syncWalletCurrencyEntries(wallet, inventory)
+    }
+    return nextPatch
+  }
+
   if (isSupabaseEnabled()) {
-    return charSupabase.updateCharacterRow(id, patch).then((updated) => {
+    const base = charactersCache.find((c) => c.id === id) ?? null
+    const normalizedPatch = buildNormalizedPatch(base, patch)
+    return charSupabase.updateCharacterRow(id, normalizedPatch).then((updated) => {
       if (updated) {
         const idx = charactersCache.findIndex((c) => c.id === id)
         if (idx >= 0) charactersCache[idx] = updated
@@ -241,7 +306,8 @@ export function updateCharacter(id, patch) {
   const list = raw ? JSON.parse(raw) : []
   const idx = list.findIndex((c) => c.id === id)
   if (idx === -1) return null
-  list[idx] = { ...list[idx], ...patch, updatedAt: new Date().toISOString() }
+  const normalizedPatch = buildNormalizedPatch(list[idx], patch)
+  list[idx] = { ...list[idx], ...normalizedPatch, updatedAt: new Date().toISOString() }
   saveCharacters(list)
   return list[idx]
 }

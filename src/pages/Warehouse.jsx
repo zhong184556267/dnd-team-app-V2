@@ -11,13 +11,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useModule } from '../contexts/ModuleContext'
 import { logTeamActivity } from '../lib/activityLog'
 import { getItemById, getItemDisplayName } from '../data/itemDatabase'
-import { CURRENCY_CONFIG, getCurrencyById, getCurrencyDisplayName } from '../data/currencyConfig'
-import { getTeamVault, loadTeamVaultIntoCache } from '../lib/currencyStore'
-import {
-  DND_TEAM_VAULT_CURRENCY_MIME,
-  parseTeamVaultCurrencyDragPayload,
-  depositVaultCurrencyToPublicBag,
-} from '../lib/teamCurrencyPublicBags'
+import { getCurrencyById, getCurrencyDisplayName } from '../data/currencyConfig'
 import { getWarehouse, loadWarehouseIntoCache, addToWarehouse, removeFromWarehouse, updateWarehouseItem, reorderWarehouse, setWarehouse } from '../lib/warehouseStore'
 import { getCraftingProjects, updateCraftingProject } from '../lib/craftingStore'
 import {
@@ -53,7 +47,6 @@ export default function Warehouse() {
   const [transferHint, setTransferHint] = useState('')
   const [editingIndex, setEditingIndex] = useState(null)
   const [charRefresh, setCharRefresh] = useState(0)
-  const [vaultTick, setVaultTick] = useState(0)
 
   const characters = useMemo(() => {
     void charRefresh
@@ -84,21 +77,13 @@ export default function Warehouse() {
     let cancelled = false
     const load = async () => {
       await loadWarehouseIntoCache(currentModuleId)
-      await loadTeamVaultIntoCache(currentModuleId)
       if (!cancelled) {
         setList(getWarehouse(currentModuleId))
-        setVaultTick((x) => x + 1)
       }
     }
     load()
     return () => { cancelled = true }
   }, [currentModuleId])
-
-  useEffect(() => {
-    const h = () => setVaultTick((x) => x + 1)
-    window.addEventListener('dnd-realtime-team-vault', h)
-    return () => window.removeEventListener('dnd-realtime-team-vault', h)
-  }, [])
 
   useEffect(() => {
     const h = () => {
@@ -111,17 +96,6 @@ export default function Warehouse() {
   }, [currentModuleId])
 
   const refreshList = () => setList(getWarehouse(currentModuleId))
-
-  /** 团队金库余额 → 储物栏顶部展示的虚拟行（数量只读，在「货币与金库」修改） */
-  const teamVault = useMemo(() => {
-    void vaultTick
-    return getTeamVault(currentModuleId)
-  }, [currentModuleId, vaultTick])
-
-  const vaultWarehouseRows = useMemo(
-    () => CURRENCY_CONFIG.filter((c) => (Number(teamVault[c.id]) || 0) > 0).map((c) => ({ currencyId: c.id, qty: Number(teamVault[c.id]) || 0 })),
-    [teamVault],
-  )
 
   /** 公家次元袋行 → 团队储物栏（与角色背包拖动物品逻辑一致：使用独立 MIME + copyMove） */
   function moveBagItemToWarehouse(charId, invIdx) {
@@ -634,50 +608,6 @@ export default function Warehouse() {
     e.stopPropagation()
     const craftRaw = e.dataTransfer.getData(DND_CRAFT_COMPLETED_MIME)
     const craftPayload = parseCraftCompletedDragPayload(craftRaw)
-    const vaultCurRaw = e.dataTransfer.getData(DND_TEAM_VAULT_CURRENCY_MIME)
-    const vaultCurPayload = parseTeamVaultCurrencyDragPayload(vaultCurRaw)
-    if (vaultCurPayload) {
-      const mod = currentModuleId ?? 'default'
-      if (vaultCurPayload.moduleId !== mod) {
-        alert('数据不属于当前模组')
-        return
-      }
-      setTransferHint('正在将金库货币移入次元袋…')
-      Promise.resolve(
-        depositVaultCurrencyToPublicBag(
-          currentModuleId,
-          charId,
-          moduleId,
-          vaultCurPayload.currencyId,
-          vaultCurPayload.qty,
-        ),
-      )
-        .then((r) => {
-          if (!r.success) {
-            alert(r.error || '移入次元袋失败')
-            return
-          }
-          if (user?.name) {
-            const ch = getCharacter(charId)
-            const cfg = getCurrencyById(vaultCurPayload.currencyId)
-            const cname = cfg ? getCurrencyDisplayName(cfg) : vaultCurPayload.currencyId
-            logTeamActivity({
-              actor: user.name,
-              moduleId: currentModuleId,
-              summary: `玩家 ${user.name} 将团队金库「${cname}」×${vaultCurPayload.qty} 移入了「${ch?.name || '未命名'}」的公家次元袋`,
-            })
-          }
-          setVaultTick((x) => x + 1)
-          setCharRefresh((x) => x + 1)
-        })
-        .catch((err) => {
-          console.error('[Warehouse] 金库货币移入次元袋失败', err)
-          alert('移入失败，请重试')
-        })
-        .finally(() => setTransferHint(''))
-      return
-    }
-
     if (craftPayload) {
       const mod = currentModuleId ?? 'default'
       if (craftPayload.moduleId !== mod) {
@@ -810,7 +740,6 @@ export default function Warehouse() {
         团队仓库
       </h1>
 
-      {/* 货币与金库 */}
       <section className="mb-6">
         <h2 className="text-dnd-text-muted text-sm font-medium mb-3 uppercase tracking-wider">货币与金库</h2>
         <CurrencyPanel />
@@ -1146,59 +1075,13 @@ export default function Warehouse() {
                 onDragOverCapture={handleDragOver}
                 onDrop={handleWarehouseTableDrop}
               >
-                {vaultWarehouseRows.map(({ currencyId, qty: vQty }) => {
-                  const cfg = getCurrencyById(currencyId)
-                  const label = cfg ? getCurrencyDisplayName(cfg) : currencyId
-                  const modId = currentModuleId ?? 'default'
-                  return (
-                    <tr
-                      key={`team-vault-${currencyId}`}
-                      className="border-t border-white/10 bg-amber-950/20 hover:bg-amber-950/28 cursor-grab active:cursor-grabbing"
-                      style={{ height: 48, minHeight: 48, maxHeight: 48 }}
-                      draggable
-                      title="拖到上方「公家次元袋」卡片：从账面移入袋内，仍计入团队金库合计"
-                      onDragStart={(e) => {
-                        e.dataTransfer.setData(
-                          DND_TEAM_VAULT_CURRENCY_MIME,
-                          JSON.stringify({ moduleId: modId, currencyId, qty: vQty }),
-                        )
-                        e.dataTransfer.setData('text/plain', `dnd-vault-currency:${currencyId}:${vQty}`)
-                        e.dataTransfer.effectAllowed = 'copy'
-                        e.currentTarget.classList.add('opacity-60')
-                      }}
-                      onDragEnd={(e) => e.currentTarget.classList.remove('opacity-60')}
-                    >
-                      <td className="py-1 px-4 align-middle text-center text-dnd-text-muted text-[10px]" style={{ height: 48, maxHeight: 48 }}>
-                        <span className="inline-flex justify-center" title="拖拽">
-                          <GripVertical className="w-3.5 h-3.5" />
-                        </span>
-                      </td>
-                      <td className="py-1 px-4 text-dnd-gold-light/95 font-medium align-middle text-left overflow-hidden" style={{ height: 48, maxHeight: 48 }}>
-                        <span className="block text-[10px] text-dnd-text-muted font-normal leading-tight">团队金库</span>
-                        <span className="truncate block max-w-full">{label}</span>
-                      </td>
-                      <td className="py-1 px-2 border-l border-white/10 align-middle text-center text-dnd-text-muted text-xs" style={{ height: 48, maxHeight: 48 }}>
-                        —
-                      </td>
-                      <td className="inventory-table-cell-brief py-1 px-4 text-dnd-text-muted text-[11px] border-l border-white/10 align-middle text-left" style={{ height: 48, maxHeight: 48 }}>
-                        账面余额；可在「货币与金库」调整，或拖入公家次元袋（仍计团队金库）。
-                      </td>
-                      <td className="py-1 px-2 border-l border-white/10 align-middle text-center text-dnd-text-body text-xs tabular-nums" style={{ height: 48, maxHeight: 48 }}>
-                        {vQty}
-                      </td>
-                      <td className="py-1 px-1 border-l border-white/10 align-middle text-center text-dnd-text-muted text-[10px]" style={{ height: 48, maxHeight: 48 }}>
-                        —
-                      </td>
-                    </tr>
-                  )
-                })}
-                {list.length === 0 && vaultWarehouseRows.length === 0 ? (
+                {list.length === 0 ? (
                   <tr className="border-t border-white/10">
                     <td
                       colSpan={6}
                       className="py-8 px-4 text-center text-dnd-text-muted text-[11px] align-middle border-2 border-dashed border-dnd-gold/20 bg-[#151c28]/25"
                     >
-                      团队储物栏暂无物品与金库余额。可在「货币与金库」入账，或从公家次元袋拖入物品。
+                      团队储物栏暂无物品。可从公家次元袋拖入物品。
                     </td>
                   </tr>
                 ) : null}
@@ -1281,12 +1164,6 @@ export default function Warehouse() {
                   <tr className="border-t border-dashed border-dnd-gold/25 bg-[#151c28]/30">
                     <td colSpan={6} className="py-3 px-3 text-center text-dnd-text-muted text-[10px] align-middle">
                       释放在上方任意实体物品行或本区域 → 移至列表末尾（末尾同名则合并）
-                    </td>
-                  </tr>
-                ) : vaultWarehouseRows.length > 0 ? (
-                  <tr className="border-t border-dashed border-white/10 bg-[#151c28]/20">
-                    <td colSpan={6} className="py-2.5 px-3 text-center text-dnd-text-muted text-[10px] align-middle">
-                      暂无实体物品。货币行为账面金库；可拖入公家次元袋，合计仍见「货币与金库」。
                     </td>
                   </tr>
                 ) : null}

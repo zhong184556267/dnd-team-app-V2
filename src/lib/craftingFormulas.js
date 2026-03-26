@@ -13,10 +13,12 @@ export function calcXpFromCraftCostGp(costGp) {
   return Math.floor(n * CRAFT_XP_RATE)
 }
 
-/** 从消耗金额字符串解析数字（如 "500 GP" -> 500） */
+/** 从消耗金额字符串解析数字（如 "500 GP" -> 500）；兼容纯数字存档 */
 export function parseCostFromString(str) {
-  if (!str || typeof str !== 'string') return 0
-  const m = str.trim().match(/[\d.]+/)
+  if (str == null || str === '') return 0
+  if (typeof str === 'number' && Number.isFinite(str)) return Math.max(0, str)
+  const s = String(str).trim()
+  const m = s.match(/[\d.]+/)
   return m ? parseFloat(m[0]) || 0 : 0
 }
 

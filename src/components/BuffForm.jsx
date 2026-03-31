@@ -3,9 +3,22 @@ import { Trash2, Plus, ChevronDown } from 'lucide-react'
 import { BUFF_TYPES, getCategories, normalizeEffectCategory, DAMAGE_TYPES, CONDITION_OPTIONS, ABILITY_KEYS, ADVANTAGE_OPTIONS, PIERCING_DAMAGE_OPTIONS, DAMAGE_DICE_ARROW_OPTIONS, DICE_SIDES_OPTIONS, parseDamageString } from '../data/buffTypes'
 import { SAVE_NAMES, SKILLS } from '../data/dndSkills'
 import { SPELLS, getWandScrollSpellPower } from '../data/spellDatabase'
-import { inputClass, textareaClass } from '../lib/inputStyles'
+import { inputClass, inputClassInline, textareaClass } from '../lib/inputStyles'
+import DragHandleIcon from './DragHandleIcon'
+import {
+  BUFF_SOURCE_KIND_OPTIONS_EDITABLE,
+  normalizeBuffSourceKindKey,
+  getBuffSourceKindLabel,
+} from '../lib/buffSourceKind'
 
 const ABILITY_LABELS = { str: '力量', dex: '敏捷', con: '体质', int: '智力', wis: '感知', cha: '魅力' }
+
+function resolveInitialSourceKind(initial, defaultSourceKind) {
+  if (initial?.sourceKind != null && String(initial.sourceKind).trim() !== '') {
+    return normalizeBuffSourceKindKey(initial.sourceKind)
+  }
+  return normalizeBuffSourceKindKey(defaultSourceKind ?? 'adventure')
+}
 
 /** 专注增强旧文案转对象（兼容历史数据） */
 function normalizeConcentrationSaveEnhanceValue(value) {
@@ -108,16 +121,27 @@ function isComplexValueType(currentEffect) {
   )
 }
 
-/** 从 plus 字符串如 "1d6"、"2d6" 解析出骰数 count 与面数 sides；minusStepper 时步进器显示 count */
+/** 从 plus 如 "1d6"、"2d6+5"、"13d6-2" 解析骰数、面数、固定加值（加值步进器用） */
 function parseDiceFromPlus(plus) {
-  if (!plus || typeof plus !== 'string') return { count: 1, sides: 6 }
-  const m = plus.trim().match(/^(\d*)d(\d+)$/i)
-  if (!m) return { count: 1, sides: 6 }
+  if (!plus || typeof plus !== 'string') return { count: 1, sides: 6, flatMod: 0 }
+  const m = plus.trim().match(/^(\d*)d(\d+)([+-]\d+)?$/i)
+  if (!m) return { count: 1, sides: 6, flatMod: 0 }
   const count = Math.max(1, parseInt(m[1], 10) || 1)
   const sides = parseInt(m[2], 10) || 6
+  const flatMod = m[3] ? parseInt(m[3], 10) : 0
   const allowedSides = [4, 6, 8, 10, 12]
   const sidesNorm = allowedSides.includes(sides) ? sides : 6
-  return { count, sides: sidesNorm }
+  return { count, sides: sidesNorm, flatMod: Number.isFinite(flatMod) ? flatMod : 0 }
+}
+
+function buildPlusFromDiceParts(count, sides, flatMod) {
+  const c = Math.max(1, Number(count) || 1)
+  const s = Number(sides) || 6
+  const base = c >= 1 && s >= 4 ? `${c}d${s}` : ''
+  if (!base) return ''
+  const fm = Number(flatMod) || 0
+  if (fm === 0) return base
+  return `${base}${fm > 0 ? '+' : ''}${fm}`
 }
 
 /** 伤害模块一行：narrowBlocks 更窄块宽；evenSpacing 统一间隔；unifiedColor 同色基线对齐；evenSpread 时占满宽度且模块内均分平铺 */
@@ -127,18 +151,26 @@ function DamageDiceInlineRow({ value, onChange, module, compact, minusStepper, t
   const raw = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
   const plus = raw.plus ?? parsed.plus ?? ''
   const type = raw.type ?? parsed.type ?? ''
-  const { count: diceCount, sides: diceSides } = parseDiceFromPlus(plus)
+  const o3 = raw.o3 ?? parsed.o3 ?? ''
+  const { count: diceCount, sides: diceSides, flatMod: diceFlatMod } = parseDiceFromPlus(plus)
   const update = (part, v) => {
     const base = isLegacy ? parseDamageString(value || '') : { ...raw }
     const next = { ...base, [part]: v, minus: '' }
     onChange({ ...module, value: next })
   }
   const setDice = (count, sides) => {
-    const newPlus = count >= 1 && sides >= 4 ? `${count}d${sides}` : ''
-    update('plus', newPlus)
+    const fm = parseDiceFromPlus(plus).flatMod
+    update('plus', buildPlusFromDiceParts(count, sides, fm))
+  }
+  const setFlatMod = (fm) => {
+    update('plus', buildPlusFromDiceParts(diceCount, diceSides, fm))
   }
   const rowH = compact ? 'h-7' : 'h-8'
   const selCls = compact ? (inputClass + ' h-7 text-xs px-1 pr-4') : (inputClass + ' h-8 text-sm px-1 pr-4')
+  const noteInputCls =
+    inputClassInline.replace(/\bh-10\b/, rowH).replace(/\brounded-lg\b/, 'rounded-md') +
+    ' shrink-0 min-w-[3rem] w-[5rem] max-w-[9rem] px-2 py-0 border-gray-500/60 bg-gray-800/90 focus:ring-amber-500/40 ' +
+    (compact ? 'text-xs' : 'text-sm')
   const labelCls = unifiedColor ? 'text-gray-200 shrink-0 text-xs' : ('text-dnd-text-muted shrink-0 ' + (compact ? 'text-[11px]' : 'text-xs'))
   const selColorCls = unifiedColor ? ' text-gray-200' : ''
   const sidesValue = DICE_SIDES_OPTIONS.some((o) => o.value === diceSides) ? diceSides : (diceSides || 6)
@@ -178,6 +210,19 @@ function DamageDiceInlineRow({ value, onChange, module, compact, minusStepper, t
           ))}
         </select>
       </div>
+      {/* 固定加值（XdY+N），在 dX 与伤害类型之间；与项目「数字输入」NumberStepper 一致 */}
+      <div className={`flex items-center shrink-0 ${rowH}`} style={stepperBlockStyle} title="伤害加值（如 +5，与骰子合计为总伤害骰部分）">
+        <NumberStepper
+          value={diceFlatMod}
+          onChange={setFlatMod}
+          min={-99}
+          max={99}
+          step={1}
+          compact={compact}
+          narrow={narrowBlocks}
+          unifiedColor={unifiedColor}
+        />
+      </div>
       {/* 伤害类型：evenSpacing 时缩小左右内边距以完整显示二字类型 */}
       <div className={`flex items-center ${selectWrapperCls} ${rowH}`} style={!evenSpacing ? selectBlockStyle : undefined}>
         <select value={type} onChange={(e) => update('type', e.target.value)} className={selCls + selCenter + selColorCls + ' w-full min-w-0 h-full ' + selectPad} title="伤害类型">
@@ -186,6 +231,16 @@ function DamageDiceInlineRow({ value, onChange, module, compact, minusStepper, t
             <option key={d.value} value={d.label}>{d.label}</option>
           ))}
         </select>
+      </div>
+      <div className={`flex items-center shrink-0 min-w-0 ${rowH}`} title="附注（写入攻击字段末尾「 #…」）">
+        <input
+          type="text"
+          value={o3}
+          onChange={(e) => update('o3', e.target.value)}
+          className={noteInputCls + selColorCls}
+          placeholder="附注"
+          maxLength={80}
+        />
       </div>
     </div>
   )
@@ -455,7 +510,7 @@ function EffectValueEditor({
     if (currentEffect?.key === 'extra_damage_dice' || needsSubSelect === 'damageDiceInline') {
       return (
         <>
-          <div className="min-w-0 col-span-3">
+          <div className="min-w-0 w-full">
             <DamageDiceInlineRow value={value} onChange={onChange} module={module} compact />
           </div>
         </>
@@ -469,7 +524,7 @@ function EffectValueEditor({
             value={isCustom ? customText : textDisplay}
             onChange={(e) => onChange(isCustom ? { ...module, customText: e.target.value } : { ...module, value: e.target.value })}
             placeholder={isCustom ? '描述...' : '填写...'}
-            className={compactClass + ' w-full min-w-0 col-span-3'}
+            className={compactClass + ' w-full min-w-0'}
           />
         </>
       )
@@ -519,30 +574,32 @@ function EffectValueEditor({
     }
     if (needsSubSelect === 'abilityScoresAndAdvantage') {
       return (
-        <>
-          <select
-            value={selectedAbilityId}
-            onChange={(e) => {
-              const nextKey = e.target.value
-              const obj = (value && typeof value === 'object' && !Array.isArray(value)) ? value : {}
-              const currentVal = selectedAbilityId === 'all'
-                ? (Number(obj[ABILITY_KEYS.find((k) => obj[k] != null) || ABILITY_KEYS[0]]) || 0)
-                : (Number(obj[selectedAbilityId]) || 0)
-              const base = {}
-              if (obj.advantage != null) base.advantage = obj.advantage
-              if (nextKey === 'all') ABILITY_KEYS.forEach((k) => { base[k] = currentVal })
-              else base[nextKey] = currentVal
-              setSelectedAbilityId(nextKey)
-              onChange({ ...module, value: base })
-            }}
-            className={compactClass + ' w-full min-w-0 h-7'}
-          >
-            <option value="all">全属性</option>
-            {ABILITY_KEYS.map((k) => (
-              <option key={k} value={k}>{(module.effectType === 'save_bonus' ? SAVE_NAMES[k] : ABILITY_LABELS[k]) ?? k}</option>
-            ))}
-          </select>
-          <div className="min-w-0">
+        <div className="flex min-h-7 w-full min-w-0 flex-nowrap items-stretch gap-1">
+          <div className="min-w-0 basis-0 flex-[2.5]">
+            <select
+              value={selectedAbilityId}
+              onChange={(e) => {
+                const nextKey = e.target.value
+                const obj = (value && typeof value === 'object' && !Array.isArray(value)) ? value : {}
+                const currentVal = selectedAbilityId === 'all'
+                  ? (Number(obj[ABILITY_KEYS.find((k) => obj[k] != null) || ABILITY_KEYS[0]]) || 0)
+                  : (Number(obj[selectedAbilityId]) || 0)
+                const base = {}
+                if (obj.advantage != null) base.advantage = obj.advantage
+                if (nextKey === 'all') ABILITY_KEYS.forEach((k) => { base[k] = currentVal })
+                else base[nextKey] = currentVal
+                setSelectedAbilityId(nextKey)
+                onChange({ ...module, value: base })
+              }}
+              className={compactClass + ' h-7 w-full min-w-0 max-w-full'}
+            >
+              <option value="all">全属性</option>
+              {ABILITY_KEYS.map((k) => (
+                <option key={k} value={k}>{(module.effectType === 'save_bonus' ? SAVE_NAMES[k] : ABILITY_LABELS[k]) ?? k}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex shrink-0 items-center">
             <NumberStepper
               value={(typeof value === 'object' && value && selectedAbilityId !== 'all' && value[selectedAbilityId] != null ? value[selectedAbilityId] : 0) ?? 0}
               onChange={(v) => {
@@ -557,33 +614,38 @@ function EffectValueEditor({
                 onChange({ ...module, value: base })
               }}
               compact
+              narrow
             />
           </div>
-          <select
-            value={(typeof value === 'object' && value && value.advantage != null ? value.advantage : '') ?? ''}
-            onChange={(e) => onChange({ ...module, value: { ...(typeof value === 'object' && value && !Array.isArray(value) ? value : {}), advantage: e.target.value } })}
-            className={compactClass + ' w-full min-w-0 h-7'}
-          >
-            {ADVANTAGE_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-        </>
+          <div className="min-w-0 basis-0 flex-[2]">
+            <select
+              value={(typeof value === 'object' && value && value.advantage != null ? value.advantage : '') ?? ''}
+              onChange={(e) => onChange({ ...module, value: { ...(typeof value === 'object' && value && !Array.isArray(value) ? value : {}), advantage: e.target.value } })}
+              className={compactClass + ' h-7 w-full min-w-0 max-w-full'}
+            >
+              {ADVANTAGE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+        </div>
       )
     }
     if (needsSubSelect === 'skillsAndAdvantage') {
       return (
-        <>
-          <select
-            value={selectedSkillId}
-            onChange={(e) => setSelectedSkillId(e.target.value)}
-            className={compactClass + ' w-full min-w-0 h-7'}
-          >
-            {SKILLS.map((sk) => (
-              <option key={sk.id} value={sk.id}>{sk.name}</option>
-            ))}
-          </select>
-          <div className="min-w-0">
+        <div className="flex min-h-7 w-full min-w-0 flex-nowrap items-stretch gap-1">
+          <div className="min-w-0 basis-0 flex-[2.5]">
+            <select
+              value={selectedSkillId}
+              onChange={(e) => setSelectedSkillId(e.target.value)}
+              className={compactClass + ' h-7 w-full min-w-0 max-w-full'}
+            >
+              {SKILLS.map((sk) => (
+                <option key={sk.id} value={sk.id}>{sk.name}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex shrink-0 items-center">
             <NumberStepper
               value={(typeof value === 'object' && value && value[selectedSkillId] != null ? value[selectedSkillId] : 0) ?? 0}
               onChange={(v) => {
@@ -592,18 +654,21 @@ function EffectValueEditor({
                 onChange({ ...module, value: base })
               }}
               compact
+              narrow
             />
           </div>
-          <select
-            value={(typeof value === 'object' && value && value.advantage != null ? value.advantage : '') ?? ''}
-            onChange={(e) => onChange({ ...module, value: { ...(typeof value === 'object' && value && !Array.isArray(value) ? value : {}), advantage: e.target.value } })}
-            className={compactClass + ' w-full min-w-0 h-7'}
-          >
-            {ADVANTAGE_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-        </>
+          <div className="min-w-0 basis-0 flex-[2]">
+            <select
+              value={(typeof value === 'object' && value && value.advantage != null ? value.advantage : '') ?? ''}
+              onChange={(e) => onChange({ ...module, value: { ...(typeof value === 'object' && value && !Array.isArray(value) ? value : {}), advantage: e.target.value } })}
+              className={compactClass + ' h-7 w-full min-w-0 max-w-full'}
+            >
+              {ADVANTAGE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+        </div>
       )
     }
     if (isNumber) {
@@ -700,7 +765,7 @@ function EffectValueEditor({
         : { bonus: typeof value === 'number' ? value : 0, proficient: false }
       const bon = typeof ib.bonus === 'number' ? ib.bonus : (parseInt(ib.bonus, 10) || 0)
       return (
-        <div className="flex items-center gap-1.5 flex-nowrap col-span-2">
+        <div className="flex w-full min-w-0 flex-nowrap items-center gap-1.5">
           <NumberStepper
             value={bon}
             onChange={(v) => onChange({ ...module, value: { ...ib, bonus: v } })}
@@ -1251,9 +1316,13 @@ function EffectValueEditor({
   )
 }
 
-export default function BuffForm({ initial, onSave, onCancel, spellDC, spellAttackBonus, useWandScrollTable }) {
+export default function BuffForm({ initial, onSave, onCancel, defaultSourceKind, spellDC, spellAttackBonus, useWandScrollTable }) {
+  const sourceKindLocked = !!(initial?.fromFeat || initial?.fromItem)
   const [source, setSource] = useState(initial?.source ?? '')
   const [duration, setDuration] = useState(initial?.duration ?? '')
+  const [sourceKind, setSourceKind] = useState(() =>
+    sourceKindLocked ? normalizeBuffSourceKindKey('adventure') : resolveInitialSourceKind(initial, defaultSourceKind),
+  )
   const [effectModules, setEffectModules] = useState(() => normalizeInitialEffects(initial))
 
   const handleSubmit = (e) => {
@@ -1273,14 +1342,18 @@ export default function BuffForm({ initial, onSave, onCancel, spellDC, spellAtta
       }
       return { category: mod.category, effectType, value: val }
     }).filter((ef) => ef.effectType)
-    if (!effects.length) return
-    onSave({
+    if (!effects.length && !initial?.fromFeat) return
+    const payload = {
       ...initial,
       source: source.trim(),
       duration: duration.trim() || undefined,
       effects,
-      enabled: true,
-    })
+      enabled: initial?.enabled !== false,
+    }
+    if (!initial?.fromFeat && !initial?.fromItem) {
+      payload.sourceKind = normalizeBuffSourceKindKey(sourceKind)
+    }
+    onSave(payload)
   }
 
   const addModule = () => {
@@ -1326,6 +1399,35 @@ export default function BuffForm({ initial, onSave, onCancel, spellDC, spellAtta
       </div>
 
       <div>
+        <label className="block text-dnd-gold-light text-xs font-bold uppercase tracking-wider mb-1">来源归类</label>
+        {sourceKindLocked ? (
+          <div
+            className={
+              inputClass +
+              ' flex items-center h-10 cursor-default bg-gray-900/50 text-gray-300 border-gray-600/80'
+            }
+            title="专长与装备由系统自动归类，不可修改"
+          >
+            <span>{getBuffSourceKindLabel(initial)}</span>
+            <span className="ml-2 text-[10px] font-normal text-gray-500 tracking-normal">自动</span>
+          </div>
+        ) : (
+          <select
+            value={sourceKind}
+            onChange={(e) => setSourceKind(normalizeBuffSourceKindKey(e.target.value))}
+            className={inputClass + ' cursor-pointer'}
+            title="Buff 在列表中的小标签归类"
+          >
+            {BUFF_SOURCE_KIND_OPTIONS_EDITABLE.map((o) => (
+              <option key={o.key} value={o.key}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
+
+      <div>
         <div className="flex items-center justify-between mb-0.5">
           <label className="block text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider">效果（可多条）</label>
           <button type="button" onClick={addModule} className="flex items-center gap-1 px-1.5 py-0.5 rounded border border-amber-500 text-amber-400 hover:bg-amber-500/20 text-[10px] font-medium">
@@ -1345,7 +1447,10 @@ export default function BuffForm({ initial, onSave, onCancel, spellDC, spellAtta
             const complexValue = isComplexValueType(currentEffect)
             return (
               <div key={mod.id} className="rounded border border-gray-600 bg-gray-700/30 p-1.5 space-y-1">
-                <div className="grid grid-cols-[1fr_1fr_1fr_1fr_auto] items-center gap-2 w-full min-w-0">
+                <div className="grid grid-cols-[1.25rem_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-1 w-full min-w-0">
+                  <div className="flex items-center justify-center shrink-0 w-5 pointer-events-none select-none" aria-hidden>
+                    <DragHandleIcon className="w-3.5 h-3.5 text-dnd-text-muted opacity-70" />
+                  </div>
                   <div className="min-w-0">
                     <select
                       value={mod.category || ''}
@@ -1381,7 +1486,7 @@ export default function BuffForm({ initial, onSave, onCancel, spellDC, spellAtta
                     </select>
                   </div>
                   {!complexValue && (
-                    <div className="col-span-2 min-w-0 grid grid-cols-2 gap-2 items-center flex-nowrap overflow-x-auto">
+                    <div className="col-span-2 min-w-0 flex flex-nowrap items-center gap-1 overflow-hidden">
                       <EffectValueEditor
                         module={{ ...mod, effectType: effectiveEffectType }}
                         onChange={(next) => updateModule(mod.id, next)}

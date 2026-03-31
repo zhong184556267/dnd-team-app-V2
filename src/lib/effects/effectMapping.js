@@ -5,7 +5,114 @@
 
 import { EFFECT_SOURCE_KIND } from './effectModel'
 import { normalizeEffectCategory } from '../../data/buffTypes'
+import { FEATS } from '../../data/feats'
 import { getItemById, getItemDisplayName } from '../../data/itemDatabase'
+
+const FEAT_BY_ID = new Map(FEATS.map((x) => [x.id, x]))
+
+function normalizeSelectedFeatsForBuffs(character) {
+  const raw = character?.selectedFeats ?? []
+  if (!Array.isArray(raw)) return []
+  return raw
+    .map((f) => {
+      if (typeof f === 'string') return { featId: f, level: 1, sourceClass: '' }
+      const patch = f.featBuffPatch
+      return {
+        featId: f.featId ?? f.id ?? '',
+        level: Math.max(1, Math.min(20, Number(f.level) ?? 1)),
+        sourceClass: f.sourceClass ?? '',
+        featBuffPatch:
+          patch && typeof patch === 'object'
+            ? {
+                effects: Array.isArray(patch.effects) ? patch.effects : [],
+                ...(patch.duration != null && String(patch.duration).trim() !== ''
+                  ? { duration: String(patch.duration).trim() }
+                  : {}),
+                ...(patch.enabled === false ? { enabled: false } : {}),
+              }
+            : undefined,
+      }
+    })
+    .filter((x) => x.featId)
+}
+
+/**
+ * 根据合并后的 BUFF 列表写回专长行的 featBuffPatch（与 getBuffsFromSelectedFeats 的 id 规则一致）
+ * @param {Object} character
+ * @param {Array} buffsList - 含 fromFeat 的虚拟条
+ * @returns {Array} 新的 selectedFeats
+ */
+export function mergeFeatBuffPatchesFromMergedList(character, buffsList) {
+  const raw = character?.selectedFeats ?? []
+  if (!Array.isArray(raw)) return raw
+  const featBuffs = buffsList.filter((b) => b.fromFeat)
+  return raw.map((f, idx) => {
+    const featId = typeof f === 'string' ? f : (f?.featId ?? f?.id ?? '')
+    if (!featId) return f
+    const id = `feat_${idx}_${featId}`
+    const fb = featBuffs.find((b) => b.id === id)
+    if (!fb) return f
+
+    const base = typeof f === 'string' ? { featId, level: 1, sourceClass: '' } : { ...f }
+    const eff = Array.isArray(fb.effects) ? fb.effects : []
+    const durRaw = fb.duration
+    const dur = durRaw != null && String(durRaw).trim() !== '' ? String(durRaw).trim() : undefined
+    const en = fb.enabled !== false
+
+    const shouldClear = eff.length === 0 && !dur && en
+    if (shouldClear) {
+      if (typeof f === 'string') return f
+      const { featBuffPatch: _drop, ...rest } = base
+      return rest
+    }
+
+    const patch = { effects: eff.map((e) => ({ ...e })) }
+    if (dur) patch.duration = dur
+    if (!en) patch.enabled = false
+
+    return { ...base, featBuffPatch: patch }
+  })
+}
+
+/**
+ * 从角色已选专长生成虚拟 BUFF（栏内不展示规则原文；效果由用户在编辑中填写，存于 featBuffPatch）
+ * @param {Object} character
+ * @returns {Array<{ id: string, source: string, effects: Array, enabled: boolean, fromFeat: true, featId: string }>}
+ */
+export function getBuffsFromSelectedFeats(character) {
+  const rows = normalizeSelectedFeatsForBuffs(character)
+  const out = []
+  rows.forEach((item, index) => {
+    const def = FEAT_BY_ID.get(item.featId)
+    const name = def?.name ?? item.featId
+    const patch = item.featBuffPatch
+    const effects = Array.isArray(patch?.effects) && patch.effects.length ? patch.effects : []
+    const duration = patch?.duration
+    const enabled = patch?.enabled !== false
+    out.push({
+      id: `feat_${index}_${item.featId}`,
+      source: name,
+      effects,
+      ...(duration ? { duration } : {}),
+      enabled,
+      fromFeat: true,
+      featId: item.featId,
+    })
+  })
+  return out
+}
+
+/**
+ * 与角色卡 Buff 栏一致：专长虚拟条 + 手动 buff + 装备附魔。
+ * 凡调用 useBuffCalculator 且需与栏内数值一致处，应使用此列表（勿只合并 buffs + 装备而漏掉专长）。
+ */
+export function getMergedBuffsForCalculator(character) {
+  if (!character) return []
+  const manual = character.buffs ?? []
+  const fromFeats = getBuffsFromSelectedFeats(character)
+  const fromItems = getBuffsFromEquipmentAndInventory(character)
+  return [...fromFeats, ...manual, ...fromItems]
+}
 
 /**
  * 从 BUFF 对象取出 Effect 数组（兼容旧单条与新 effects 数组）

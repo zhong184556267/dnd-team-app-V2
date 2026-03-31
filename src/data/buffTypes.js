@@ -166,30 +166,46 @@ export const DAMAGE_DICE_ARROW_OPTIONS = [
   { value: '命中时', label: '命中时' },
 ]
 
-/** 从「1d6 穿刺」或「攻击」字符串解析出 { minus, plus, o1, o2, type, o3 }，用于回填伤害模块 */
+/** 从「1d6 穿刺」或「攻击」字符串解析出 { minus, plus, o1, o2, type, o3 }，用于回填伤害模块；末尾「 #附注」写入 o3 */
 export function parseDamageString(str) {
   if (!str || typeof str !== 'string') return { minus: '', plus: '', o1: '', o2: '', type: '', o3: '' }
-  const s = str.trim()
+  let s = str.trim()
+  let o3 = ''
+  const hashIdx = s.lastIndexOf(' #')
+  if (hashIdx >= 0) {
+    o3 = s.slice(hashIdx + 2).trim()
+    s = s.slice(0, hashIdx).trim()
+  }
+  if (!s) return { minus: '', plus: '', o1: '', o2: '', type: '', o3 }
   const withPlus = s.match(/^(\d*)\s*[+＋]\s*(\d*d\d+|\d+)\s*(.*)$/i)
   if (withPlus) {
-    return { minus: (withPlus[1] || '').trim(), plus: String(withPlus[2]).toLowerCase(), o1: '', o2: '', type: (withPlus[3] || '').trim(), o3: '' }
+    return { minus: (withPlus[1] || '').trim(), plus: String(withPlus[2]).toLowerCase(), o1: '', o2: '', type: (withPlus[3] || '').trim(), o3 }
   }
+  /** 2d6+5 钝击、13d6+13 闪电（骰子段可含末尾加值） */
+  const diceType = s.match(/^(\d*d\d+(?:[+-]\d+)?)\s+(.+)$/i)
+  if (diceType) return { minus: '', plus: String(diceType[1]).toLowerCase(), o1: '', o2: '', type: (diceType[2] || '').trim(), o3 }
   const simple = s.match(/^(\d*d\d+|\d+)\s+(.+)$/i)
-  if (simple) return { minus: '', plus: String(simple[1]).toLowerCase(), o1: '', o2: '', type: (simple[2] || '').trim(), o3: '' }
-  const diceOnly = s.match(/^(\d*d\d+)$/i)
-  if (diceOnly) return { minus: '', plus: String(diceOnly[1]).toLowerCase(), o1: '', o2: '', type: '', o3: '' }
-  return { minus: '', plus: '', o1: '', o2: '', type: s, o3: '' }
+  if (simple) return { minus: '', plus: String(simple[1]).toLowerCase(), o1: '', o2: '', type: (simple[2] || '').trim(), o3 }
+  const diceOnly = s.match(/^(\d*d\d+(?:[+-]\d+)?)$/i)
+  if (diceOnly) return { minus: '', plus: String(diceOnly[1]).toLowerCase(), o1: '', o2: '', type: '', o3 }
+  /** 仅存附注时经外层 .trim() 可能变成「#备注」 */
+  const onlyNote = s.match(/^#(.+)$/)
+  if (onlyNote) return { minus: '', plus: '', o1: '', o2: '', type: '', o3: (onlyNote[1] || '').trim() }
+  return { minus: '', plus: '', o1: '', o2: '', type: s, o3 }
 }
 
-/** 将伤害模块 value（parseDamageString 返回结构）格式化为「攻击」字段字符串，如 "1d6 穿刺"、"0+1d8 挥砍" */
+/** 将伤害模块 value（parseDamageString 返回结构）格式化为「攻击」字段字符串，如 "1d6 穿刺"、"0+1d8 挥砍"；o3 非空时追加「 #附注」 */
 export function formatDamageForAttack(obj) {
   if (!obj || typeof obj !== 'object') return ''
-  const { minus, plus, type } = obj
+  const { minus, plus, type, o3 } = obj
   const parts = []
   if (minus !== '' && minus !== undefined) parts.push(minus + '+')
   if (plus) parts.push(plus)
   if (type) parts.push(type)
-  return parts.join(' ').trim()
+  let out = parts.join(' ').trim()
+  const note = o3 != null && String(o3).trim() !== '' ? String(o3).trim() : ''
+  if (note) out = out ? `${out} #${note}` : `#${note}`
+  return out
 }
 
 /** 兼容旧 UI 的选项（仅用于迁移） */
@@ -277,6 +293,8 @@ export const BUFF_TYPES = {
       { key: 'resist_type', label: '伤害抗性', dataType: 'array', subSelect: 'damageType' },
       { key: 'immune_type', label: '伤害免疫', dataType: 'array', subSelect: 'damageType' },
       { key: 'vulnerable_type', label: '伤害易伤', dataType: 'array', subSelect: 'damageType' },
+      /** 固定值：每次受到伤害时再减去该数值（在免疫/易伤/抗性之后结算，见 useBuffCalculator.calculateDamage） */
+      { key: 'damage_reduction', label: '伤害减免', dataType: 'number' },
       { key: 'max_hp_bonus', label: '生命上限', dataType: 'number' },
       { key: 'condition_immunity', label: '状态免疫', dataType: 'array', subSelect: 'condition' },
     ],
@@ -347,11 +365,21 @@ export function getDamageTypeValue(labelOrValue) {
   return v.toLowerCase()
 }
 
+/** 英文或简写 value → 中文（与 CONDITION_OPTIONS 不重复列出） */
+const CONDITION_LABEL_EXTRA = {
+  poison: '中毒',
+  disease: '疾病',
+}
+
 /** 根据状态 value 返回中文 label */
 export function getConditionLabel(value) {
-  const v = String(value || '')
-  const found = CONDITION_OPTIONS.find((c) => c.value === v)
-  return found ? found.label : value
+  if (value == null || value === '') return ''
+  const v = String(value).trim()
+  const vl = v.toLowerCase()
+  const found = CONDITION_OPTIONS.find((c) => c.value === vl)
+  if (found) return found.label
+  if (CONDITION_LABEL_EXTRA[vl]) return CONDITION_LABEL_EXTRA[vl]
+  return v
 }
 
 /** 优势/劣势选项（用于 numberAndAdvantage 等）：普通、优势、劣势 */

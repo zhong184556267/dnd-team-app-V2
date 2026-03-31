@@ -351,9 +351,18 @@ function hitDieAverage(hd) {
  * 1 级：该职业 HD 满值 + CON 调整
  * 2 级起：每级 (HD 平均 + CON 调整)
  * 兼职：每个职业的首级取满值，后续取平均
+ *
+ * @param {object} [effectiveAbilities] 若传入 Buff/专长合并后的属性对象，用其中的 con 计算体质调整值；否则仅用 character.abilities.con
  */
-export function calcMaxHP(character) {
-  const conMod = abilityModifier(character?.abilities?.con ?? 10)
+export function calcMaxHP(character, effectiveAbilities = null) {
+  const baseCon = character?.abilities?.con ?? 10
+  const conScore =
+    effectiveAbilities != null &&
+    effectiveAbilities.con != null &&
+    !Number.isNaN(Number(effectiveAbilities.con))
+      ? Number(effectiveAbilities.con)
+      : Number(baseCon)
+  const conMod = abilityModifier(conScore)
   const classes = []
 
   const main = character?.['class']

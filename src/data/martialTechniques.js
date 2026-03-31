@@ -714,3 +714,34 @@ export function getMartialTechniqueById(id) {
   if (!id) return null
   return MARTIAL_TECHNIQUES.find((t) => t.id === id) || null
 }
+
+/** 架势类（可学习配额·架势槽） */
+export function isMartialStanceType(type) {
+  return type === '架势' || type === '架势技'
+}
+
+/** 攻击技（可学习配额·攻击技槽） */
+export function isMartialStrikeType(type) {
+  return type === '攻击技'
+}
+
+/**
+ * @param {'stance' | 'strike'} kind
+ * @param {string} style 流派；空串表示不限流派
+ */
+export function listMartialTechniquesForSlot(kind, style) {
+  const wantStance = kind === 'stance'
+  return MARTIAL_TECHNIQUES.filter((t) => {
+    if (style && t.style !== style) return false
+    if (wantStance) return isMartialStanceType(t.type)
+    return isMartialStrikeType(t.type)
+  })
+}
+
+/** 从库条目推断战斗区槽位类型（旧存档无 kind 时用） */
+export function inferMartialSlotKind(technique) {
+  if (!technique?.type) return 'other'
+  if (isMartialStanceType(technique.type)) return 'stance'
+  if (isMartialStrikeType(technique.type)) return 'strike'
+  return 'other'
+}

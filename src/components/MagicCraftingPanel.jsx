@@ -3,7 +3,8 @@
  * 选择类型、填写物品信息、推进制作进度，完成后可存入仓库或角色
  */
 import { useState, useEffect, useMemo, Fragment } from 'react'
-import { Package, Pencil, Trash2, GripVertical, Hammer, Plus } from 'lucide-react'
+import { Package, Pencil, Trash2, Hammer, Plus } from 'lucide-react'
+import DragHandleIcon from './DragHandleIcon'
 import {
   getCraftingProjects,
   addCraftingProject,
@@ -1048,7 +1049,7 @@ export default function MagicCraftingPanel() {
                   onDrop={(e) => { e.preventDefault(); if (dragIndex != null && dragIndex !== i) handleReorder(dragIndex, i); setDragIndex(null); }}
                 >
                   <td className="py-2 px-2 text-gray-500 align-middle" title="拖拽调整顺序">
-                    <GripVertical className="w-4 h-4 cursor-grab" />
+                    <DragHandleIcon className="w-4 h-4 cursor-grab" />
                   </td>
                   <td className="py-2 px-3 text-dnd-text-body align-middle">{typeLabel}</td>
                   <td className="py-2 px-3 text-white font-medium align-middle" title={p.物品名称 || '—'}>{p.物品名称 || '—'}</td>
@@ -1289,7 +1290,7 @@ export default function MagicCraftingPanel() {
                       onDragEnd={(e) => e.currentTarget.classList.remove('opacity-60')}
                     >
                       <td className="py-2 px-2 text-center align-middle text-dnd-text-muted">
-                        <GripVertical className={`w-4 h-4 mx-auto ${canDragToBag ? 'opacity-70' : 'opacity-25'}`} aria-hidden />
+                        <DragHandleIcon className={`w-4 h-4 mx-auto ${canDragToBag ? 'opacity-70' : 'opacity-25'}`} />
                       </td>
                       <td className="py-2 px-3 tabular-nums whitespace-nowrap">{formatCompleteTime(p.完成时间)}</td>
                       <td className={`py-2 px-3 font-medium ${deposited ? 'text-gray-500' : claimed ? 'text-gray-300' : 'text-white'}`}>{p.物品名称 || '—'}</td>

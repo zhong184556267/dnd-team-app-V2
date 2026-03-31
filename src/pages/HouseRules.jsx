@@ -270,6 +270,54 @@ export default function HouseRules() {
                         </ul>
                       </div>
                     )}
+                    {Array.isArray(data.martialProgress) && data.martialProgress.length > 0 && (
+                      <div className="mt-4 pt-3 border-t border-white/10">
+                        <p className="text-dnd-gold-light text-xs font-bold uppercase tracking-wider mb-2">武技进展表</p>
+                        <p className="text-dnd-text-muted text-[11px] mb-2 leading-relaxed">
+                          下列为该职业各进阶等级在该级<strong>新增</strong>的已知招式、准备招式、已知步法；末三列为自 1 级起的累计。
+                        </p>
+                        <div className="overflow-x-auto rounded-lg border border-white/10">
+                          <table className="w-full text-xs min-w-[420px]">
+                            <thead>
+                              <tr className="bg-[#1b2738]/90 text-dnd-text-muted">
+                                <th className="text-left py-2 px-2 w-14">等级</th>
+                                <th className="text-center py-2 px-2">已知招式</th>
+                                <th className="text-center py-2 px-2">准备招式</th>
+                                <th className="text-center py-2 px-2">已知步法</th>
+                                <th className="text-center py-2 px-2 border-l border-white/10">累计招式</th>
+                                <th className="text-center py-2 px-2">累计准备</th>
+                                <th className="text-center py-2 px-2">累计步法</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {(() => {
+                                let cK = 0
+                                let cP = 0
+                                let cF = 0
+                                return data.martialProgress.map((row) => {
+                                  cK += Number(row.knownMoves) || 0
+                                  cP += Number(row.preparedMoves) || 0
+                                  cF += Number(row.knownFootwork) || 0
+                                  return (
+                                    <tr key={row.level} className="border-t border-white/10">
+                                      <td className="py-1.5 px-2 text-white font-mono tabular-nums">{row.level}</td>
+                                      <td className="py-1.5 px-2 text-center text-dnd-text-body tabular-nums">{row.knownMoves}</td>
+                                      <td className="py-1.5 px-2 text-center text-dnd-text-body tabular-nums">{row.preparedMoves}</td>
+                                      <td className="py-1.5 px-2 text-center text-dnd-text-body tabular-nums">{row.knownFootwork}</td>
+                                      <td className="py-1.5 px-2 text-center text-dnd-gold-light/90 tabular-nums border-l border-white/10 font-medium">
+                                        {cK}
+                                      </td>
+                                      <td className="py-1.5 px-2 text-center text-dnd-gold-light/90 tabular-nums font-medium">{cP}</td>
+                                      <td className="py-1.5 px-2 text-center text-dnd-gold-light/90 tabular-nums font-medium">{cF}</td>
+                                    </tr>
+                                  )
+                                })
+                              })()}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
                     {Array.isArray(data.focusAbilities) && data.focusAbilities.length > 0 && (
                       <div className="mt-4 pt-3 border-t border-white/10">
                         <p className="text-dnd-gold-light text-xs font-bold uppercase tracking-wider mb-2">专注点 · 特殊能力</p>

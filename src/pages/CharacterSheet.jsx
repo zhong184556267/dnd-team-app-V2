@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo, forwardRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { ChevronUp, ChevronDown, Trash2, Star, Upload, X } from 'lucide-react'
+import DragHandleIcon from '../components/DragHandleIcon'
 import { useAuth } from '../contexts/AuthContext'
 import { useModule } from '../contexts/ModuleContext'
 import { getCharacter, updateCharacter, loadCharacterById, getCharactersInModule } from '../lib/characterStore'
@@ -26,7 +27,8 @@ import { ABILITY_NAMES_ZH } from '../data/buffTypes'
 import { FEATS, FEATS_BY_CATEGORY } from '../data/feats'
 import { useCombatState } from '../hooks/useCombatState'
 import { useBuffCalculator } from '../hooks/useBuffCalculator'
-import { getBuffsFromEquipmentAndInventory } from '../lib/effects/effectMapping'
+import { getMergedBuffsForCalculator, mergeFeatBuffPatchesFromMergedList } from '../lib/effects/effectMapping'
+import { cloneBuffTemplateToManual } from '../lib/buffStash'
 import BuffManager from '../components/BuffManager'
 import CombatStatus from '../components/CombatStatus'
 import EquipmentAndInventory from '../components/EquipmentAndInventory'
@@ -759,16 +761,24 @@ function ClassFeaturesSection({ char, canEdit, onSave }) {
   )
 }
 
-/** 专长：从专长库调出，每项可选获得等级与获得职业；先选类型再选专长，列表标出类型（星辰用星标） */
+/** 专长：从专长库调出，每项可选获得等级与获得职业；先选类型再选专长，列表标出类型（星辰用星标）；可拖动排序 */
 function FeatsSection({ char, canEdit, onSave }) {
   const raw = char?.selectedFeats ?? []
+  const featDragFrom = useRef(null)
+  const [featDragOver, setFeatDragOver] = useState(null)
   const feats = raw.map((f) => {
     if (typeof f === 'string') return { featId: f, level: 1, sourceClass: '' }
-    return {
-      featId: f.featId ?? f.id ?? '',
+    const featId = f.featId ?? f.id ?? ''
+    const row = {
+      featId,
       level: Math.max(1, Math.min(20, Number(f.level) ?? 1)),
       sourceClass: f.sourceClass ?? '',
     }
+    // 与 Buff 栏联动的专长效果存在 featBuffPatch；规范化时不可丢弃，否则一改等级/职业就会清空
+    if (f.featBuffPatch != null && typeof f.featBuffPatch === 'object') {
+      row.featBuffPatch = f.featBuffPatch
+    }
+    return row
   })
   const featById = new Map(FEATS.map((x) => [x.id, x]))
   const [selectedCategory, setSelectedCategory] = useState('')
@@ -793,7 +803,18 @@ function FeatsSection({ char, canEdit, onSave }) {
     const next = feats.filter((_, i) => i !== index)
     onSave({ selectedFeats: next })
   }
+
+  const reorderFeats = (fromIndex, toIndex) => {
+    if (fromIndex == null || fromIndex === toIndex) return
+    const next = [...feats]
+    const [row] = next.splice(fromIndex, 1)
+    next.splice(toIndex, 0, row)
+    onSave({ selectedFeats: next })
+  }
+
   const selectClass = 'h-9 rounded-lg bg-gray-800 border border-gray-600 focus:border-dnd-red focus:ring-1 focus:ring-dnd-red text-white text-xs px-2 min-w-0'
+  /** 专长行内控件：略矮以省垂直空间 */
+  const selectClassFeatRow = 'h-8 rounded-lg bg-gray-800 border border-gray-600 focus:border-dnd-red focus:ring-1 focus:ring-dnd-red text-white text-xs px-1.5 min-w-0'
 
   const FeatTypeTag = ({ category }) => {
     if (!category) return null
@@ -811,9 +832,9 @@ function FeatsSection({ char, canEdit, onSave }) {
   }
 
   return (
-    <div className="rounded-lg border border-gray-600 bg-gray-800/50 p-4">
+    <div className="rounded-lg border border-gray-600 bg-gray-800/50 p-3">
       {canEdit && (
-        <div className="mb-3 space-y-2">
+        <div className="mb-2 space-y-1.5">
           <p className="text-dnd-gold-light text-[10px] uppercase tracking-wider font-bold mb-1">从专长库添加</p>
           <div className="flex flex-wrap gap-2 items-end">
             <div className="min-w-0">
@@ -854,46 +875,91 @@ function FeatsSection({ char, canEdit, onSave }) {
         </div>
       )}
       {feats.length > 0 ? (
-        <ul className="space-y-2">
+        <ul className="space-y-1.5">
           {feats.map((item, i) => {
             const feat = featById.get(item.featId)
             const name = feat?.name ?? item.featId
             const category = feat?.category
             return (
-              <li key={`${item.featId}-${i}`} className="rounded-lg border border-gray-600 bg-gray-800/50 p-2">
+              <li
+                key={item.featId}
+                className={`rounded-lg border bg-gray-800/50 px-2 py-1.5 transition-colors ${
+                  featDragOver === i ? 'border-dnd-gold/70 ring-1 ring-dnd-gold/30' : 'border-gray-600'
+                }`}
+                onDragOver={
+                  canEdit
+                    ? (e) => {
+                        e.preventDefault()
+                        e.dataTransfer.dropEffect = 'move'
+                        setFeatDragOver(i)
+                      }
+                    : undefined
+                }
+                onDragLeave={canEdit ? () => setFeatDragOver((v) => (v === i ? null : v)) : undefined}
+                onDrop={
+                  canEdit
+                    ? (e) => {
+                        e.preventDefault()
+                        setFeatDragOver(null)
+                        const from = featDragFrom.current
+                        featDragFrom.current = null
+                        reorderFeats(from, i)
+                      }
+                    : undefined
+                }
+              >
                 <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <div className="flex items-center gap-2 flex-wrap">
+                  <div className="flex items-center gap-2 flex-wrap min-w-0 flex-1">
+                    {canEdit && (
+                      <span
+                        aria-label="拖动排序"
+                        title="拖动调整顺序"
+                        draggable
+                        className="shrink-0 inline-flex text-gray-500 hover:text-dnd-gold-light cursor-grab active:cursor-grabbing touch-none select-none"
+                        onDragStart={(e) => {
+                          featDragFrom.current = i
+                          e.dataTransfer.effectAllowed = 'move'
+                          e.dataTransfer.setData('text/plain', String(i))
+                        }}
+                        onDragEnd={() => {
+                          featDragFrom.current = null
+                          setFeatDragOver(null)
+                        }}
+                      >
+                        <DragHandleIcon className="w-4 h-4 text-dnd-text-muted" aria-hidden />
+                      </span>
+                    )}
                     <span className="text-white font-semibold text-sm">{name}</span>
                     <FeatTypeTag category={category} />
                   </div>
                   {canEdit && (
-                    <button type="button" onClick={() => removeFeat(i)} className="p-1 text-gray-500 hover:text-dnd-red" title="移除">
+                    <button type="button" onClick={() => removeFeat(i)} className="p-1 text-gray-500 hover:text-dnd-red shrink-0" title="移除">
                       <Trash2 className="w-3 h-3" />
                     </button>
                   )}
                 </div>
                 {feat?.description && (
-                  <p className="text-gray-400 text-xs mt-1 whitespace-pre-line leading-relaxed">{feat.description}</p>
+                  <p className="text-gray-400 text-xs mt-0.5 whitespace-pre-line leading-snug">{feat.description}</p>
                 )}
                 {canEdit ? (
-                  <div className="flex flex-wrap items-center gap-2 mt-2">
-                    <div className="flex items-center gap-1">
-                      <label className="text-gray-500 text-[10px]">等级</label>
+                  <div className="grid grid-cols-2 gap-x-2 gap-y-1 mt-1.5 min-w-0 w-full">
+                    <div className="flex items-center gap-1 min-w-0">
+                      <label className="text-gray-500 text-[10px] shrink-0">等级</label>
                       <input
                         type="number"
                         min={1}
                         max={20}
                         value={item.level}
                         onChange={(e) => updateFeat(i, 'level', e.target.value)}
-                        className={selectClass + ' w-14 font-mono'}
+                        className={selectClassFeatRow + ' min-w-0 flex-1 font-mono max-w-full'}
                       />
                     </div>
-                    <div className="flex items-center gap-1 min-w-0 flex-1">
+                    <div className="flex items-center gap-1 min-w-0">
                       <label className="text-gray-500 text-[10px] shrink-0">获得职业</label>
                       <select
                         value={item.sourceClass}
                         onChange={(e) => updateFeat(i, 'sourceClass', e.target.value)}
-                        className={selectClass + ' flex-1 max-w-[8rem]'}
+                        className={selectClassFeatRow + ' min-w-0 flex-1 w-full'}
                       >
                         <option value="">—</option>
                         {ALL_CLASS_NAMES.map((c) => (
@@ -1209,11 +1275,10 @@ export default function CharacterSheet() {
   const level = char ? levelFromXP(char.xp) : 0
   const spellLevel = char ? getSpellcastingLevel(char) : 0
   const combatState = useCombatState(char)
-  const mergedBuffs = useMemo(() => {
-    const manual = char?.buffs ?? []
-    const fromItems = getBuffsFromEquipmentAndInventory(char)
-    return [...manual, ...fromItems]
-  }, [char?.buffs, char?.inventory, char?.equippedHeld, char?.equippedWorn])
+  const mergedBuffs = useMemo(
+    () => getMergedBuffsForCalculator(char),
+    [char?.buffs, char?.selectedFeats, char?.inventory, char?.equippedHeld, char?.equippedWorn],
+  )
   const buffStats = useBuffCalculator(char, mergedBuffs)
   const canEdit = isAdmin || char?.owner === user?.name
   const isCreatureTemplate = char?.subordinateTemplate === 'creature'
@@ -1487,7 +1552,29 @@ export default function CharacterSheet() {
           {!isCreatureTemplate && (
           <section id="sheet-buffs" className="character-sheet-section-anchor mt-6">
             <h3 className="section-title">Buff / 状态</h3>
-            <BuffManager buffs={mergedBuffs} baseAbilities={char.abilities ?? {}} onSave={(buffsList) => persist({ buffs: buffsList.filter((b) => !b.fromItem) })} canEdit={canEdit} />
+            <BuffManager
+              buffs={mergedBuffs}
+              baseAbilities={char.abilities ?? {}}
+              onSave={(buffsList) => {
+                const manual = buffsList.filter((b) => !b.fromItem && !b.fromFeat)
+                const selectedFeats = mergeFeatBuffPatchesFromMergedList(char, buffsList)
+                persist({ buffs: manual, selectedFeats })
+              }}
+              stashBuffs={char.buffStash ?? []}
+              onStashChange={canEdit ? (next) => persist({ buffStash: next }) : undefined}
+              onApplyStashTemplate={
+                canEdit
+                  ? (template) => {
+                      const clone = cloneBuffTemplateToManual(template)
+                      if (!clone) return
+                      persist({ buffs: [...(char.buffs ?? []), clone] })
+                    }
+                  : undefined
+              }
+              buffColumnOrder={char.buffColumnOrder}
+              onBuffColumnOrderChange={canEdit ? (order) => persist({ buffColumnOrder: order }) : undefined}
+              canEdit={canEdit}
+            />
           </section>
           )}
           {!isCreatureTemplate && (

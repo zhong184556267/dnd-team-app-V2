@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { BookOpen, ChevronDown, ChevronRight, Plus, Pencil, Star, GripVertical, Trash2 } from 'lucide-react'
+import { BookOpen, ChevronDown, ChevronRight, Plus, Pencil, Star, Trash2 } from 'lucide-react'
+import DragHandleIcon from '../components/DragHandleIcon'
 import { useAuth } from '../contexts/AuthContext'
 import { useModule } from '../contexts/ModuleContext'
 import { getAllCharacters, getDefaultCharacterId } from '../lib/characterStore'
@@ -249,7 +250,7 @@ export default function Dashboard() {
                 <div className="flex items-center gap-2 shrink-0">
                   {!isEditing && (
                     <span className="cursor-grab active:cursor-grabbing text-dnd-text-muted hover:text-dnd-gold-light" title="拖动排序" onClick={(e) => e.stopPropagation()}>
-                      <GripVertical className="w-5 h-5" />
+                      <DragHandleIcon className="w-5 h-5" />
                     </span>
                   )}
                   <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-black/30 border border-white/10">

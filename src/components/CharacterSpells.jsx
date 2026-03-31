@@ -8,7 +8,7 @@ import { Link } from 'react-router-dom'
 import { getSpellById, getSpellsByClass, searchSpells } from '../data/spellDatabase'
 import { getCharacterClasses, getMaxSpellSlotsByRing } from '../data/classDatabase'
 import { useBuffCalculator } from '../hooks/useBuffCalculator'
-import { getBuffsFromEquipmentAndInventory } from '../lib/effects/effectMapping'
+import { getMergedBuffsForCalculator } from '../lib/effects/effectMapping'
 import { getSpellcastingCombatStats } from '../lib/spellcastingStats'
 import { levelFromXP } from '../lib/xp5e'
 import { ABILITY_NAMES_ZH } from '../data/buffTypes'
@@ -91,10 +91,10 @@ export default function CharacterSpells({ char, canEdit, onSave, buffStats: buff
     onSave({ spells: next })
   }
 
-  /** 与战斗页施法能力相同数据源：角色 Buff + 装备效果 → 再算法术攻击 / DC */
+  /** 与角色卡 Buff 栏、战斗状态一致：专长 + 手动 Buff + 装备 → 法术攻击 / DC 等 */
   const mergedBuffs = useMemo(
-    () => [...(char?.buffs ?? []), ...getBuffsFromEquipmentAndInventory(char)],
-    [char?.buffs, char?.inventory, char?.equippedHeld, char?.equippedWorn],
+    () => getMergedBuffsForCalculator(char),
+    [char?.buffs, char?.selectedFeats, char?.inventory, char?.equippedHeld, char?.equippedWorn],
   )
   const buffStatsComputed = useBuffCalculator(char, mergedBuffs)
   const buffStats = buffStatsProp ?? buffStatsComputed

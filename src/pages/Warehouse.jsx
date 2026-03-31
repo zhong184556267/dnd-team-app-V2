@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, Fragment } from 'react'
-import { Package, Pencil, Trash2, GripVertical } from 'lucide-react'
+import { Package, Pencil, Trash2 } from 'lucide-react'
+import DragHandleIcon from '../components/DragHandleIcon'
 import { normalizeBagOfHoldingVisibility } from '../lib/bagOfHoldingVisibility'
 import {
   getNormalizedBagModules,
@@ -966,7 +967,7 @@ export default function Warehouse() {
                                 >
                                   <td className="py-1 px-4 align-middle text-center overflow-hidden" style={{ height: 48, maxHeight: 48 }}>
                                     <span className="inline-flex justify-center text-dnd-text-muted">
-                                      <GripVertical className="w-3.5 h-3.5" />
+                                      <DragHandleIcon className="w-3.5 h-3.5 text-dnd-text-muted" />
                                     </span>
                                   </td>
                                   <td className="py-1 px-4 text-white font-medium align-middle text-left overflow-hidden" style={{ height: 48, maxHeight: 48 }}>
@@ -1098,7 +1099,7 @@ export default function Warehouse() {
                       title="拖到本表任意位置松手：移至列表末尾，末尾同名则合并"
                     >
                       <td className="py-1 px-4 align-middle text-center overflow-hidden" title="拖拽调整顺序" style={{ height: 48, maxHeight: 48 }}>
-                        <span className="inline-flex justify-center"><GripVertical className="w-3.5 h-3.5" /></span>
+                        <span className="inline-flex justify-center"><DragHandleIcon className="w-3.5 h-3.5 text-dnd-text-muted" /></span>
                       </td>
                       <td className="py-1 px-4 text-white font-medium align-middle text-left overflow-hidden" style={{ height: 48, maxHeight: 48 }}>
                         <span className="inline-flex items-center gap-0.5 truncate max-w-full">

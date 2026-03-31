@@ -29,13 +29,39 @@ export function getWeaponById(id) {
   return WEAPON_DATABASE.find((w) => w.id === id) ?? null
 }
 
-/** 解析骰子字符串如 "2d6" 并投掷，返回 { total, rolls } */
+/**
+ * 解析战斗伤害骰串：XdY 或 XdY+N / XdY-N（法术位等常写成 13d6+13）
+ * 不含多段逗号，重击倍骰请用 rollCombatDicePool 两次再合并。
+ */
+export function parseCombatDiceExpression(expr) {
+  let s = String(expr ?? '').trim()
+  const hashIdx = s.lastIndexOf(' #')
+  if (hashIdx >= 0) s = s.slice(0, hashIdx).trim()
+  s = s.replace(/\s+/g, '')
+  /** 整行如 2d6+5钝击：只取前导 XdY±N，便于快捷投掷 */
+  const head = /^(\d+d\d+(?:[+-]\d+)?)/i.exec(s)
+  if (head) s = head[1]
+  const m = /^(\d+)d(\d+)([+-]\d+)?$/i.exec(s)
+  if (!m) return null
+  const count = Math.min(Math.max(parseInt(m[1], 10) || 0, 0), 100)
+  const sides = Math.min(Math.max(parseInt(m[2], 10) || 6, 2), 100)
+  const flatMod = m[3] ? parseInt(m[3], 10) : 0
+  if (count < 1) return null
+  return { count, sides, flatMod }
+}
+
+/** 投一轮骰池 + 末尾固定加值（flat 不参与「再投一轮」） */
+export function rollCombatDicePool(expr) {
+  const p = parseCombatDiceExpression(expr)
+  if (!p) return { rolls: [], diceSum: 0, flatMod: 0, parsed: null }
+  const rolls = Array.from({ length: p.count }, () => Math.floor(Math.random() * p.sides) + 1)
+  const diceSum = rolls.reduce((s, n) => s + n, 0)
+  return { rolls, diceSum, flatMod: p.flatMod, parsed: p }
+}
+
+/** 解析骰子字符串如 "2d6" 或 "13d6+13" 并投掷；total 含末尾加值（单轮投掷用） */
 export function rollDice(diceExpression) {
-  const match = String(diceExpression).trim().match(/^(\d+)d(\d+)$/i)
-  if (!match) return { total: 0, rolls: [] }
-  const count = Math.min(parseInt(match[1], 10) || 0, 20)
-  const sides = Math.min(Math.max(parseInt(match[2], 10) || 6, 2), 100)
-  const rolls = Array.from({ length: count }, () => Math.floor(Math.random() * sides) + 1)
-  const total = rolls.reduce((s, r) => s + r, 0)
-  return { total, rolls }
+  const pool = rollCombatDicePool(diceExpression)
+  if (!pool.parsed) return { total: 0, rolls: [] }
+  return { total: pool.diceSum + pool.flatMod, rolls: pool.rolls }
 }

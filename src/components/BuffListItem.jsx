@@ -1,4 +1,5 @@
 import { Trash2, Pencil } from 'lucide-react'
+import { getBuffSourceKindLabel, getBuffSourceKindTitle } from '../lib/buffSourceKind'
 import { getEffectInfo, getDamageTypeLabel, getConditionLabel, ABILITY_NAMES_ZH, formatDamagePiercingTraitsValue } from '../data/buffTypes'
 import { SAVE_NAMES, SKILLS } from '../data/dndSkills'
 import { formatContainedSpellBrief } from '../lib/containedSpellBrief'
@@ -118,7 +119,7 @@ function getEffectSummaryShort(buff) {
 }
 
 /** 整条 buff 的简化一行文案：来源 | 效果1，效果2，… */
-function getBuffSummaryLine(buff, baseAbilities = {}) {
+export function getBuffSummaryLine(buff, baseAbilities = {}) {
   const source = buff.source?.trim() || '未知来源'
   const effectParts = []
   if (Array.isArray(buff.effects) && buff.effects.length) {
@@ -264,11 +265,11 @@ export function isDebuff(buff, baseAbilities = {}) {
 }
 
 /**
- * 统一行布局：名字列（约7字宽） + 效果列（对齐） + 持续时间 + 操作
+ * 统一行布局：名字列（含来源小标签，略加宽） + 效果列 + 持续时间 + 操作
  */
 const GRID_COLS = {
-  withActions: 'grid-cols-[7em_1fr_auto_auto]',
-  noActions: 'grid-cols-[7em_1fr_auto]',
+  withActions: 'grid-cols-[minmax(6.25rem,9.5em)_1fr_auto_auto]',
+  noActions: 'grid-cols-[minmax(6.25rem,9.5em)_1fr_auto]',
 }
 
 /** 多效果时渲染为多组 (label, value) 胶囊（供 isDebuff 等内部用） */
@@ -279,26 +280,51 @@ function getEffectDisplays(buff, baseAbilities) {
   return [getEffectDisplay(buff, baseAbilities)]
 }
 
-export default function BuffListItem({ buff, baseAbilities, onEdit, onDelete, canEdit, standalone }) {
+export default function BuffListItem({
+  buff,
+  baseAbilities,
+  onEdit,
+  onDelete,
+  canEdit,
+  standalone,
+  hideSourceTag = false,
+  showDragHint = false,
+}) {
   const summaryLine = getBuffSummaryLine(buff, baseAbilities)
   const barIdx = summaryLine.indexOf(' | ')
   const sourceName = barIdx >= 0 ? summaryLine.slice(0, barIdx) : summaryLine
   const effectsStr = barIdx >= 0 ? summaryLine.slice(barIdx + 3) : ''
 
+  const rowHoverTitle = buff.fromItem
+    ? '装备BUFF由装备所控'
+    : buff.fromFeat
+      ? '专长只能改数值不能改类别'
+      : showDragHint
+        ? '可通过拖动改变BUFF类型'
+        : undefined
+
   return (
     <div
-      className={`grid ${canEdit && !buff.fromItem ? GRID_COLS.withActions : GRID_COLS.noActions} items-center gap-x-2 px-1.5 min-h-[32px] py-0.5 h-full bg-[#202838]/36 ${standalone ? '' : 'border-b border-white/10 last:border-b-0'} ${!buff.enabled ? 'opacity-50' : ''}`}
+      className={`grid ${canEdit && !buff.fromItem ? GRID_COLS.withActions : GRID_COLS.noActions} items-center gap-x-1 px-1.5 min-h-[32px] py-0.5 h-full bg-[#202838]/36 ${standalone ? '' : 'border-b border-white/10 last:border-b-0'} ${!buff.enabled ? 'opacity-50' : ''}`}
       role="row"
+      title={rowHoverTitle}
     >
       {/* 名字：约 7 字宽，过长截断；来自装备时显示标签 */}
-      <div className="min-w-0 shrink-0 w-[7em] overflow-hidden flex items-center gap-1">
-        <span className="text-dnd-gold-light/95 text-sm truncate block" title={sourceName}>
+      <div className="min-w-0 shrink-0 w-full max-w-[9.5em] overflow-hidden flex items-center gap-1">
+        <span
+          className="text-dnd-gold-light/95 text-sm truncate block"
+          title={standalone && rowHoverTitle ? undefined : sourceName}
+        >
           {sourceName}
         </span>
-        {buff.fromItem && <span className="text-gray-500 text-[10px] shrink-0" title="来自装备/背包附魔">装备</span>}
+        {!hideSourceTag && (
+          <span className="text-gray-500 text-[10px] shrink-0 whitespace-nowrap" title={getBuffSourceKindTitle(buff)}>
+            {getBuffSourceKindLabel(buff)}
+          </span>
+        )}
       </div>
-      {/* 效果：垂直对齐；负值红色 */}
-      <div className="min-w-0">
+      {/* 效果：垂直对齐；负值红色；略左移约 3 字宽贴近名称列 */}
+      <div className="min-w-0 -ml-[3ch]">
         {effectsStr ? (
           <span className="text-gray-200 text-sm truncate block" title={effectsStr}>
             {effectsStr.split(/(-\d+)/g).map((part, i) =>
@@ -319,7 +345,7 @@ export default function BuffListItem({ buff, baseAbilities, onEdit, onDelete, ca
         </span>
       </div>
 
-      {/* 操作按钮（来自装备的附魔不可编辑/删除） */}
+      {/* 操作按钮（装备不可改；专长仅可编辑、不可在此删除） */}
       {canEdit && !buff.fromItem && (
         <div className="flex items-center justify-end gap-0.5 shrink-0">
           <button
@@ -330,14 +356,16 @@ export default function BuffListItem({ buff, baseAbilities, onEdit, onDelete, ca
           >
             <Pencil className="w-4 h-4" />
           </button>
-          <button
-            type="button"
-            onClick={() => onDelete?.(buff.id)}
-            className="p-1 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-500 transition-colors"
-            title="删除"
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
+          {!buff.fromFeat && (
+            <button
+              type="button"
+              onClick={() => onDelete?.(buff.id)}
+              className="p-1 rounded text-gray-500 hover:bg-red-900/50 hover:text-red-500 transition-colors"
+              title="删除"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          )}
         </div>
       )}
     </div>

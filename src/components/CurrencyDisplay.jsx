@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { GripVertical } from 'lucide-react'
+import DragHandleIcon from './DragHandleIcon'
 import { CURRENCY_CONFIG, getCurrencyById, getCurrencyDisplayName } from '../data/currencyConfig'
 import { inputClass } from '../lib/inputStyles'
 
@@ -30,7 +30,7 @@ function WalletCurrencyDragHandle({ currencyId }) {
       aria-label="拖入次元袋"
       role="presentation"
     >
-      <GripVertical className="w-3.5 h-3.5 opacity-70" />
+      <DragHandleIcon className="w-3.5 h-3.5 opacity-70 text-dnd-text-muted" />
     </span>
   )
 }

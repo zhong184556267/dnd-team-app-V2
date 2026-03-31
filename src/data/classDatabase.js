@@ -828,24 +828,111 @@ const CLASS_DATA = {
       { id: 'mindblade_storm', name: '念刃风暴', description: '消耗一次引导神力，念刃获得最终增强，神力与灵能借念刃轰向四周。拳刃形态·流星乱击：攻击动作，以自身为起点锥形 30 尺内生物敏捷豁免，失败则受 d10+圣魂之刃等级 d6 伤害，每日一次。念盾形态·绝对防御：攻击动作，自身为中心半径 30 尺大型以下敌对生物被弹开并受 8d8 伤害；形成半圆灵能护罩隔绝罩外魔法/物理/灵能直至你下回合结束，每日一次。双手巨刃·破天一击：消耗所有动作蓄力，蓄力间无法被强制移动、所受伤害减半（生命不低于 1），至下一回合先攻第一位前，对身前宽 10 尺长 60 尺生物造成你扣掉血量两倍的伤害，范围内生物敏捷豁免失败再受 15d10+30 伤害。', level: 10 },
     ],
   },
-  // 繁星特色 · 进阶职业（蓝御法师 / 雷鸟法师）
-  蓝御法师: {
+  // 繁星特色 · 进阶职业（岚御法师 / 雷鸟法师）
+  岚御法师: {
     hitDice: 8,
     spellcasting: { type: 'full', ability: 'int' },
     saveProficiencies: [],
     isFanxing: true,
-    requirements: '阵营：任意非邪恶。武术步法：必须已知至少一种步法。法术：能够施展 2 级奥术。属性：体质 15 或以上。基础等级：6 级或以上。',
+    requirements:
+      '阵营：任意非邪恶。武术步法：必须已知至少一种步法。法术：能够施展 2 级奥术。属性：体质 15 或以上。基础等级：6 级或以上。生命骰：8 面。',
+    flavor:
+      '岚御法师的职业能力集中于增强你的奥术施法能力，但同时也能通过获得新的招式以及集中魔法能量来大幅提高你的近战能力。',
     features: [
-      { id: 'thunderbird_spellcasting', name: '施法', description: '除第1级与第6级外，每级如同提升进阶前的奥术施法职业一样提升施法者等级（及已知法术）。不获得原职业其他能力。若之前有多个奥术施法职业，须选择增加哪个职业的等级。', level: 1 },
-      { id: 'arcane_wrath', name: '奥术之怒', description: '可用反应动作耗费一个法术位，使本回合第一次近战武器命中造成额外伤害：每环 1d10（如耗费三环则 3d10）。', level: 1 },
-      { id: 'rite_of_waking', name: '觉醒仪式', description: '与玉大师完成十分钟仪式，激发体内元素之力；显现元素特质（闪电蓝/冰冻白/强酸绿/火焰红）与属性气焰。在奥秘检定上获得 +2 加值。', level: 1 },
-      { id: 'mystic_phoenix_stance', name: '秘凤步法', description: '附赠动作启动或关闭。启动后回合结束起 AC 获得 +2 闪避加值。启动时可选择花费一个环位，获得伤害减免 = 2×该环位。', level: 2 },
+      {
+        id: 'thunderbird_spellcasting',
+        name: '施法',
+        description:
+          '除了第一级和第六级，每一级你都能够如同提升了进阶前的施法职业一样提升你的施法者等级（以及已知法术，如果有的话）。你并不获得原有职业的其他能力。如果在你成为岚御法师前有不止一个奥术施法职业，你必须选择增加哪个职业的等级来决定每日法术、施法者等级和已知法术。',
+        level: 1,
+      },
+      {
+        id: 'maneuvers_thunderbird',
+        name: '招式',
+        description:
+          '在每一个奇数等级，你能够从漠风派或者虔心派获得一个新的招式。你必须满足学习此招式的前提条件。你将你所有的岚御法师等级加在你的武道家等级上来决定你总的武道家等级和你所知的最高招式等级。在第三级、第六级和第九级你获得一个额外的每日准备招式。',
+        level: 1,
+      },
+      {
+        id: 'arcane_wrath',
+        name: '奥术之怒',
+        description:
+          '你可以用一个附赠动作耗费你的一个准备法术或者法术位，在一次攻击或者打击招式的攻击上获得 +4 加值，以及每法术等级 1d10 的额外伤害。这两个加值都只能运用于你下一回合开始前的一次攻击。例如，假如你失去一个 3 级准备法术或者法术位，你可以在你下一轮之前的一次攻击中获得 +4 加值，如果你击中了你能够造成 3d10 的额外伤害。',
+        level: 1,
+      },
+      {
+        id: 'rite_of_waking',
+        name: '觉醒仪式',
+        description:
+          '当你成为一个岚御法师时，你和将你介绍入这一组织的岚御法师一起参与觉醒仪式。此仪式需要十分钟，不过除了玉凤大师和合适的候选人之外没有其它需要。一旦完成了这一仪式，你就将意识到你的过去。现在你能够记起你去过的地方，你认识的人，你在过去的一生中做过的事。你在奥秘获得 +2 加值，并且获得历史检定熟练。在对抗死亡效果和恐惧效果时你的豁免也获得 +2 加值。',
+        level: 1,
+      },
+      {
+        id: 'mystic_phoenix_stance',
+        name: '秘凤步法',
+        description:
+          '你可以用一个附赠动作停止秘凤步法的能力并重新获得步法的通常效果。当你使用此能力时，你施展奥术时的施法者等级 +1，并且你的 AC 获得 +3 闪避加值。除此之外当你开始使用此能力时你可以选择花费一个奥术法术槽。你的伤害减免相当于 2 倍你所花费的法术等级。',
+        level: 2,
+      },
       { id: 'asi_thunderbird', name: '属性值提升', description: '第 4、第 8 级可选择一项属性 +2 或两项属性各 +1，不可超过 20。', level: 4 },
-      { id: 'empowering_strike', name: '强效打击', description: '近战武器命中敌人后，在你下一回合结束前施展的一个奥术强效（伤害 1.5 倍）。每短休一次。', level: 4 },
-      { id: 'firebird_stance', name: '雷鸟步法', description: '附赠动作启动/取消或切换。激活时吸收 10 点雷电伤害；施展雷电法术时视为提升三环。启动时可花费环位：对 10 尺内生物造成每环 1d6 伤害（敏豁减半，DC 12+施法关键属性调整），半闪电半无属性；灵光持续 1 分钟。', level: 6 },
-      { id: 'jade_phoenix_master', name: '大师之资', description: '获得玉大师资格，可替合适候选人进行觉醒仪式。可冥想一分钟感知最近玉法师/大师/候选者的方向与距离。', level: 6 },
-      { id: 'quickening_strike', name: '瞬发打击', description: '近战武器命中后，可用附赠动作在本回合施展一个 5 环或以下的法术。每短休一次。', level: 8 },
-      { id: 'emerald_immolation', name: '翡翠献祭', description: '魔法动作：半径 20 尺绿色火焰 20d6（敏豁减半，DC 19+施法关键属性）；半火焰半无属性。豁免失败异界生物需意志豁免否则被驱逐。你被摧毁，1d6 轮后于原地重生并眩晕一轮，穿戴物品一并重生。相当于 9 环法术。', level: 10 },
+      {
+        id: 'empowering_strike',
+        name: '强效打击',
+        description:
+          '从第四级开始，每当你成功用打击技招式攻击敌人之后，在你下一回合结束前你施展的一个奥术就将被强效（如同受到法术强效专长影响）。你在每一次遭遇中可以使用一次此能力。',
+        level: 4,
+      },
+      {
+        id: 'stances_known_thunderbird',
+        name: '已知步法',
+        description:
+          '在第五级，你从漠风或者虔心派获得一个新步法。在学习步法前你必须满足它的前提条件。',
+        level: 5,
+      },
+      {
+        id: 'firebird_stance',
+        name: '雷鸟步法',
+        description:
+          '你可以用一个附赠动作停止火鸟步法的能力并重新获得步法的通常效果。当此能力被激活时你获得闪电抗性，并且当你施展闪电法术时你的施法者等级增加 3。除此之外当你开始使用此能力时你可以选择花费一个奥术法术槽。如果你这么做你可以对周围 10 英尺内的生物造成每法术等级 1d6 的伤害（敏豁减半，DC 为 14 加上你的施法关键属性调整值）。此能力造成的伤害中一半是火焰伤害，另一半是未经加工的魔法能量（无属性伤害）。此灵光在每一轮你的回合开始造成伤害。一旦你发动此能力，火焰灵光将持续 1 分钟，在此之后此效果停止，你步法的原有效果生效。',
+        level: 6,
+      },
+      {
+        id: 'jade_phoenix_master',
+        name: '玉凤大师',
+        description:
+          '在你第六级的时候你获得了称自己为玉凤大师的资格。你现在能够替别人进行觉醒仪式，只要他是合适的候选人并且具有重生的古代大师的精神（由地下城主决定非玩家角色是否具有资格），只要你不受打扰冥想一分钟你就能够感知到最近的岚御法师、大师和候选者的方向和距离。',
+        level: 6,
+      },
+      {
+        id: 'quickening_strike',
+        name: '瞬发打击',
+        description:
+          '从第八级开始，每当你成功用打击技招式攻击敌人之后，在你下一回合结束前你施展的一个 5 级或者以下奥术就将被瞬发。使用此能力释放一个瞬发法术并不会提高你的法术有效等级。你在每一次遭遇中可以使用一次此能力。',
+        level: 8,
+      },
+      {
+        id: 'emerald_immolation',
+        name: '翡翠献祭',
+        description:
+          '在第十级，一周一次你可以使用可怕的翡翠献祭。你爆炸放射出一阵半径 20 英尺的绿色火焰造成 20d6 伤害（反射减半，DC 为 19 加上你的施法关键属性调整值）。此能力造成的伤害中一半是火焰伤害，另一半是未经加工的魔法能量（无属性伤害）。豁免失败的异界生物必须马上进行一次感知豁免（DC 为 19 加上你的施法关键属性调整值）否则就将被驱逐回原来位面。此能力会把你完全摧毁，不过 1d6 轮后你将在你使用此能力的地点重生。你再次出现后会眩晕一轮，不过你所受的伤害将会痊愈（包括属性吸取或者伤害）、目盲、耳聋、疾病、瘫痪或者中毒。在你使用此能力时你所穿戴的所有物品都将随着你一起重生。此能力相当于一个 9 级法术。',
+        level: 10,
+      },
+    ],
+    /**
+     * 岚御法师等级 1–10：该级**新增**的已知招式 / 准备招式 / 已知步法（房规表录入）。
+     * 与特性「招式」「已知步法」等配合；累计总数用 getThunderbirdMartialCumulative。
+     */
+    martialProgress: [
+      { level: 1, knownMoves: 1, preparedMoves: 0, knownFootwork: 0 },
+      { level: 2, knownMoves: 0, preparedMoves: 0, knownFootwork: 0 },
+      { level: 3, knownMoves: 1, preparedMoves: 1, knownFootwork: 0 },
+      { level: 4, knownMoves: 0, preparedMoves: 0, knownFootwork: 0 },
+      { level: 5, knownMoves: 1, preparedMoves: 0, knownFootwork: 1 },
+      { level: 6, knownMoves: 0, preparedMoves: 1, knownFootwork: 0 },
+      { level: 7, knownMoves: 1, preparedMoves: 0, knownFootwork: 0 },
+      { level: 8, knownMoves: 0, preparedMoves: 0, knownFootwork: 0 },
+      { level: 9, knownMoves: 1, preparedMoves: 1, knownFootwork: 0 },
+      { level: 10, knownMoves: 0, preparedMoves: 0, knownFootwork: 0 },
     ],
   },
   // 繁星特色 · 进阶职业（《韵跃卷谱》）
@@ -942,12 +1029,41 @@ const SUBCLASS_SPELLCASTING = {
 export const CLASS_LIST = Object.keys(CLASS_DATA)
 export const ALL_CLASS_NAMES = CLASS_LIST
 
-/** 职业别名（雷鸟法师即蓝御法师；邪术师→魔契师 兼容旧数据；圣骑士即圣武士） */
-const CLASS_ALIASES = { 雷鸟法师: '蓝御法师', 魂灵术士: '魂灵学者', 邪术师: '魔契师', 圣骑士: '圣武士' }
+/** 职业别名（雷鸟法师即岚御法师；蓝御法师→岚御法师 兼容旧存档；邪术师→魔契师 兼容旧数据；圣骑士即圣武士） */
+const CLASS_ALIASES = { 雷鸟法师: '岚御法师', 蓝御法师: '岚御法师', 魂灵术士: '魂灵学者', 邪术师: '魔契师', 圣骑士: '圣武士' }
 
 export function getClassData(className) {
   const key = CLASS_ALIASES[className] ?? className
   return CLASS_DATA[key] ?? null
+}
+
+/** 岚御法师等：职业数据中的 per-level 武技进展表；无则 null */
+export function getClassMartialProgress(className) {
+  const d = getClassData(className)
+  return Array.isArray(d?.martialProgress) ? d.martialProgress : null
+}
+
+/**
+ * 岚御法师（或同名进阶）在指定**岚御法师等级**下，已知招式 / 准备招式 / 已知步法的**累计**数量（对 martialProgress 求和）。
+ * @param {string} className 职业名（含「雷鸟法师」别名）
+ * @param {number} thunderbirdLevel 岚御法师等级 1–10
+ */
+export function getThunderbirdMartialCumulative(className, thunderbirdLevel) {
+  const rows = getClassMartialProgress(className)
+  if (!rows || thunderbirdLevel < 1) return { knownMoves: 0, preparedMoves: 0, knownFootwork: 0 }
+  const L = Math.min(10, Math.max(0, Math.floor(Number(thunderbirdLevel) || 0)))
+  let knownMoves = 0
+  let preparedMoves = 0
+  let knownFootwork = 0
+  for (let lv = 1; lv <= L; lv += 1) {
+    const r = rows.find((x) => x.level === lv)
+    if (r) {
+      knownMoves += Number(r.knownMoves) || 0
+      preparedMoves += Number(r.preparedMoves) || 0
+      knownFootwork += Number(r.knownFootwork) || 0
+    }
+  }
+  return { knownMoves, preparedMoves, knownFootwork }
 }
 
 /** 某职业的子职选项列表（用于下拉），无则返回空数组 */
@@ -958,10 +1074,12 @@ export function getSubclassOptions(className) {
   return Object.keys(sub)
 }
 
-/** 职业显示名（邪术师→魔契师，其余原样） */
+/** 职业显示名（邪术师→魔契师；蓝御法师→岚御法师，其余原样） */
 export function getClassDisplayName(className) {
   if (!className) return className
-  return className === '邪术师' ? '魔契师' : className
+  if (className === '邪术师') return '魔契师'
+  if (className === '蓝御法师') return '岚御法师'
+  return className
 }
 
 /** 是否为繁星特色职业（基础或进阶） */

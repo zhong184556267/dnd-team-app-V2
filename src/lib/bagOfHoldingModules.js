@@ -54,6 +54,8 @@ export function inventoryWithBagPatch(inventory, globalIndex, patch) {
 }
 
 export const MAX_BAG_OF_HOLDING_TOTAL = 99
+/** 同一角色可创建的次元袋模块数上限（用于区分公用袋 / 私人袋等） */
+export const MAX_BAG_OF_HOLDING_MODULES = 12
 
 /**
  * 次元袋模块：一个模块内可包含多个次元袋（只计数量），一个拖放区、统一私人/公家。

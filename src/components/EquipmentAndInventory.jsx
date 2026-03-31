@@ -4,10 +4,12 @@
  * 下方：背包
  */
 import { useState, useEffect, Fragment, useMemo } from 'react'
-import { Plus, Trash2, ArrowDownToLine, ArrowUpFromLine, Pencil, Package, GripVertical } from 'lucide-react'
+import { Plus, Trash2, ArrowDownToLine, ArrowUpFromLine, Pencil, Package } from 'lucide-react'
+import DragHandleIcon from './DragHandleIcon'
 import { getItemById, getItemDisplayName } from '../data/itemDatabase'
 import { getCurrencyById, getCurrencyDisplayName } from '../data/currencyConfig'
-import { getCharacterWallet } from '../lib/currencyStore'
+import { getCharacterWallet, transferCurrency } from '../lib/currencyStore'
+import { getCharacter } from '../lib/characterStore'
 import { addToWarehouse } from '../lib/warehouseStore'
 import { CurrencyGrid } from './CurrencyDisplay'
 import { getItemWeightLb, parseWeightString, getWalletCurrencyStackWeightLb } from '../lib/encumbrance'
@@ -31,6 +33,7 @@ import {
   updateModuleBagCount,
   mergeWalletDelta,
   inventoryWithBagPatch,
+  MAX_BAG_OF_HOLDING_MODULES,
 } from '../lib/bagOfHoldingModules'
 import { mergeWalletWithBagWallet, walletPartForCommittedTotal } from '../lib/currencyInventoryRows'
 import {
@@ -301,6 +304,23 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
 
   const removeItem = (index) => onSave({ inventory: inv.filter((_, i) => i !== index) })
 
+  /** 次元袋行删除：钱币堆叠退回个人钱包，其余从 inventory 移除 */
+  const removeBagItemByGlobalIndex = (index) => {
+    const e = inv[index]
+    if (!e) return
+    if (e.walletCurrencyId) {
+      const add = Number(e.qty) || 0
+      if (add <= 0) {
+        removeItem(index)
+        return
+      }
+      const nextWallet = mergeWalletDelta(wallet, { [e.walletCurrencyId]: add })
+      saveWithEquipment({ inventory: inv.filter((_, i) => i !== index), wallet: nextWallet })
+      return
+    }
+    removeItem(index)
+  }
+
   /** 同名物品（显示名称一致）可合并数量；invDisplayName 在下方定义，此处用内联比较 */
   const getInvMergeKey = (entry) => {
     if (entry?.itemId) {
@@ -347,13 +367,17 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
   }
 
   const handleAddBagModule = () => {
-    if (bagModules.length >= 1) return
+    if (bagModules.length >= MAX_BAG_OF_HOLDING_MODULES) return
     const m = createInitialBagModule()
-    onSave({ bagOfHoldingModules: [m], bagOfHoldingCount: m.bagCount })
+    const modules = [...bagModules, m]
+    saveWithEquipment({
+      bagOfHoldingModules: modules,
+      bagOfHoldingCount: modulesBagCountTotal(modules),
+    })
   }
 
-  const handleRemoveBagModule = () => {
-    const { modules, inventory: nextInv, walletDelta } = removeBagModuleAt(bagModules, 0, inv)
+  const handleRemoveBagModule = (moduleIndex = 0) => {
+    const { modules, inventory: nextInv, walletDelta } = removeBagModuleAt(bagModules, moduleIndex, inv)
     saveWithEquipment({
       bagOfHoldingModules: modules,
       bagOfHoldingCount: modulesBagCountTotal(modules),
@@ -579,6 +603,40 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
     const q = Math.max(1, Number(e.qty) ?? 1)
     const toStore = Math.min(Math.max(1, storeToVaultQty), q)
     const moduleId = character?.moduleId ?? 'default'
+
+    if (e.walletCurrencyId && character?.id) {
+      setIsStoreToVaulting(true)
+      setTransferHint('物品存入中，请耐心等待；若长时间未完成请尝试刷新页面。')
+      Promise.resolve(transferCurrency(moduleId, 'toVault', character.id, e.walletCurrencyId, toStore))
+        .then((res) => {
+          if (!res?.success) {
+            alert(res?.error || '存入团队货币失败')
+            return
+          }
+          const latest = getCharacter(character.id)
+          if (latest) {
+            saveWithEquipment({
+              wallet: latest.wallet ?? {},
+              inventory: latest.inventory ?? inv,
+            })
+          } else {
+            setWallet(getCharacterWallet(character.id))
+          }
+          onWalletSuccess?.()
+        })
+        .catch((err) => {
+          console.error('[EquipmentAndInventory] 存入团队货币失败', err)
+          alert('存入失败，请重试')
+        })
+        .finally(() => {
+          setIsStoreToVaulting(false)
+          setTransferHint('')
+          setStoreToVaultIndex(null)
+          setStoreToVaultQty(1)
+        })
+      return
+    }
+
     const addPromise = e.itemId
       ? Promise.resolve(addToWarehouse(moduleId, {
         ...e,
@@ -1041,7 +1099,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                       >
                         {canEdit && (
                           <td className="py-1 px-4 align-middle text-center overflow-hidden" title="拖拽调整顺序" style={{ height: 48, maxHeight: 48 }}>
-                            <span className="inline-flex justify-center"><GripVertical className="w-3.5 h-3.5" /></span>
+                            <span className="inline-flex justify-center"><DragHandleIcon className="w-3.5 h-3.5 text-dnd-text-muted" /></span>
                           </td>
                         )}
                         <td className="py-1 px-4 text-white font-medium align-middle text-left overflow-hidden" style={{ height: 48, maxHeight: 48 }}>
@@ -1138,6 +1196,9 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
           getEntryWeight={getEntryWeight}
           getEntryBriefFull={getEntryBriefFull}
           onPatchBagItem={patchBagItem}
+          onBagRowEdit={startEdit}
+          onBagRowStore={openStoreToVault}
+          onBagRowRemove={removeBagItemByGlobalIndex}
           characterId={character?.id}
         />
 

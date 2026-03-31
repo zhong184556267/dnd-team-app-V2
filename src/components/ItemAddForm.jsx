@@ -137,6 +137,7 @@ function effectModuleToEntryParts(mod, currentEffect) {
   const text = mod.customText ?? ''
   const num = typeof val === 'number' ? val : (typeof val === 'object' && val && !Array.isArray(val) && (val.val != null || val.speed != null) ? (val.val ?? val.speed ?? 0) : 0)
   if (key === 'ac_bonus') return { 附注Part: (num > 0 ? 'AC+' + num : '') }
+  if (key === 'damage_reduction') return { 附注Part: num !== 0 ? `伤害减免${num}` : '' }
   if (key === 'attack_melee' || key === 'attack_ranged' || key === 'attack_all') return { magicBonus: num }
   if (key === 'attack_bonus') return { magicBonus: typeof val === 'object' && val && val.val != null ? Number(val.val) : 0 }
   if (key === 'reach_bonus') return { 攻击距离: num > 0 ? num + '尺' : '' }
@@ -332,11 +333,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
     let 攻击距离 = (editEntry?.攻击距离 ?? proto?.攻击距离 ?? '').trim() || undefined
     let 攻击范围 = (editEntry?.攻击范围 ?? '').trim() || undefined
     if (isWeapon && weaponDamage) {
-      const parts = []
-      if (weaponDamage.minus) parts.push(weaponDamage.minus + '+')
-      if (weaponDamage.plus) parts.push(weaponDamage.plus)
-      const attackStr = parts.join('') + (weaponDamage.type ? ' ' + weaponDamage.type : '')
-      攻击 = attackStr.trim() || 攻击
+      攻击 = formatDamageForAttack(weaponDamage).trim() || 攻击
       伤害 = weaponDamage.type || 伤害
       const r = String(weaponRange ?? '').trim()
       if (r) 攻击距离 = r
@@ -660,7 +657,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
                     const complexValue = currentEffect ? isComplexValueType(currentEffect) : false
                     return (
                       <div key={mod.id} className="rounded border border-gray-600 bg-gray-700/30 p-1.5 space-y-1">
-                        <div className="grid grid-cols-[1fr_1fr_1fr_1fr_1fr_auto] items-center gap-2 w-full min-w-0">
+                        <div className="grid grid-cols-[1fr_1fr_1fr_1fr_1fr_auto] items-center gap-1 w-full min-w-0">
                           <div className="min-w-0">
                             <select
                               value={mod.category || ''}
@@ -691,7 +688,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
                             </select>
                           </div>
                           {!complexValue && (
-                            <div className="col-span-3 min-w-0 flex items-center gap-1.5 flex-wrap">
+                            <div className="col-span-3 min-w-0 flex flex-nowrap items-center gap-1 overflow-hidden">
                               <EffectValueEditor
                                 module={{ ...mod, effectType: effectiveEffectType }}
                                 onChange={(next) => updateModule(mod.id, next)}
@@ -823,7 +820,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
                     const complexValue = currentEffect ? isComplexValueType(currentEffect) : false
                     return (
                       <div key={mod.id} className="rounded border border-gray-600 bg-gray-700/30 p-1.5 space-y-1">
-                        <div className="grid grid-cols-[1fr_1fr_1fr_1fr_1fr_auto] items-center gap-2 w-full min-w-0">
+                        <div className="grid grid-cols-[1fr_1fr_1fr_1fr_1fr_auto] items-center gap-1 w-full min-w-0">
                           <div className="min-w-0">
                             <select
                               value={mod.category || ''}
@@ -854,7 +851,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
                             </select>
                           </div>
                           {!complexValue && (
-                            <div className="col-span-3 min-w-0 flex items-center gap-1.5 flex-wrap">
+                            <div className="col-span-3 min-w-0 flex flex-nowrap items-center gap-1 overflow-hidden">
                               <EffectValueEditor
                                 module={{ ...mod, effectType: effectiveEffectType }}
                                 onChange={(next) => updateModule(mod.id, next)}
@@ -918,7 +915,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
                   const complexValue = currentEffect ? isComplexValueType(currentEffect) : false
                   return (
                     <div key={mod.id} className="rounded border border-gray-600 bg-gray-700/30 p-1.5 space-y-1">
-                      <div className="grid grid-cols-[1fr_1fr_1fr_1fr_1fr_auto] items-center gap-2 w-full min-w-0">
+                      <div className="grid grid-cols-[1fr_1fr_1fr_1fr_1fr_auto] items-center gap-1 w-full min-w-0">
                         <div className="min-w-0">
                           <select
                             value={mod.category || ''}
@@ -949,7 +946,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
                           </select>
                         </div>
                         {!complexValue && (
-                          <div className="col-span-3 min-w-0 flex items-center gap-1.5 flex-wrap">
+                          <div className="col-span-3 min-w-0 flex flex-nowrap items-center gap-1 overflow-hidden">
                             <EffectValueEditor
                               module={{ ...mod, effectType: effectiveEffectType }}
                               onChange={(next) => updateModule(mod.id, next)}

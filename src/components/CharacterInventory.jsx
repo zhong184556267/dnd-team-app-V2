@@ -1,5 +1,6 @@
 import { useState, useEffect, Fragment, useMemo } from 'react'
-import { ArrowDownToLine, ArrowUpFromLine, Pencil, Trash2, Package, GripVertical, Dices } from 'lucide-react'
+import { ArrowDownToLine, ArrowUpFromLine, Pencil, Trash2, Package, Dices } from 'lucide-react'
+import DragHandleIcon from './DragHandleIcon'
 import { getItemById, getItemDisplayName } from '../data/itemDatabase'
 import { getCurrencyById, getCurrencyDisplayName } from '../data/currencyConfig'
 import { getCharacterWallet, transferCurrency } from '../lib/currencyStore'
@@ -25,6 +26,7 @@ import {
   updateModuleBagCount,
   mergeWalletDelta,
   inventoryWithBagPatch,
+  MAX_BAG_OF_HOLDING_MODULES,
 } from '../lib/bagOfHoldingModules'
 import { mergeWalletWithBagWallet, walletPartForCommittedTotal } from '../lib/currencyInventoryRows'
 import {
@@ -157,6 +159,24 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
     onSave({ inventory: inv.filter((_, i) => i !== index) })
   }
 
+  /** 次元袋行删除：钱币退回个人钱包，其余从 inventory 移除 */
+  const removeBagItemByGlobalIndex = (index) => {
+    const e = inv[index]
+    if (!e) return
+    if (e.walletCurrencyId) {
+      const add = Number(e.qty) || 0
+      if (add <= 0) {
+        removeItem(index)
+        return
+      }
+      const nextWallet = mergeWalletDelta(wallet, { [e.walletCurrencyId]: add })
+      onSave({ inventory: inv.filter((_, i) => i !== index), wallet: nextWallet })
+      setWallet(nextWallet)
+      return
+    }
+    removeItem(index)
+  }
+
   /** 同名物品（显示名称一致）可合并数量；invDisplayName 在下方定义，合并时用相同逻辑比较 */
   const getInvMergeKey = (entry) => {
     if (entry?.itemId) {
@@ -194,13 +214,14 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
   }
 
   const handleAddBagModule = () => {
-    if (bagModules.length >= 1) return
+    if (bagModules.length >= MAX_BAG_OF_HOLDING_MODULES) return
     const m = createInitialBagModule()
-    onSave({ bagOfHoldingModules: [m], bagOfHoldingCount: m.bagCount })
+    const modules = [...bagModules, m]
+    onSave({ bagOfHoldingModules: modules, bagOfHoldingCount: modulesBagCountTotal(modules) })
   }
 
-  const handleRemoveBagModule = () => {
-    const { modules, inventory: nextInv, walletDelta } = removeBagModuleAt(bagModules, 0, inv)
+  const handleRemoveBagModule = (moduleIndex = 0) => {
+    const { modules, inventory: nextInv, walletDelta } = removeBagModuleAt(bagModules, moduleIndex, inv)
     onSave({
       bagOfHoldingModules: modules,
       bagOfHoldingCount: modulesBagCountTotal(modules),
@@ -525,6 +546,17 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
     setEditChargeMax(chargeMaxVal != null ? Number(chargeMaxVal) : 0)
   }
 
+  /** 背包行展开编辑；次元袋内物品用 ItemAddForm 弹层 */
+  const openRowEdit = (index) => {
+    const e = inv[index]
+    if (!e || e.walletCurrencyId) return
+    if (e.inBagOfHolding) {
+      setEditingIndex(index)
+      return
+    }
+    startEdit(index)
+  }
+
   const saveEdit = () => {
     if (editingIndex == null) return
     const e = inv[editingIndex]
@@ -617,6 +649,20 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
                 添加物品
               </button>
               <ItemAddForm open={addFormOpen} onClose={() => setAddFormOpen(false)} onSave={(entry) => { onSave({ inventory: [...inv, entry] }); setAddFormOpen(false); }} submitLabel="确认加入" />
+              <ItemAddForm
+                open={canEdit && editingIndex != null && !!inv[editingIndex]?.inBagOfHolding && !inv[editingIndex]?.walletCurrencyId}
+                onClose={() => setEditingIndex(null)}
+                onSave={(entry) => {
+                  if (editingIndex == null) return
+                  const next = [...inv]
+                  next[editingIndex] = entry
+                  onSave({ inventory: next })
+                  setEditingIndex(null)
+                }}
+                submitLabel="保存"
+                editEntry={editingIndex != null && inv[editingIndex]?.inBagOfHolding && !inv[editingIndex]?.walletCurrencyId ? inv[editingIndex] : null}
+                inventory={inv}
+              />
             </div>
           )}
           <div className="rounded-lg border border-gray-600 overflow-x-auto">
@@ -683,7 +729,7 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
                       >
                         {canEdit && (
                           <td className="py-1 px-4 align-middle text-center overflow-hidden" title="拖拽调整顺序" style={{ height: 48, maxHeight: 48 }}>
-                            <span className="inline-flex justify-center"><GripVertical className="w-4 h-4" /></span>
+                            <span className="inline-flex justify-center"><DragHandleIcon className="w-4 h-4 text-dnd-text-muted" /></span>
                           </td>
                         )}
                         <td className="py-1 px-4 text-white font-medium align-middle text-left overflow-hidden" style={{ height: 48, maxHeight: 48 }}>
@@ -783,7 +829,7 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
                               <button type="button" onClick={() => openStoreToVault(i)} title="存到团队仓库" className="p-1 rounded text-emerald-400 hover:bg-emerald-400/20 shrink-0">
                                 <Package size={14} />
                               </button>
-                              <button type="button" onClick={() => startEdit(i)} title="编辑" className="p-1 rounded text-dnd-gold-light hover:bg-dnd-gold/20 shrink-0">
+                              <button type="button" onClick={() => openRowEdit(i)} title="编辑" className="p-1 rounded text-dnd-gold-light hover:bg-dnd-gold/20 shrink-0">
                                 <Pencil size={14} />
                               </button>
                               <button type="button" onClick={() => removeItem(i)} title="移除" className="p-1 rounded text-dnd-red hover:bg-dnd-red/20 shrink-0">
@@ -1052,6 +1098,9 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
             getEntryWeight={getEntryWeight}
             getEntryBriefFull={getEntryBriefFull}
             onPatchBagItem={patchBagItem}
+            onBagRowEdit={openRowEdit}
+            onBagRowStore={openStoreToVault}
+            onBagRowRemove={removeBagItemByGlobalIndex}
             characterId={character?.id}
           />
         </div>

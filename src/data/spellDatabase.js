@@ -1122,7 +1122,7 @@ export function getSpellsByClass(className) {
     圣骑士: '圣武士',
     邪术师: '魔契师',
     魂灵术士: '魂灵学者',
-    雷鸟法师: '蓝御法师',
+    雷鸟法师: '岚御法师',
   }
   const candidates = new Set([className])
   const forward = SPELL_CLASS_ALIASES[className]

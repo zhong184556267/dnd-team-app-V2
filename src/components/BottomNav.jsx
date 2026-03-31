@@ -23,6 +23,14 @@ function roll(sides) {
   return Math.floor(Math.random() * sides) + 1
 }
 
+/** d100 拆成两颗 d10：十位 00–90，个位 0–9；100 = 00 + 0 */
+function splitD100Roll(value) {
+  if (value == null || !Number.isFinite(Number(value))) return { tens: 0, ones: 0 }
+  const R = Math.max(1, Math.min(100, Math.round(Number(value))))
+  if (R === 100) return { tens: 0, ones: 0 }
+  return { tens: Math.floor(R / 10) * 10, ones: R % 10 }
+}
+
 function rollD20WithMode(mode) {
   if (mode === 'normal') {
     const r = roll(20)
@@ -207,11 +215,28 @@ function buildRollingDiceSpecs(parsedSegments) {
   for (const seg of parsedSegments) {
     if (seg?.kind !== 'dice') continue
     for (let i = 0; i < seg.count; i++) {
+      const sides = Number(seg.sides) || 6
+      if (sides === 100) {
+        if (specs.length + 2 > MAX_ROLLING_DICE_RENDER) {
+          overflow += 2
+          continue
+        }
+        for (const role of ['tens', 'ones']) {
+          specs.push({
+            id: `100-${role}-${i}-${specs.length}`,
+            sides: 10,
+            d100Role: role,
+            shape: 'd10',
+            palette: 'd10',
+            delayMs: (specs.length % 6) * 90,
+          })
+        }
+        continue
+      }
       if (specs.length >= MAX_ROLLING_DICE_RENDER) {
         overflow += 1
         continue
       }
-      const sides = Number(seg.sides) || 6
       let shape = 'gem'
       if (sides === 4) shape = 'd4'
       else if (sides === 6) shape = 'cube'
@@ -241,11 +266,37 @@ function buildRollingDiceSpecsWithValues(parsedSegments, diceValues = []) {
     for (let i = 0; i < seg.count; i++) {
       const value = Number(diceValues?.[vi]) || undefined
       vi += 1
+      const sides = Number(seg.sides) || 6
+      if (sides === 100) {
+        if (specs.length + 2 > MAX_ROLLING_DICE_RENDER) {
+          overflow += 2
+          continue
+        }
+        const { tens, ones } = splitD100Roll(value)
+        specs.push({
+          id: `100-tens-${i}-${specs.length}`,
+          sides: 10,
+          d100Role: 'tens',
+          shape: 'd10',
+          palette: 'd10',
+          delayMs: (specs.length % 6) * 90,
+          value: tens,
+        })
+        specs.push({
+          id: `100-ones-${i}-${specs.length}`,
+          sides: 10,
+          d100Role: 'ones',
+          shape: 'd10',
+          palette: 'd10',
+          delayMs: (specs.length % 6) * 90,
+          value: ones,
+        })
+        continue
+      }
       if (specs.length >= MAX_ROLLING_DICE_RENDER) {
         overflow += 1
         continue
       }
-      const sides = Number(seg.sides) || 6
       let shape = 'gem'
       if (sides === 4) shape = 'd4'
       else if (sides === 6) shape = 'cube'
@@ -347,6 +398,100 @@ export default function BottomNav() {
       if (rollingFinalHoldRef.current) clearTimeout(rollingFinalHoldRef.current)
     }
   }, [])
+
+  const applyExternalRollFromDetail = useCallback((detail) => {
+    if (!detail) return
+    if (detail.byType && typeof detail.byType === 'object') {
+      const entries = Object.entries(detail.byType)
+      if (!entries.length) return
+      const detailParts = []
+      let totalValue = 0
+      for (const [type, row] of entries) {
+        const rolls = Array.isArray(row?.rolls) ? row.rolls : []
+        const mod = Number(row?.modifier) || 0
+        const subtotal = rolls.reduce((s, n) => s + (Number(n) || 0), 0) + mod
+        totalValue += subtotal
+        detailParts.push(`${type}:${rolls.join(',')}${mod ? `${mod >= 0 ? '+' : ''}${mod}` : ''}=${subtotal}`)
+      }
+      setLastRoll({
+        key: Date.now(),
+        label: '伤害',
+        result: totalValue,
+      })
+      setCheckResult({
+        key: Date.now(),
+        label: '伤害投掷',
+        formula: detailParts.join(' ; '),
+        mode: 'normal',
+        total: totalValue,
+        details: detailParts.join(' ; '),
+      })
+      return
+    }
+    const totalValue = Number(detail.total)
+    if (!Number.isFinite(totalValue)) return
+    const diceExpr = detail.dice || detail.label || '伤害'
+    const mod = Number(detail.modifier) || 0
+    const rolls = Array.isArray(detail.rolls) ? detail.rolls : []
+    setLastRoll({
+      key: Date.now(),
+      label: detail.label || diceExpr,
+      result: totalValue,
+    })
+    setCheckResult({
+      key: Date.now(),
+      label: detail.label || '伤害投掷',
+      formula: diceExpr,
+      mode: 'normal',
+      total: totalValue,
+      details: `${diceExpr}${rolls.length ? `(${rolls.join(',')})` : ''}${mod ? `${mod >= 0 ? '+' : ''}${mod}` : ''}=${totalValue}`,
+    })
+  }, [])
+
+  /** 战斗页「快捷投掷」已算好的骰点：只播 3D，结束后再写入底栏结果（与 CombatStatus 点数一致） */
+  const beginPresetDiceAnimation = useCallback(
+    (formula, diceValues, detail) => {
+      if (isRolling) return false
+      const normalized = String(formula || '').replace(/，/g, ',').replace(/\s+/g, '')
+      const parsedSegments = parseFormula(normalized)
+      if (!parsedSegments) return false
+      let need = 0
+      for (const seg of parsedSegments) {
+        if (seg.kind === 'dice') need += seg.count
+      }
+      const vals = (diceValues || []).map((n) => Number(n))
+      if (need === 0 || vals.length !== need) return false
+      const { specs, overflow } = buildRollingDiceSpecsWithValues(parsedSegments, vals)
+      if (rollingTimerRef.current) clearInterval(rollingTimerRef.current)
+      if (rollingStopRef.current) clearTimeout(rollingStopRef.current)
+      if (rollingFinalHoldRef.current) clearTimeout(rollingFinalHoldRef.current)
+      setLastRoll(null)
+      setCheckResult(null)
+      setIsRolling(true)
+      setShowFinalFace(false)
+      setRollingPreview({
+        formula: normalized,
+        specs,
+        overflow,
+      })
+      rollingStopRef.current = setTimeout(() => {
+        setShowFinalFace(true)
+        rollingFinalHoldRef.current = setTimeout(() => {
+          rollingTimerRef.current = null
+          rollingStopRef.current = null
+          rollingFinalHoldRef.current = null
+          setIsRolling(false)
+          setShowFinalFace(false)
+          setRollingPreview(null)
+          setFormulaError('')
+          applyExternalRollFromDetail(detail)
+          setFormulaMeta(null)
+        }, RESULT_HOLD_MS)
+      }, ROLL_ANIM_MS)
+      return true
+    },
+    [isRolling, applyExternalRollFromDetail],
+  )
 
   const performFormulaRoll = useCallback((formulaText, options = {}) => {
     if (isRolling) return
@@ -486,55 +631,15 @@ export default function BottomNav() {
     const onExternalRoll = (ev) => {
       const detail = ev?.detail
       if (!detail) return
-      if (detail.byType && typeof detail.byType === 'object') {
-        const entries = Object.entries(detail.byType)
-        if (!entries.length) return
-        const detailParts = []
-        let totalValue = 0
-        for (const [type, row] of entries) {
-          const rolls = Array.isArray(row?.rolls) ? row.rolls : []
-          const mod = Number(row?.modifier) || 0
-          const subtotal = rolls.reduce((s, n) => s + (Number(n) || 0), 0) + mod
-          totalValue += subtotal
-          detailParts.push(`${type}:${rolls.join(',')}${mod ? `${mod >= 0 ? '+' : ''}${mod}` : ''}=${subtotal}`)
-        }
-        setLastRoll({
-          key: Date.now(),
-          label: '伤害',
-          result: totalValue,
-        })
-        setCheckResult({
-          key: Date.now(),
-          label: '伤害投掷',
-          formula: detailParts.join(' ; '),
-          mode: 'normal',
-          total: totalValue,
-          details: detailParts.join(' ; '),
-        })
-        return
+      if (detail.animate === true && detail.formula && Array.isArray(detail.diceValues) && detail.diceValues.length > 0) {
+        const started = beginPresetDiceAnimation(detail.formula, detail.diceValues, detail)
+        if (started) return
       }
-      const totalValue = Number(detail.total)
-      if (!Number.isFinite(totalValue)) return
-      const diceExpr = detail.dice || detail.label || '伤害'
-      const mod = Number(detail.modifier) || 0
-      const rolls = Array.isArray(detail.rolls) ? detail.rolls : []
-      setLastRoll({
-        key: Date.now(),
-        label: detail.label || diceExpr,
-        result: totalValue,
-      })
-      setCheckResult({
-        key: Date.now(),
-        label: detail.label || '伤害投掷',
-        formula: diceExpr,
-        mode: 'normal',
-        total: totalValue,
-        details: `${diceExpr}${rolls.length ? `(${rolls.join(',')})` : ''}${mod ? `${mod >= 0 ? '+' : ''}${mod}` : ''}=${totalValue}`,
-      })
+      applyExternalRollFromDetail(detail)
     }
     window.addEventListener('dnd-external-roll', onExternalRoll)
     return () => window.removeEventListener('dnd-external-roll', onExternalRoll)
-  }, [])
+  }, [beginPresetDiceAnimation, applyExternalRollFromDetail])
 
   const getLinkTo = (tab) => {
     if (tab.useLastEdited && preferredId) return `/characters/${preferredId}`

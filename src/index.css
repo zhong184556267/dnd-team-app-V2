@@ -79,6 +79,12 @@ input, textarea, select, button, [class*="font-mono"], [class*="font-sans"], [cl
   padding-bottom: env(safe-area-inset-bottom, 0);
 }
 
+/* Buff 分栏：HTML5 拖放源（WebKit 需显式声明；React 对 true 常输出 draggable=""） */
+.buff-dnd-draggable-source[draggable='true'],
+.buff-dnd-draggable-source[draggable=''] {
+  -webkit-user-drag: element;
+}
+
 /* BottomNav 投掷时的 3D 骰子滚动 */
 .dice3d-wrap {
   position: relative;

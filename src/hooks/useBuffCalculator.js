@@ -171,6 +171,7 @@ export function useBuffCalculator(character, activeBuffs) {
     let spellRangeMultiplier = 1
     let spellRangeBonus = 0
     const ignoreResistanceTypes = []
+    let damageReduction = 0
 
     const xpVal = character?.xp
     const charLevel = xpVal != null && Number(xpVal) >= 0
@@ -182,6 +183,10 @@ export function useBuffCalculator(character, activeBuffs) {
       const raw = b.value
       const v = Number(typeof raw === 'object' && raw && 'val' in raw ? raw.val : raw)
       if (b.effectType === 'ac_bonus') acBonus += Number(raw) || 0
+      else if (b.effectType === 'damage_reduction') {
+        const dr = Number(typeof raw === 'object' && raw && 'val' in raw ? raw.val : raw)
+        if (!Number.isNaN(dr)) damageReduction += dr
+      }
       else if (b.effectType === 'ac_cap_stone_layer') {
         const y = Number(raw)
         if (!Number.isNaN(y)) acCapStoneLayerValues.push(y)
@@ -341,6 +346,7 @@ export function useBuffCalculator(character, activeBuffs) {
       spellRangeMultiplier,
       spellRangeBonus,
       ignoreResistanceTypes,
+      damageReduction,
       tempHp,
       maxHpBonus,
       regeneration,
@@ -361,7 +367,14 @@ export function useBuffCalculator(character, activeBuffs) {
  */
 export function calculateDamage(baseRoll, damageType, buffStats) {
   if (!buffStats) return baseRoll
-  const { resistTypes = [], immuneTypes = [], vulnerableTypes = [], dmgTypeBonus = {}, ignoreResistanceTypes = [] } = buffStats
+  const {
+    resistTypes = [],
+    immuneTypes = [],
+    vulnerableTypes = [],
+    dmgTypeBonus = {},
+    ignoreResistanceTypes = [],
+    damageReduction: flatDr = 0,
+  } = buffStats
   const type = getDamageTypeValue(damageType) || String(damageType || '').toLowerCase()
   const typeBonus = dmgTypeBonus[type] || 0
   let result = baseRoll + typeBonus
@@ -369,5 +382,7 @@ export function calculateDamage(baseRoll, damageType, buffStats) {
   if (immuneTypes.includes(type)) return 0
   if (vulnerableTypes.includes(type)) result *= 2
   if (resistTypes.includes(type) && !ignoreResistanceTypes.includes(type)) result = Math.floor(result / 2)
+  const dr = Number(flatDr) || 0
+  if (dr !== 0) result = Math.max(0, result - dr)
   return result
 }

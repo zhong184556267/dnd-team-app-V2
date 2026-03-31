@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { ArrowLeft, User, Trash2 } from 'lucide-react'
 import { getCharacter } from '../lib/characterStore'
 import { resolveCreatureHpDisplay } from '../lib/creatureHpDisplay'
+import { hpBarMainFillClass, hpBarMainFillClassFromPct, HP_BAR_TEMP_FILL_CLASS } from '../lib/hpBarShared'
 import { inputClass } from '../lib/inputStyles'
 
 const LAYOUT_INNER = 'mx-auto w-[1180px] min-w-[1180px] shrink-0'
@@ -50,15 +51,6 @@ function hpBarWidths(cur, max, temp) {
   return { curW, tempW }
 }
 
-function hpBarCurColor(cur, max) {
-  const m = Math.max(0, Number(max) || 0)
-  if (m <= 0) return 'bg-emerald-500/90'
-  const r = Math.max(0, Number(cur) || 0) / m
-  if (r < 0.25) return 'bg-dnd-red'
-  if (r < 0.5) return 'bg-amber-500'
-  return 'bg-emerald-500/90'
-}
-
 function mainHpPercent(cur, max, temp) {
   const m = Math.max(0, Number(max) || 0)
   const pool = Math.max(0, Number(cur) || 0) + Math.max(0, Number(temp) || 0)
@@ -74,9 +66,7 @@ function simplePct(c, m) {
 }
 
 function simpleBarTone(p) {
-  if (p < 25) return 'bg-dnd-red'
-  if (p < 50) return 'bg-amber-500'
-  return 'bg-emerald-500/90'
+  return hpBarMainFillClassFromPct(p)
 }
 
 /** 附属槽位简略条：与 CreatureSimpleBlock 共用生物 HP 解析（hpText + 结构化 hp） */
@@ -236,7 +226,7 @@ export default function CharacterSheetTopBar({
   const mMax = Math.max(0, Number(mainHp.max) || 0)
   const mTemp = Math.max(0, Number(mainHp.temp) || 0)
   const { curW, tempW } = hpBarWidths(mCur, mMax, mTemp)
-  const curFillClass = hpBarCurColor(mCur, mMax)
+  const curFillClass = hpBarMainFillClass(mCur, mMax)
   const mainPct = mainHpPercent(mCur, mMax, mTemp)
   const hpLabel = mTemp > 0 ? `${mCur}+${mTemp} / ${mMax}` : `${mCur} / ${mMax}`
 
@@ -667,7 +657,7 @@ export default function CharacterSheetTopBar({
                   ) : null}
                   {tempW > 0 ? (
                     <div
-                      className={`absolute top-0 h-full bg-sky-400/95 ${curW > 0 ? 'rounded-none rounded-r-full' : 'rounded-full'}`}
+                      className={`absolute top-0 h-full ${HP_BAR_TEMP_FILL_CLASS} ${curW > 0 ? 'rounded-none rounded-r-full' : 'rounded-full'}`}
                       style={{ left: `${curW}%`, width: `${tempW}%` }}
                     />
                   ) : null}

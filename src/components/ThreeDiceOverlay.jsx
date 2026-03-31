@@ -19,8 +19,49 @@ const FACE_UV_FILL = 0.36
 const D12_FACE_UV_FILL = 0.25
 /** 全局数字字号缩放（统一到参考图可读比例） */
 const NUMBER_FONT_SCALE_MUL = 0.78
+/** 归一化后碰撞/视觉半径（世界单位），各面型先建几何再缩放到该包围球半径 */
+const TARGET_DIE_RADIUS = 0.72
+/** 2D 圆碰撞额外间隙（补偿 3D 凸出、减少穿模） */
+const EXTRA_COLLISION_GAP = 0.18
+/** 单面数字贴图分辨率与字号基准（乘 faceFontMulBySides） */
+const DICE_TEX_SIZE = 256
+const DICE_FACE_FONT_SCALE = 0.38
+/** 面数字相对上一档手调倍率：整体再 ×0.9 */
+const FACE_FONT_GLOBAL_MUL = 0.9
+/** d6 在整体缩小后再单独 ×0.8 */
+const FACE_FONT_D6_EXTRA_MUL = 0.8
+
+/**
+ * 面贴图内字号倍率（手调基准再乘全局 / d6 额外缩小）。
+ */
+function faceFontMulBySides(sides) {
+  const s = Number(sides)
+  let m = 0.9
+  if (s === 20) m = 0.9
+  else if (s === 10) m = 0.7
+  else if (s === 8) m = 0.9
+  else if (s === 12) m = 0.7
+  else if (s === 6) m = 2
+  else if (s === 4) m = 0.7
+  m *= FACE_FONT_GLOBAL_MUL
+  if (s === 6) m *= FACE_FONT_D6_EXTRA_MUL
+  return m
+}
 /** d10 去尖化强度（0~1）：越大越接近圆角实物骰外形 */
 const D10_BLUNTNESS = 0.46
+/** d100：个位骰 0–9，十位骰 00–90（与几何面序 0..9 一致） */
+const D100_ONES_LABELS = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
+const D100_TENS_LABELS = ['00', '10', '20', '30', '40', '50', '60', '70', '80', '90']
+/** MeshStandardMaterial：略提高金属度、降低粗糙度，让受光面与背光面对比更明显 */
+const DICE_METALNESS = 0.26
+const DICE_ROUGHNESS = 0.34
+/** 与主环境光叠加的暖/冷染色（低强度），不抢主光 */
+const AMBIENT_WARM_COLOR = 0xffd4a8
+const AMBIENT_WARM_INT = 0.08
+const AMBIENT_COOL_COLOR = 0xa8c8ff
+const AMBIENT_COOL_INT = 0.07
+const AMBIENT_ACCENT_COLOR = 0xe8d4ff
+const AMBIENT_ACCENT_INT = 0.05
 
 function faceAxesFromNormal(n) {
   // 用 worldUp 在面内的投影作为基准，保证各面数字方向稳定。
@@ -43,6 +84,33 @@ function hexCss(n) {
   return `#${(n >>> 0).toString(16).padStart(6, '0')}`
 }
 
+/**
+ * 将 group 内几何统一缩放到约等于 targetR 的包围球半径，使各骰子在屏幕上大小一致；
+ * 碰撞半径与 TARGET_DIE_RADIUS 一致。
+ */
+function normalizeDieGroupSize(group, targetR) {
+  group.updateMatrixWorld(true)
+  const box = new THREE.Box3().setFromObject(group)
+  if (box.isEmpty()) return targetR
+  const sphere = new THREE.Sphere()
+  box.getBoundingSphere(sphere)
+  const r0 = Math.max(sphere.radius, 1e-4)
+  group.scale.setScalar(targetR / r0)
+  return targetR
+}
+
+/** 视觉体积校准：以 d6 为基准，其他面型略放大以对齐“看起来的体积” */
+function dieVisualScaleBySides(sides) {
+  if (sides === 6) return 1.0
+  // d4 单独再收小；其余非 d6 相对 d6 再放大一档，贴近「体积感」一致
+  if (sides === 4) return 0.92
+  if (sides === 8) return 1.45
+  if (sides === 10) return 1.5
+  if (sides === 12) return 1.46
+  if (sides === 20) return 1.44
+  return 1.4
+}
+
 function drawTextVisualCenter(ctx, text, cx, cy) {
   const m = ctx.measureText(text)
   const left = m.actualBoundingBoxLeft ?? 0
@@ -63,17 +131,23 @@ function drawTextVisualCenter(ctx, text, cx, cy) {
 function makeNumberTexture(text, bgHex, opts = {}) {
   const strokeFrame = opts.strokeFrame === true
   const texSize = Number(opts.texSize) > 0 ? Number(opts.texSize) : 128
+  const useFrame = opts.useFrame !== false
   const canvas = document.createElement('canvas')
   canvas.width = texSize
   canvas.height = texSize
   const ctx = canvas.getContext('2d')
   const frame = '#f5efe2'
   const inner = '#c01f2f'
-  ctx.fillStyle = frame
-  ctx.fillRect(0, 0, texSize, texSize)
-  const pad = Math.max(8, Math.floor(texSize * 0.12))
-  ctx.fillStyle = inner
-  ctx.fillRect(pad, pad, texSize - pad * 2, texSize - pad * 2)
+  if (useFrame) {
+    ctx.fillStyle = frame
+    ctx.fillRect(0, 0, texSize, texSize)
+    const pad = Math.max(8, Math.floor(texSize * 0.12))
+    ctx.fillStyle = inner
+    ctx.fillRect(pad, pad, texSize - pad * 2, texSize - pad * 2)
+  } else {
+    ctx.fillStyle = inner
+    ctx.fillRect(0, 0, texSize, texSize)
+  }
   if (strokeFrame) {
     ctx.strokeStyle = 'rgba(0,0,0,0.35)'
     ctx.lineWidth = 4
@@ -309,19 +383,24 @@ function meshPolyhedronWithFaceTextures(baseGeo, faceCount, color) {
     return null
   }
 
+  const fontMul = faceFontMulBySides(faceCount)
+
   applyPlanarFaceUVs(geo, faceCount)
   geo.computeVertexNormals()
 
   geo.clearGroups()
   const materials = []
   for (let f = 0; f < faceCount; f++) {
-    const map = makeNumberTexture(String(f + 1), color, { texSize: 256 })
+    const map = makeNumberTexture(String(f + 1), color, {
+      texSize: DICE_TEX_SIZE,
+      fontScale: DICE_FACE_FONT_SCALE * fontMul,
+    })
     materials.push(
       new THREE.MeshStandardMaterial({
         map,
         color: 0xffffff,
-        metalness: 0.18,
-        roughness: 0.46,
+        metalness: DICE_METALNESS,
+        roughness: DICE_ROUGHNESS,
       }),
     )
     geo.addGroup(f * 3, 3, f)
@@ -389,7 +468,8 @@ function applyPlanarD10KiteUVs(geo) {
   geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvArr, 2))
 }
 
-function meshD10WithFaceTextures(baseGeo, color) {
+/** @param {string[] | null} [faceLabels] 长度 10 时按面序覆盖默认 1–10（用于 d100 双 d10） */
+function meshD10WithFaceTextures(baseGeo, color, faceLabels = null) {
   const geo = baseGeo.clone()
   const pos = geo.attributes.position
   if (pos.count !== 60) {
@@ -400,16 +480,22 @@ function meshD10WithFaceTextures(baseGeo, color) {
   applyPlanarD10KiteUVs(geo)
   geo.computeVertexNormals()
 
+  const fontMul = faceFontMulBySides(10)
+
   geo.clearGroups()
   const materials = []
   for (let f = 0; f < 10; f++) {
-    const map = makeNumberTexture(String(f + 1), color, { texSize: 256 })
+    const label = faceLabels && faceLabels.length === 10 ? faceLabels[f] : String(f + 1)
+    const map = makeNumberTexture(label, color, {
+      texSize: DICE_TEX_SIZE,
+      fontScale: DICE_FACE_FONT_SCALE * fontMul,
+    })
     materials.push(
       new THREE.MeshStandardMaterial({
         map,
         color: 0xffffff,
-        metalness: 0.18,
-        roughness: 0.46,
+        metalness: DICE_METALNESS,
+        roughness: DICE_ROUGHNESS,
       }),
     )
     geo.addGroup(f * 6, 6, f)
@@ -472,15 +558,19 @@ function meshD12WithFaceTextures(baseGeo, color) {
   geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvArr, 2))
   geo.computeVertexNormals()
   geo.clearGroups()
+  const fontMul = faceFontMulBySides(12)
   const materials = []
   for (let i = 0; i < faceCount; i++) {
-    const map = makeNumberTexture(String(i + 1), color, { texSize: 256, fontScale: 0.34 })
+    const map = makeNumberTexture(String(i + 1), color, {
+      texSize: DICE_TEX_SIZE,
+      fontScale: DICE_FACE_FONT_SCALE * fontMul,
+    })
     materials.push(
       new THREE.MeshStandardMaterial({
         map,
         color: 0xffffff,
-        metalness: 0.18,
-        roughness: 0.46,
+        metalness: DICE_METALNESS,
+        roughness: DICE_ROUGHNESS,
       }),
     )
     geo.addGroup(i * vertsPerFace, vertsPerFace, i)
@@ -492,24 +582,36 @@ function meshD12WithFaceTextures(baseGeo, color) {
 
 /**
  * 构建带面上数字的骰子：d6 六面贴图；d4/d8/d20 每三角面材质贴图（与面一体）；d10 五方偏方面体贴图；d12 用整体贴图。
+ * d100 在规格里拆成两颗 d10（opts.d100Role：tens / ones）。
  * 返回 { group, r, dispose }
  */
-function createNumberedDie(sides) {
+function createNumberedDie(sides, opts = {}) {
+  const d100Role = opts.d100Role === 'tens' || opts.d100Role === 'ones' ? opts.d100Role : null
   const color = colorBySides(sides)
   const group = new THREE.Group()
   const disposeList = []
+  const finish = (bodyMesh) => {
+    const visualScale = dieVisualScaleBySides(Number(sides))
+    const r = normalizeDieGroupSize(group, TARGET_DIE_RADIUS * visualScale)
+    return { group, r, bodyMesh, dispose: () => disposeList.forEach((fn) => fn()) }
+  }
 
   if (sides === 6) {
     const geo = new THREE.BoxGeometry(1.2, 1.2, 1.2)
     // +x,-x,+y,-y,+z,-z → 标准对位 3/4/5/2/1/6
     const labels = ['3', '4', '5', '2', '1', '6']
+    const fontMul = faceFontMulBySides(6)
     const mats = labels.map((lab) => {
-      const map = makeNumberTexture(lab, color, { texSize: 256 })
+      const map = makeNumberTexture(lab, color, {
+        texSize: DICE_TEX_SIZE,
+        fontScale: DICE_FACE_FONT_SCALE * fontMul,
+        useFrame: false,
+      })
       return new THREE.MeshStandardMaterial({
         map,
         color: 0xffffff,
-        metalness: 0.18,
-        roughness: 0.46,
+        metalness: DICE_METALNESS,
+        roughness: DICE_ROUGHNESS,
       })
     })
     const mesh = new THREE.Mesh(geo, mats)
@@ -521,7 +623,7 @@ function createNumberedDie(sides) {
         m.dispose()
       })
     })
-    return { group, r: 0.72, bodyMesh: mesh, dispose: () => disposeList.forEach((fn) => fn()) }
+    return finish(mesh)
   }
 
   const geo = geometryBySides(sides)
@@ -532,7 +634,7 @@ function createNumberedDie(sides) {
     const built = meshPolyhedronWithFaceTextures(geo, faceCount, color)
     if (!built) {
       geo.dispose()
-      return { group, r: 0.66, bodyMesh: null, dispose: () => disposeList.forEach((fn) => fn()) }
+      return finish(null)
     }
     const { mesh, geo: g2, materials } = built
     group.add(mesh)
@@ -544,15 +646,16 @@ function createNumberedDie(sides) {
       })
     })
     geo.dispose()
-    const rHit = sides === 4 ? 0.58 : 0.66
-    return { group, r: rHit, bodyMesh: mesh, dispose: () => disposeList.forEach((fn) => fn()) }
+    return finish(mesh)
   }
 
   if (sides === 10) {
-    const built = meshD10WithFaceTextures(geo, color)
+    const faceLabels =
+      d100Role === 'ones' ? D100_ONES_LABELS : d100Role === 'tens' ? D100_TENS_LABELS : null
+    const built = meshD10WithFaceTextures(geo, color, faceLabels)
     if (!built) {
       geo.dispose()
-      return { group, r: 0.66, bodyMesh: null, dispose: () => disposeList.forEach((fn) => fn()) }
+      return finish(null)
     }
     const { mesh, geo: g2, materials } = built
     group.add(mesh)
@@ -566,7 +669,7 @@ function createNumberedDie(sides) {
     // 仅保留轻微比例修正，主要钝化由几何本身完成。
     mesh.scale.set(1.04, 0.93, 1.04)
     geo.dispose()
-    return { group, r: 0.67, bodyMesh: mesh, dispose: () => disposeList.forEach((fn) => fn()) }
+    return finish(mesh)
   }
 
   if (sides === 12) {
@@ -587,7 +690,7 @@ function createNumberedDie(sides) {
         if (fallbackMat.map) fallbackMat.map.dispose()
         fallbackMat.dispose()
       })
-      return { group, r: 0.66, bodyMesh: fallbackMesh, dispose: () => disposeList.forEach((fn) => fn()) }
+      return finish(fallbackMesh)
     }
     const { mesh, geo: g2, materials } = built
     group.add(mesh)
@@ -599,7 +702,7 @@ function createNumberedDie(sides) {
       })
     })
     geo.dispose()
-    return { group, r: 0.66, bodyMesh: mesh, dispose: () => disposeList.forEach((fn) => fn()) }
+    return finish(mesh)
   }
 
   // d12 / fallback：主体整张贴图含 1..N（Basic 保证数字不被光照吃掉）
@@ -618,7 +721,7 @@ function createNumberedDie(sides) {
     if (mainMat.map) mainMat.map.dispose()
     mainMat.dispose()
   })
-  return { group, r: sides === 6 ? 0.72 : 0.66, bodyMesh: mesh, dispose: () => disposeList.forEach((fn) => fn()) }
+  return finish(mesh)
 }
 
 export default function ThreeDiceOverlay({ diceSpecs = [], showFinal = false }) {
@@ -635,7 +738,8 @@ export default function ThreeDiceOverlay({ diceSpecs = [], showFinal = false }) 
       (diceSpecs || []).map((d, i) => ({
         id: `${d.id || i}`,
         sides: Number(d.sides) || 6,
-        value: Number(d.value) || null,
+        value: d.value != null && d.value !== '' ? Number(d.value) : null,
+        d100Role: d.d100Role === 'tens' || d.d100Role === 'ones' ? d.d100Role : null,
       })),
     [diceSpecs],
   )
@@ -655,10 +759,15 @@ export default function ThreeDiceOverlay({ diceSpecs = [], showFinal = false }) 
     renderer.outputColorSpace = THREE.SRGBColorSpace
     mount.appendChild(renderer.domElement)
 
-    const ambient = new THREE.AmbientLight(0xffffff, 0.72)
-    const dir = new THREE.DirectionalLight(0xffffff, 1.0)
-    dir.position.set(2.5, 5, 4)
-    scene.add(ambient, dir)
+    // 压低环境光、加强主光 + 半球光；再叠暖/冷/淡紫三色低强度环境光，丰富整体色调。
+    const ambient = new THREE.AmbientLight(0xfff8f5, 0.22)
+    const ambientWarm = new THREE.AmbientLight(AMBIENT_WARM_COLOR, AMBIENT_WARM_INT)
+    const ambientCool = new THREE.AmbientLight(AMBIENT_COOL_COLOR, AMBIENT_COOL_INT)
+    const ambientAccent = new THREE.AmbientLight(AMBIENT_ACCENT_COLOR, AMBIENT_ACCENT_INT)
+    const hemi = new THREE.HemisphereLight(0xeef4ff, 0x3a2420, 0.52)
+    const dir = new THREE.DirectionalLight(0xfffaf5, 2.05)
+    dir.position.set(3.8, 7.0, 4.8)
+    scene.add(ambient, ambientWarm, ambientCool, ambientAccent, hemi, dir)
 
     const floor = new THREE.Mesh(
       new THREE.PlaneGeometry(40, 24),
@@ -676,7 +785,7 @@ export default function ThreeDiceOverlay({ diceSpecs = [], showFinal = false }) 
     const resultFaceDir = new THREE.Vector3(0, 0, 1)
 
     const dice = normalized.map((d, i) => {
-      const { group, r, dispose, bodyMesh } = createNumberedDie(d.sides)
+      const { group, r, dispose, bodyMesh } = createNumberedDie(d.sides, { d100Role: d.d100Role })
       disposers.push(dispose)
 
       const entry = Math.floor(Math.random() * 4)
@@ -735,6 +844,7 @@ export default function ThreeDiceOverlay({ diceSpecs = [], showFinal = false }) 
         finalValue: d.value,
         sides: d.sides,
         bodyMesh,
+        d100Role: d.d100Role,
       }
     })
 
@@ -797,12 +907,8 @@ export default function ThreeDiceOverlay({ diceSpecs = [], showFinal = false }) 
         }
         if (settled) {
           a.v.multiplyScalar(0.88)
-          const sd = Number(a.sides)
-          if (sd === 4 || sd === 8 || sd === 10 || sd === 20) {
-            a.av.multiplyScalar(0.42)
-          } else {
-            a.av.multiplyScalar(0.84)
-          }
+          // 与其它骰型一致：停稳阶段统一角速度阻尼，避免 d6 视觉效果偏“滑”。
+          a.av.multiplyScalar(0.42)
         }
 
         // 停稳后：把本次点数所在面旋向世界上方，结果只看贴图，不再叠 HTML 圆标
@@ -826,8 +932,17 @@ export default function ThreeDiceOverlay({ diceSpecs = [], showFinal = false }) 
               a.group.quaternion.normalize()
             }
           } else if (sd === 10) {
-            const fv = Math.max(1, Math.min(10, Math.round(Number(a.finalValue))))
-            const fi = fv - 1
+            let fi
+            if (a.d100Role === 'ones') {
+              const v = Math.max(0, Math.min(9, Math.round(Number(a.finalValue))))
+              fi = v
+            } else if (a.d100Role === 'tens') {
+              const t = Math.max(0, Math.min(90, Math.round(Number(a.finalValue))))
+              fi = Math.round(t / 10)
+            } else {
+              const fv = Math.max(1, Math.min(10, Math.round(Number(a.finalValue))))
+              fi = fv - 1
+            }
             const ln = faceOutwardNormal(a.bodyMesh.geometry, fi, 6)
             if (ln.lengthSq() > 1e-12) {
               const qTarget = new THREE.Quaternion().setFromUnitVectors(ln, resultFaceDir)
@@ -848,8 +963,8 @@ export default function ThreeDiceOverlay({ diceSpecs = [], showFinal = false }) 
       }
 
       // 多次迭代的 2D（XY）分离与冲量，减少高速相互穿模。
-      const collisionIterations = 3
-      const separationBias = 1.03
+      const collisionIterations = 6
+      const separationBias = 1.08
       for (let iter = 0; iter < collisionIterations; iter++) {
         for (let i = 0; i < dice.length; i++) {
           for (let j = i + 1; j < dice.length; j++) {
@@ -858,7 +973,7 @@ export default function ThreeDiceOverlay({ diceSpecs = [], showFinal = false }) 
             const dx = b.group.position.x - a.group.position.x
             const dy = b.group.position.y - a.group.position.y
             let dist = Math.hypot(dx, dy)
-            const minDist = a.r + b.r
+            const minDist = a.r + b.r + EXTRA_COLLISION_GAP
             if (dist >= minDist) continue
 
             let nx

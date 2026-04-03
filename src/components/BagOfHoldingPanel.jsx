@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect, useCallback } from 'react'
-import { Package, Plus, Trash2, Pencil, ChevronDown, ChevronRight } from 'lucide-react'
+import { Package, Plus, Trash2, Pencil, ChevronDown, ChevronRight, Lock, Unlock } from 'lucide-react'
 import DragHandleIcon from './DragHandleIcon'
 import { getBagOfHoldingSelfWeightLb } from '../lib/encumbrance'
 import { normalizeBagOfHoldingVisibility } from '../lib/bagOfHoldingVisibility'
@@ -11,7 +11,7 @@ import {
 } from '../lib/bagOfHoldingModules'
 import { getCurrencyById, getCurrencyDisplayName } from '../data/currencyConfig'
 import { NumberStepper } from './BuffForm'
-import { inputClass } from '../lib/inputStyles'
+import { inputClassInline } from '../lib/inputStyles'
 
 function collapseStorageKey(characterId) {
   return characterId ? `dnd-bag-panel-collapsed-${characterId}` : 'dnd-bag-panel-collapsed'
@@ -65,6 +65,22 @@ export default function BagOfHoldingPanel({
 
   const toggleModuleExpanded = useCallback((moduleId) => {
     setModuleExpanded((prev) => ({ ...prev, [moduleId]: !prev[moduleId] }))
+  }, [])
+
+  /** 删除整个次元袋模块：默认上锁，需先点锁解锁再点垃圾桶，减少与袋内行删除误触 */
+  const [moduleDeleteUnlocked, setModuleDeleteUnlocked] = useState({})
+  useEffect(() => {
+    setModuleDeleteUnlocked((prev) => {
+      const next = { ...prev }
+      for (const id of Object.keys(next)) {
+        if (!modules.some((m) => m.id === id)) delete next[id]
+      }
+      return next
+    })
+  }, [modules])
+
+  const toggleModuleDeleteLock = useCallback((moduleId) => {
+    setModuleDeleteUnlocked((prev) => ({ ...prev, [moduleId]: !prev[moduleId] }))
   }, [])
 
   const handleSetModuleVisibility = useCallback(
@@ -130,7 +146,9 @@ export default function BagOfHoldingPanel({
   const iconBtn =
     'inline-flex items-center justify-center h-7 w-7 shrink-0 rounded-lg border border-gray-500/70 bg-gray-800/90 text-gray-300 hover:bg-gray-700 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed'
   const removeBagBtn =
-    'inline-flex items-center justify-center h-7 w-7 shrink-0 rounded-lg border border-dnd-red/60 bg-gray-800/90 text-dnd-red hover:bg-dnd-red/20 hover:border-dnd-red/80 disabled:opacity-40 disabled:cursor-not-allowed'
+    'inline-flex items-center justify-center h-7 w-7 shrink-0 rounded-lg border border-dnd-red/60 bg-gray-800/90 text-dnd-red hover:bg-dnd-red/20 hover:border-dnd-red/80 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-gray-800/90 disabled:hover:border-dnd-red/60'
+  const moduleLockBtn =
+    'inline-flex items-center justify-center h-7 w-7 shrink-0 rounded-lg border border-amber-500/45 bg-gray-800/90 text-amber-400/95 hover:bg-amber-500/15 hover:border-amber-500/65'
 
   const renderNameExtras = (entry) => {
     const stoneEffect = Array.isArray(entry?.effects) ? entry.effects.find((x) => x.effectType === 'ac_cap_stone_layer') : null
@@ -265,8 +283,11 @@ export default function BagOfHoldingPanel({
                 onSetModuleBagCount={onSetModuleBagCount}
                 onSetModuleVisibility={handleSetModuleVisibility}
                 onRemoveModule={onRemoveModule}
+                moduleDeleteUnlocked={!!moduleDeleteUnlocked[mod.id]}
+                onToggleModuleDeleteLock={() => toggleModuleDeleteLock(mod.id)}
                 iconBtn={iconBtn}
                 removeBagBtn={removeBagBtn}
+                moduleLockBtn={moduleLockBtn}
                 tableColSpan={tableColSpan}
                 handleDragStart={handleDragStart}
                 handleDragEnd={handleDragEnd}
@@ -306,8 +327,11 @@ function BagModuleSection({
   onSetModuleBagCount,
   onSetModuleVisibility,
   onRemoveModule,
+  moduleDeleteUnlocked,
+  onToggleModuleDeleteLock,
   iconBtn,
   removeBagBtn,
+  moduleLockBtn,
   tableColSpan,
   handleDragStart,
   handleDragEnd,
@@ -370,76 +394,100 @@ function BagModuleSection({
         isPublic ? 'border-dnd-gold/25 bg-[#152030]/55' : 'border-white/10 bg-[#151c28]/40'
       }`}
     >
-      <div className="grid grid-cols-[minmax(0,1fr)_11rem_14.5rem_2.5rem] items-center gap-x-3 gap-y-0 p-2 border-b border-white/5 overflow-x-auto min-h-[2rem]">
-        <button
-          type="button"
-          onClick={onToggleExpanded}
-          className="flex items-center gap-1 min-w-0 text-left rounded px-0.5 py-0.5 -ml-0.5 hover:bg-white/5 text-dnd-gold-light min-h-7"
-          title={expanded ? '折叠本模块' : '展开本模块'}
-          aria-expanded={expanded}
-        >
-          {expanded ? <ChevronDown className="w-4 h-4 shrink-0 text-dnd-text-muted" /> : <ChevronRight className="w-4 h-4 shrink-0 text-dnd-text-muted" />}
-          <span className="text-[11px] font-semibold whitespace-nowrap shrink-0">
-            模块 {modIndex + 1} · {isPublic ? '公家' : '私人'}
-          </span>
-          {bagContentsTotalLb > 0 ? (
-            <span className="text-dnd-text-muted text-[10px] font-normal tabular-nums ml-1 truncate min-w-0">
-              （袋内 {bagContentsTotalLb} lb）
+      {/* 左右两组 flex：下拉不用 inputClass 的 w-full，避免 select 铺满后盖住右侧锁/删 */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 p-2 border-b border-white/5 overflow-x-auto min-h-[2rem] justify-between">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 min-w-0 flex-1">
+          <button
+            type="button"
+            onClick={onToggleExpanded}
+            className="flex items-center gap-1 min-w-0 max-w-full text-left rounded px-0.5 py-0.5 -ml-0.5 hover:bg-white/5 text-dnd-gold-light min-h-7"
+            title={expanded ? '折叠本模块' : '展开本模块'}
+            aria-expanded={expanded}
+          >
+            {expanded ? <ChevronDown className="w-4 h-4 shrink-0 text-dnd-text-muted" /> : <ChevronRight className="w-4 h-4 shrink-0 text-dnd-text-muted" />}
+            <span className="text-[11px] font-semibold whitespace-nowrap shrink-0">
+              模块 {modIndex + 1} · {isPublic ? '公家' : '私人'}
             </span>
-          ) : null}
-        </button>
+            {bagContentsTotalLb > 0 ? (
+              <span className="text-dnd-text-muted text-[10px] font-normal tabular-nums ml-1 truncate min-w-0">
+                （袋内 {bagContentsTotalLb} lb）
+              </span>
+            ) : null}
+          </button>
 
-        <div className="flex items-center gap-1.5 shrink-0 min-w-0 w-full">
-          <span id={countLabelId} className="text-dnd-text-muted text-[10px] font-medium whitespace-nowrap shrink-0 leading-none">
-            次元袋个数
-          </span>
-          <div className="h-7 w-[6.5rem] shrink-0" aria-labelledby={countLabelId}>
-            <NumberStepper
-              value={mod.bagCount}
-              onChange={(v) => onSetModuleBagCount?.(mod.id, v)}
-              min={0}
-              max={MAX_BAG_OF_HOLDING_TOTAL}
-              compact
-              disabled={!canEdit || !onSetModuleBagCount}
-            />
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span id={countLabelId} className="text-dnd-text-muted text-[10px] font-medium whitespace-nowrap shrink-0 leading-none">
+              次元袋个数
+            </span>
+            <div className="h-7 w-[6.5rem] shrink-0" aria-labelledby={countLabelId}>
+              <NumberStepper
+                value={mod.bagCount}
+                onChange={(v) => onSetModuleBagCount?.(mod.id, v)}
+                min={0}
+                max={MAX_BAG_OF_HOLDING_TOTAL}
+                compact
+                disabled={!canEdit || !onSetModuleBagCount}
+              />
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className="text-dnd-text-muted text-[10px] font-medium whitespace-nowrap shrink-0 leading-none" id={visLabelId}>
+              可见性
+            </span>
+            <select
+              aria-labelledby={visLabelId}
+              disabled={!canEdit || !onSetModuleVisibility}
+              value={normalizeBagOfHoldingVisibility(mod.visibility)}
+              onChange={(e) => onSetModuleVisibility?.(mod.id, e.target.value === 'public' ? 'public' : 'private')}
+              title="私人：仅本角色卡可见，团队仓库不列出。公家（新建默认）：全体玩家可在团队仓库「公家次元袋」查看并与储物栏互拖。"
+              className={`${inputClassInline} box-border !h-7 w-[11rem] min-w-[11rem] max-w-[11rem] shrink-0 py-0 pl-1.5 pr-7 text-[11px] leading-none`}
+            >
+              <option value="public">公家（团队可见）</option>
+              <option value="private">私人</option>
+            </select>
           </div>
         </div>
-        <div className="flex items-center gap-1.5 shrink-0 min-w-0 w-full">
-          <span className="text-dnd-text-muted text-[10px] font-medium whitespace-nowrap shrink-0 leading-none" id={visLabelId}>
-            可见性
-          </span>
-          <select
-            aria-labelledby={visLabelId}
-            disabled={!canEdit || !onSetModuleVisibility}
-            value={normalizeBagOfHoldingVisibility(mod.visibility)}
-            onChange={(e) => onSetModuleVisibility?.(mod.id, e.target.value === 'public' ? 'public' : 'private')}
-            title="私人：仅本角色卡可见，团队仓库不列出。公家（新建默认）：全体玩家可在团队仓库「公家次元袋」查看并与储物栏互拖。"
-            className={`${inputClass} box-border !h-7 w-[11rem] shrink-0 py-0 pl-1.5 pr-7 text-[11px] leading-none`}
-          >
-            <option value="public">公家（团队可见）</option>
-            <option value="private">私人</option>
-          </select>
-        </div>
-        <div className="flex items-center justify-end gap-1 shrink-0 w-full min-w-0">
+        <div className="flex items-center gap-1 shrink-0">
           {canEdit && onRemoveModule && (
-            <button
-              type="button"
-              onClick={() => {
-                if (
-                  !window.confirm(
-                    '确定要删除此次元袋模块吗？\n\n删除后袋内物品会回到背包（身上）物品栏；此操作不可撤销。',
-                  )
-                ) {
-                  return
+            <>
+              <button
+                type="button"
+                onClick={onToggleModuleDeleteLock}
+                className={moduleLockBtn}
+                title={
+                  moduleDeleteUnlocked
+                    ? '模块删除已解锁：点击重新上锁，避免误删整个次元袋'
+                    : '默认上锁：先点此解锁，再点右侧垃圾桶可删除整个模块（与下方袋内单行删除分开）'
                 }
-                onRemoveModule(modIndex >= 0 ? modIndex : 0)
-              }}
-              className={removeBagBtn}
-              title="删除此次元袋模块"
-              aria-label="删除此次元袋模块"
-            >
-              <Trash2 className="w-4 h-4" aria-hidden />
-            </button>
+                aria-label={moduleDeleteUnlocked ? '锁定模块删除' : '解锁模块删除'}
+                aria-pressed={moduleDeleteUnlocked}
+              >
+                {moduleDeleteUnlocked ? <Unlock className="w-4 h-4" aria-hidden /> : <Lock className="w-4 h-4" aria-hidden />}
+              </button>
+              <button
+                type="button"
+                disabled={!moduleDeleteUnlocked}
+                onClick={() => {
+                  if (
+                    !window.confirm(
+                      '确定要删除此次元袋模块吗？\n\n删除后袋内物品会回到背包（身上）物品栏；此操作不可撤销。',
+                    )
+                  ) {
+                    return
+                  }
+                  onRemoveModule(modIndex >= 0 ? modIndex : 0)
+                }}
+                className={removeBagBtn}
+                title={
+                  moduleDeleteUnlocked
+                    ? '删除此次元袋模块'
+                    : '请先点击左侧锁图标解锁后再删除整个模块'
+                }
+                aria-label="删除此次元袋模块"
+              >
+                <Trash2 className="w-4 h-4" aria-hidden />
+              </button>
+            </>
           )}
         </div>
       </div>

@@ -1,0 +1,14 @@
+---
+description: 用户说「保存上传」时自动升版本、写 changelog、推 GitHub
+alwaysApply: true
+---
+
+# 保存并上传 GitHub（本仓库）
+
+当用户说 **「保存上传」「保存并上传」** 或明确要求把当前改动发布到 **GitHub** 时，按顺序执行（push 失败再说明原因，不假装成功）：
+
+1. **版本号**：同步递增 `package.json` 的 `version` 与 `src/config/version.js` 的 `APP_VERSION`、`APP_VERSION_LABEL`（默认 patch，如 2.0.1 → 2.0.2）。若 `package-lock.json` 根部或 `packages.""` 的 version 与 `package.json` 不一致，对齐到同一版本。
+2. **变更日志**：在 `CHANGELOG.md` **最上方**（在 `# 更新日志` 后）新增 `## x.y.z` 小节，用中文条列本次**已落地**的用户可见改动；勿写空话。
+3. **Git**：核对 `git status` → `git add` 本次相关文件 → `git commit`（完整句子，可与历史 `chore: release …` 风格一致）→ `git push` 到 `origin` 的当前分支（多为 `main`）。
+
+若因认证、网络或分支保护导致 push 失败，如实告知并提示用户在本地处理，不要声称已上传。

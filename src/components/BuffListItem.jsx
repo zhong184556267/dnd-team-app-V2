@@ -4,6 +4,31 @@ import { getEffectInfo, getDamageTypeLabel, getConditionLabel, ABILITY_NAMES_ZH,
 import { SAVE_NAMES, SKILLS } from '../data/dndSkills'
 import { formatContainedSpellBrief } from '../lib/containedSpellBrief'
 
+/** 命中/伤害加值摘要：全局 + 分武器行 / 旧版 weaponScope + weaponCategories */
+function formatAttackDamageBonusSummaryText(effectType, v) {
+  if (effectType !== 'attack_damage_bonus' || !v || typeof v !== 'object') return ''
+  const adv = v.advantage === 'advantage' ? ' 优势' : v.advantage === 'disadvantage' ? ' 劣势' : ''
+  const parts = []
+  const gv = Number(v.val) || 0
+  if (gv !== 0) parts.push(`全局${gv >= 0 ? '+' : ''}${gv}`)
+  const rows = Array.isArray(v.categoryRows) ? v.categoryRows.filter((r) => String(r.key || '').trim()) : []
+  if (rows.length) {
+    rows.forEach((r) => {
+      const n = Number(r.val) || 0
+      parts.push(`${r.key}${n >= 0 ? '+' : ''}${n}`)
+    })
+  }
+  if (parts.length === 0 && v.weaponScope === 'weapon_category') {
+    const cats = Array.isArray(v.weaponCategories) ? v.weaponCategories.filter(Boolean) : []
+    if (cats.length) {
+      const val = Number(v.val) || 0
+      const numStr = val !== 0 ? (val >= 0 ? '+' : '') + val : ''
+      return `${cats.join('、')}${numStr}${adv}`.trim()
+    }
+  }
+  return (parts.join('；') || '') + adv
+}
+
 /** 单条效果的简化文案（用于外层一行展示），如 "心灵抗性"、"智力-2，感知+2"、"生命上限+26" */
 function getEffectSummaryShort(buff) {
   const info = getEffectInfo(buff.effectType)
@@ -17,6 +42,9 @@ function getEffectSummaryShort(buff) {
   const v = buff.value
 
   if (info.effect.dataType === 'boolean') return buff.value ? effectLabel : ''
+  if (buff.effectType === 'crit_extra_dice' && typeof v === 'number' && !Number.isNaN(v)) {
+    return `${effectLabel}${v}`
+  }
   if (info.effect.dataType === 'number' && typeof v === 'number') {
     const sign = v >= 0 ? '+' : ''
     return `${effectLabel}${sign}${v}`
@@ -28,6 +56,10 @@ function getEffectSummaryShort(buff) {
       return `${typeLabel}${sign}${v.val}`
     }
     if (info.effect.subSelect === 'numberAndAdvantage') {
+      if (buff.effectType === 'attack_damage_bonus') {
+        const detail = formatAttackDamageBonusSummaryText(buff.effectType, v)
+        return detail ? effectLabel + detail : effectLabel
+      }
       const val = v.val ?? (typeof v === 'number' ? v : 0)
       const adv = v.advantage === 'advantage' ? '优势' : v.advantage === 'disadvantage' ? '劣势' : ''
       const numStr = val !== 0 ? (val >= 0 ? '+' : '') + val : ''
@@ -148,6 +180,9 @@ function getEffectDisplay(buff, baseAbilities = {}) {
   if (info.effect.dataType === 'boolean') {
     return { label: effectLabel, value: buff.value ? '优势' : null }
   }
+  if (buff.effectType === 'crit_extra_dice' && typeof buff.value === 'number') {
+    return { label: effectLabel, value: String(buff.value) }
+  }
   if (info.effect.dataType === 'number' && typeof buff.value === 'number') {
     const sign = buff.value >= 0 ? '+' : ''
     return { label: effectLabel, value: `${sign}${buff.value}` }
@@ -160,10 +195,15 @@ function getEffectDisplay(buff, baseAbilities = {}) {
       return { label: `${effectLabel}(${typeLabel})`, value: `${sign}${v.val}` }
     }
     if (info.effect.subSelect === 'numberAndAdvantage') {
+      if (buff.effectType === 'attack_damage_bonus') {
+        const detail = formatAttackDamageBonusSummaryText(buff.effectType, v)
+        return { label: effectLabel, value: detail || null }
+      }
       const val = v.val ?? (typeof v === 'number' ? v : 0)
       const adv = v.advantage === 'advantage' ? '优势' : v.advantage === 'disadvantage' ? '劣势' : ''
       const numStr = val !== 0 ? (val >= 0 ? '+' : '') + val : ''
-      return { label: effectLabel, value: (numStr || adv) ? `${numStr}${adv ? ' ' + adv : ''}` : null }
+      const core = (numStr || adv) ? `${numStr}${adv ? ' ' + adv : ''}` : ''
+      return { label: effectLabel, value: core || null }
     }
     if (info.effect.subSelect === 'flightSpeed') {
       const speed = v.speed ?? (typeof v === 'number' ? v : 0)
@@ -236,11 +276,12 @@ function getEffectDisplay(buff, baseAbilities = {}) {
   return { label: effectLabel, value: buff.value != null ? String(buff.value) : null }
 }
 
-/** 数值是否为负数（用于红色高亮） */
+/** 数值是否为负数（用于红色高亮）；不把「18-20」等范围里的连字符当负号 */
 function isNegativeValue(val) {
   if (val == null) return false
   const s = String(val)
-  return s.startsWith('-') || (s.includes('-') && !s.startsWith('+'))
+  if (/^\s*-/.test(s)) return true
+  return /(?<![0-9])-\d+/.test(s)
 }
 
 /**
@@ -327,8 +368,8 @@ export default function BuffListItem({
       <div className="min-w-0 -ml-[3ch]">
         {effectsStr ? (
           <span className="text-gray-200 text-sm truncate block" title={effectsStr}>
-            {effectsStr.split(/(-\d+)/g).map((part, i) =>
-              part.match(/^-\d+$/) ? (
+            {effectsStr.split(/((?<![0-9])-\d+)/g).map((part, i) =>
+              /^-\d+$/.test(part) ? (
                 <span key={i} className="text-red-400">{part}</span>
               ) : (
                 part

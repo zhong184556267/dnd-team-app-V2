@@ -19,6 +19,27 @@ const DICE_SIDES = [4, 6, 8, 10, 12, 20, 100]
 const ROLL_ANIM_MS = 1800
 const RESULT_HOLD_MS = 1400
 
+/** 底栏多分类型伤害：钝击 / 穿刺 / 挥砍（含别称劈砍）保持暗金，其余类型分色 */
+function damageDetailRowClass(damageTypeLabel) {
+  const t = String(damageTypeLabel || '').trim()
+  if (new Set(['钝击', '穿刺', '挥砍', '劈砍']).has(t)) return 'text-dnd-gold-light'
+  const byLabel = {
+    强酸: 'text-emerald-400',
+    寒冷: 'text-sky-400',
+    火焰: 'text-orange-400',
+    力场: 'text-violet-300',
+    闪电: 'text-cyan-300',
+    暗蚀: 'text-fuchsia-400',
+    毒素: 'text-lime-400',
+    心灵: 'text-pink-300',
+    光耀: 'text-yellow-200',
+    雷鸣: 'text-amber-300',
+    贯通: 'text-teal-300',
+    治疗: 'text-green-400',
+  }
+  return byLabel[t] || 'text-slate-300'
+}
+
 function roll(sides) {
   return Math.floor(Math.random() * sides) + 1
 }
@@ -173,9 +194,11 @@ function mergeKeypadOpTail(tail, op) {
  * 高亮检定明细中的自然20（如 D20(20,4)+12=32）。
  * 仅高亮 d20 掷出的 20，不影响其它骰型/总值。
  */
-function renderDetailsWithNat20Highlight(text) {
+/** @param {number} [critThreatMin] 自然骰 ≥ 此值（且 ≤20）时高亮为重击威胁；默认 20 仅高亮 20 */
+function renderDetailsWithNat20Highlight(text, critThreatMin = 20) {
   const src = String(text || '')
   if (!src) return null
+  const minNat = Math.max(1, Math.min(20, Math.floor(Number(critThreatMin) || 20)))
   const re = /([dD]20)\(([^)]*)\)/g
   const nodes = []
   let last = 0
@@ -192,9 +215,10 @@ function renderDetailsWithNat20Highlight(text) {
     parts.forEach((p, i) => {
       const raw = p.trim()
       const n = Number(raw)
-      const isNat20 = Number.isFinite(n) && n === 20
+      const isThreat = Number.isFinite(n) && n >= minNat && n <= 20
+      const cls = isThreat ? (n === 20 ? 'font-bold text-dnd-red' : 'font-bold text-dnd-gold-light') : ''
       nodes.push(
-        <span key={`r-${key++}`} className={isNat20 ? 'font-bold text-dnd-red' : ''}>
+        <span key={`r-${key++}`} className={cls}>
           {raw}
         </span>
       )
@@ -405,26 +429,31 @@ export default function BottomNav() {
       const entries = Object.entries(detail.byType)
       if (!entries.length) return
       const detailParts = []
+      const damageByType = []
       let totalValue = 0
       for (const [type, row] of entries) {
         const rolls = Array.isArray(row?.rolls) ? row.rolls : []
         const mod = Number(row?.modifier) || 0
         const subtotal = rolls.reduce((s, n) => s + (Number(n) || 0), 0) + mod
         totalValue += subtotal
-        detailParts.push(`${type}:${rolls.join(',')}${mod ? `${mod >= 0 ? '+' : ''}${mod}` : ''}=${subtotal}`)
+        const line = `${type}:${rolls.join(',')}${mod ? `${mod >= 0 ? '+' : ''}${mod}` : ''}=${subtotal}`
+        detailParts.push(line)
+        damageByType.push({ type, line, subtotal })
       }
       setLastRoll({
         key: Date.now(),
         label: '伤害',
         result: totalValue,
       })
+      const joined = detailParts.join(', ')
       setCheckResult({
         key: Date.now(),
         label: '伤害投掷',
-        formula: detailParts.join(' ; '),
+        formula: joined,
         mode: 'normal',
         total: totalValue,
-        details: detailParts.join(' ; '),
+        details: `${joined}, 伤害总值 ${totalValue}`,
+        damageByType,
       })
       return
     }
@@ -433,6 +462,8 @@ export default function BottomNav() {
     const diceExpr = detail.dice || detail.label || '伤害'
     const mod = Number(detail.modifier) || 0
     const rolls = Array.isArray(detail.rolls) ? detail.rolls : []
+    const typeTag = String(detail.damageTypeLabel || '').trim()
+    const coreDetail = `${diceExpr}${rolls.length ? `(${rolls.join(',')})` : ''}${mod ? `${mod >= 0 ? '+' : ''}${mod}` : ''}=${totalValue}`
     setLastRoll({
       key: Date.now(),
       label: detail.label || diceExpr,
@@ -444,7 +475,12 @@ export default function BottomNav() {
       formula: diceExpr,
       mode: 'normal',
       total: totalValue,
-      details: `${diceExpr}${rolls.length ? `(${rolls.join(',')})` : ''}${mod ? `${mod >= 0 ? '+' : ''}${mod}` : ''}=${totalValue}`,
+      details: typeTag ? `${typeTag}:${coreDetail}` : coreDetail,
+      ...(typeTag
+        ? {
+            damageByType: [{ type: typeTag, line: `${typeTag}:${coreDetail}`, subtotal: totalValue }],
+          }
+        : {}),
     })
   }, [])
 
@@ -595,6 +631,7 @@ export default function BottomNav() {
           formula: prepared.normalizedFormula,
           mode: prepared.parsed?.kind === 'dice' && prepared.parsed.count === 1 && prepared.parsed.sides === 20 ? prepared.mode : 'normal',
           details: prepared.segmentDetails.join(' ; '),
+          critThreatMinNatural: options.critThreatMinNatural,
         })
         setFormulaMeta(null)
       }, RESULT_HOLD_MS)
@@ -610,6 +647,7 @@ export default function BottomNav() {
       performFormulaRoll(nextFormula, {
         label: pendingCheck.label,
         mode: pendingCheck.advantage ?? d20Mode ?? '',
+        critThreatMinNatural: pendingCheck.critThreatMinNatural,
       })
       return
     }
@@ -734,7 +772,7 @@ export default function BottomNav() {
                 </div>
                 <div className="flex h-6 min-w-0 items-center gap-0.5 overflow-hidden rounded border border-dashed border-white/25 bg-[#1E293B]/45 px-1.5 text-[11px]">
                   <div
-                    className="min-w-0 flex-1 overflow-hidden"
+                    className={`min-w-0 flex-1 ${checkResult?.damageByType?.length ? 'overflow-x-auto overflow-y-hidden' : 'overflow-hidden'}`}
                     title={
                       formulaError
                         ? formulaError
@@ -751,9 +789,25 @@ export default function BottomNav() {
                       <span className="block min-w-0 truncate animate-pulse font-mono text-dnd-gold-light">
                         {rollingPreview.formula || '投掷中'}
                       </span>
+                    ) : checkResult?.damageByType?.length ? (
+                      <div className="flex min-w-0 flex-nowrap items-center gap-0 whitespace-nowrap font-mono leading-none">
+                        {checkResult.damageByType.map((row, i) => (
+                          <span key={`${row.type}-${i}`} className="inline-flex shrink-0 items-baseline">
+                            {i > 0 ? <span className="text-dnd-text-muted/80">, </span> : null}
+                            <span className={damageDetailRowClass(row.type)}>{row.line}</span>
+                          </span>
+                        ))}
+                        <span className="inline-flex shrink-0 items-baseline">
+                          <span className="text-dnd-text-muted/80">, </span>
+                          <span className="font-semibold tabular-nums text-white/95">伤害总值 {checkResult.total}</span>
+                        </span>
+                      </div>
                     ) : checkResult ? (
                       <span className="block min-w-0 truncate font-mono text-dnd-gold-light">
-                        {renderDetailsWithNat20Highlight(checkResult.details || `${checkResult.formula}=${checkResult.total}`)}
+                        {renderDetailsWithNat20Highlight(
+                          checkResult.details || `${checkResult.formula}=${checkResult.total}`,
+                          checkResult.critThreatMinNatural,
+                        )}
                       </span>
                     ) : lastRoll ? (
                       <span className="block min-w-0 truncate text-gray-300">

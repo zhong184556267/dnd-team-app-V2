@@ -24,7 +24,7 @@ import {
 } from '../data/classDatabase'
 import { FANXING_PRESTIGE_CLASSES } from '../data/fanxing'
 import { ABILITY_NAMES_ZH } from '../data/buffTypes'
-import { FEATS, FEATS_BY_CATEGORY } from '../data/feats'
+import { FEATS, FEATS_BY_CATEGORY, formatFeatDescriptionForDisplay } from '../data/feats'
 import { useCombatState } from '../hooks/useCombatState'
 import { useBuffCalculator } from '../hooks/useBuffCalculator'
 import { getMergedBuffsForCalculator, mergeFeatBuffPatchesFromMergedList } from '../lib/effects/effectMapping'
@@ -39,6 +39,14 @@ import { APP_VERSION_LABEL } from '../config/version'
 import { inputClass, labelClass } from '../lib/inputStyles'
 
 const RAW_AVATAR_FILE_MAX = 12 * 1024 * 1024 // 裁剪前原图上限，裁剪后会压到约 800KB 内
+
+/** 角色卡：职业特性 / 专长等列表卡片统一层级字号与 16px 图标 */
+const CS_LIST_TITLE = 'text-sm font-semibold text-white'
+const CS_LIST_META = 'text-xs text-gray-500'
+const CS_LIST_BODY = 'text-sm text-gray-400 leading-relaxed'
+const CS_LIST_SECTION_LBL = 'text-dnd-gold-light text-[10px] uppercase tracking-wider font-bold'
+const CS_ICON_16 = 'h-4 w-4 shrink-0'
+const CS_ICON_BTN = 'inline-flex shrink-0 items-center justify-center rounded p-1.5'
 
 const NameInput = forwardRef(function NameInput({ value, onChange, onFocus, onBlur, onKeyDown, className }, ref) {
   return (
@@ -136,7 +144,7 @@ function AvatarFrame({ char, canEdit, onSave, large }) {
               className="avatar-upload-btn cursor-pointer"
               title="上传"
             >
-              <Upload className="w-4 h-4" />
+              <Upload className={CS_ICON_16} />
             </label>
             {avatar && (
               <button
@@ -145,7 +153,7 @@ function AvatarFrame({ char, canEdit, onSave, large }) {
                 className="btn-ghost absolute bottom-3 left-3 text-xs"
                 title="移除"
               >
-                <X className="w-3.5 h-3.5 inline mr-0.5" />
+                <X className={`${CS_ICON_16} inline mr-0.5`} />
                 移除
               </button>
             )}
@@ -201,12 +209,12 @@ function AvatarFrame({ char, canEdit, onSave, large }) {
               onClick={() => inputRef.current?.click()}
               className="btn-ghost inline-flex items-center gap-1"
             >
-              <Upload className="w-3.5 h-3.5" />
+              <Upload className={CS_ICON_16} />
               上传
             </button>
             {avatar && (
               <button type="button" onClick={removeAvatar} className="btn-ghost inline-flex items-center gap-1">
-                <X className="w-3.5 h-3.5" />
+                <X className={CS_ICON_16} />
                 移除
               </button>
             )}
@@ -709,20 +717,25 @@ function ClassFeaturesSection({ char, canEdit, onSave }) {
         <p className="text-gray-500 text-xs">根据当前职业与等级从职业库调出可选特性，可添加至下方以便查阅。</p>
       {/* 已添加的特性：优先显示在上方，添加后会出现在这里 */}
       <div>
-        <p className="text-dnd-gold-light text-[10px] uppercase tracking-wider font-bold mb-2">已添加</p>
+        <p className={`${CS_LIST_SECTION_LBL} mb-2`}>已添加</p>
         {selected.length > 0 ? (
           <ul className="space-y-2">
             {selected.map((f) => (
               <li key={f.selectedKey} className="rounded-lg border border-gray-600 bg-gray-800/50 p-3">
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <span className="font-semibold text-white">{f.name}</span>
-                    <span className="text-gray-500 text-xs ml-2">{f.sourceClass}{f.sourceSubclass ? `（${f.sourceSubclass}）` : ''} · {f.level} 级</span>
-                    <p className="text-gray-400 text-sm mt-1">{f.description}</p>
+                    <span className={CS_LIST_TITLE}>{f.name}</span>
+                    <span className={`${CS_LIST_META} ml-2`}>{f.sourceClass}{f.sourceSubclass ? `（${f.sourceSubclass}）` : ''} · {f.level} 级</span>
+                    <p className={`${CS_LIST_BODY} mt-1 whitespace-pre-line`}>{f.description}</p>
                   </div>
                   {canEdit && (
-                    <button type="button" onClick={() => removeFeature(f.selectedKey)} className="p-1.5 rounded text-gray-500 hover:bg-red-900/30 hover:text-red-400 shrink-0" title="从角色卡移除">
-                      <Trash2 className="w-4 h-4" />
+                    <button
+                      type="button"
+                      onClick={() => removeFeature(f.selectedKey)}
+                      className={`${CS_ICON_BTN} text-gray-500 hover:bg-red-900/30 hover:text-red-400`}
+                      title="从角色卡移除"
+                    >
+                      <Trash2 className={CS_ICON_16} />
                     </button>
                   )}
                 </div>
@@ -735,7 +748,7 @@ function ClassFeaturesSection({ char, canEdit, onSave }) {
       </div>
       {canEdit && toAdd.length > 0 && (
         <div>
-          <p className="text-dnd-gold-light text-[10px] uppercase tracking-wider font-bold mb-1">从职业库添加</p>
+          <p className={`${CS_LIST_SECTION_LBL} mb-1`}>从职业库添加</p>
           <select
             className={inputClass + ' max-w-md'}
             value=""
@@ -759,6 +772,21 @@ function ClassFeaturesSection({ char, canEdit, onSave }) {
       </div>
     </div>
   )
+}
+
+/** 根据专长分类生成「…列表」文案（如 通用专长 → 通用专长列表） */
+function featListLabelFromCategory(category) {
+  if (category && String(category).trim()) return `${category}列表`
+  return '专长列表'
+}
+
+/** 在{职业}职业等级为{n}时，从{分类}列表中选取 */
+function formatFeatAcquisitionSentence(sourceClass, level, category) {
+  const cls = (sourceClass || '').trim()
+  const lv = Math.max(1, Math.min(20, Number(level) ?? 1))
+  const listPart = featListLabelFromCategory(category)
+  if (cls) return `在${cls}职业等级为${lv}时，从${listPart}中选取`
+  return `职业等级为${lv}时，从${listPart}中选取（未指定获得职业）`
 }
 
 /** 专长：从专长库调出，每项可选获得等级与获得职业；先选类型再选专长，列表标出类型（星辰用星标）；可拖动排序 */
@@ -815,36 +843,39 @@ function FeatsSection({ char, canEdit, onSave }) {
   const selectClass = 'h-9 rounded-lg bg-gray-800 border border-gray-600 focus:border-dnd-red focus:ring-1 focus:ring-dnd-red text-white text-xs px-2 min-w-0'
   /** 专长行内控件：略矮以省垂直空间 */
   const selectClassFeatRow = 'h-8 rounded-lg bg-gray-800 border border-gray-600 focus:border-dnd-red focus:ring-1 focus:ring-dnd-red text-white text-xs px-1.5 min-w-0'
+  /** 与 CS_LIST_META 同级：获得句式内联控件 */
+  const featAcquireText = `${CS_LIST_META} leading-normal`
+  const featAcquireControl =
+    'h-8 box-border rounded-md border border-gray-500/70 bg-gray-800/90 text-white text-xs leading-none px-1.5 align-middle focus:border-dnd-red focus:ring-1 focus:ring-dnd-red focus:outline-none'
+  const featAcquireSelect = `${featAcquireControl} py-0 pr-7 max-w-[11rem] w-max min-w-[4.25rem] shrink-0`
+  const featAcquireLevelInput = `${featAcquireControl} w-9 min-w-9 shrink-0 text-center font-mono tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none`
 
   const FeatTypeTag = ({ category }) => {
     if (!category) return null
     if (category === '星辰专长') {
       return (
-        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-dnd-gold/20 text-dnd-gold-light border border-dnd-gold/40">
-          <Star className="w-3 h-3 fill-current" />
+        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-bold bg-dnd-gold/20 text-dnd-gold-light border border-dnd-gold/40">
+          <Star className={`${CS_ICON_16} fill-current`} />
           星辰
         </span>
       )
     }
-    return (
-      <span className="text-gray-500 text-[10px]">{category}</span>
-    )
+    return <span className={CS_LIST_META}>{category}</span>
   }
 
   return (
-    <div className="rounded-lg border border-gray-600 bg-gray-800/50 p-3">
+    <div className="rounded-lg border border-gray-600 bg-gray-800/50 p-4">
       {canEdit && (
-        <div className="mb-2 space-y-1.5">
-          <p className="text-dnd-gold-light text-[10px] uppercase tracking-wider font-bold mb-1">从专长库添加</p>
-          <div className="flex flex-wrap gap-2 items-end">
+        <div className="mb-2">
+          <div className="flex flex-wrap gap-2 items-center">
             <div className="min-w-0">
-              <label className="text-gray-500 text-[10px] block mb-0.5">专长类型</label>
               <select
                 className={inputClass + ' text-sm'}
                 value={selectedCategory}
                 onChange={(e) => setSelectedCategory(e.target.value)}
+                aria-label="专长类型"
               >
-                <option value="">— 先选类型 —</option>
+                <option value="">选择专长类型</option>
                 {categoryList.map((cat) => (
                   <option key={cat} value={cat}>
                     {cat === '星辰专长' ? '★ 星辰专长' : cat}
@@ -853,7 +884,6 @@ function FeatsSection({ char, canEdit, onSave }) {
               </select>
             </div>
             <div className="min-w-0 flex-1">
-              <label className="text-gray-500 text-[10px] block mb-0.5">具体专长</label>
               <select
                 className={inputClass + ' text-sm'}
                 value=""
@@ -862,9 +892,10 @@ function FeatsSection({ char, canEdit, onSave }) {
                   const id = e.target.value
                   if (id) { addFeat(id); e.target.value = '' }
                 }}
+                aria-label="具体专长"
               >
                 <option value="">
-                  {!selectedCategory ? '— 请先选类型 —' : toAddInCategory.length === 0 ? '— 该类型已选完 —' : '— 选择专长 —'}
+                  {!selectedCategory ? '选择专长类型后再选专长' : toAddInCategory.length === 0 ? '— 该类型已选完 —' : '— 选择专长 —'}
                 </option>
                 {toAddInCategory.map((x) => (
                   <option key={x.id} value={x.id}>{x.name}</option>
@@ -875,15 +906,16 @@ function FeatsSection({ char, canEdit, onSave }) {
         </div>
       )}
       {feats.length > 0 ? (
-        <ul className="space-y-1.5">
+        <ul className="space-y-2">
           {feats.map((item, i) => {
             const feat = featById.get(item.featId)
             const name = feat?.name ?? item.featId
             const category = feat?.category
+            const featHasDescription = Boolean(feat?.description)
             return (
               <li
                 key={item.featId}
-                className={`rounded-lg border bg-gray-800/50 px-2 py-1.5 transition-colors ${
+                className={`rounded-lg border bg-gray-800/50 p-3 transition-colors ${
                   featDragOver === i ? 'border-dnd-gold/70 ring-1 ring-dnd-gold/30' : 'border-gray-600'
                 }`}
                 onDragOver={
@@ -926,51 +958,82 @@ function FeatsSection({ char, canEdit, onSave }) {
                           setFeatDragOver(null)
                         }}
                       >
-                        <DragHandleIcon className="w-4 h-4 text-dnd-text-muted" aria-hidden />
+                        <DragHandleIcon className={`${CS_ICON_16} text-dnd-text-muted`} aria-hidden />
                       </span>
                     )}
-                    <span className="text-white font-semibold text-sm">{name}</span>
+                    <span className={CS_LIST_TITLE}>{name}</span>
                     <FeatTypeTag category={category} />
                   </div>
                   {canEdit && (
-                    <button type="button" onClick={() => removeFeat(i)} className="p-1 text-gray-500 hover:text-dnd-red shrink-0" title="移除">
-                      <Trash2 className="w-3 h-3" />
+                    <button
+                      type="button"
+                      onClick={() => removeFeat(i)}
+                      className={`${CS_ICON_BTN} text-gray-500 hover:text-dnd-red`}
+                      title="移除"
+                    >
+                      <Trash2 className={CS_ICON_16} />
                     </button>
                   )}
                 </div>
                 {feat?.description && (
-                  <p className="text-gray-400 text-xs mt-0.5 whitespace-pre-line leading-snug">{feat.description}</p>
+                  <p className={`${CS_LIST_BODY} mt-2 whitespace-pre-line`}>
+                    {formatFeatDescriptionForDisplay(feat.description)}
+                  </p>
                 )}
                 {canEdit ? (
-                  <div className="grid grid-cols-2 gap-x-2 gap-y-1 mt-1.5 min-w-0 w-full">
-                    <div className="flex items-center gap-1 min-w-0">
-                      <label className="text-gray-500 text-[10px] shrink-0">等级</label>
-                      <input
-                        type="number"
-                        min={1}
-                        max={20}
-                        value={item.level}
-                        onChange={(e) => updateFeat(i, 'level', e.target.value)}
-                        className={selectClassFeatRow + ' min-w-0 flex-1 font-mono max-w-full'}
-                      />
-                    </div>
-                    <div className="flex items-center gap-1 min-w-0">
-                      <label className="text-gray-500 text-[10px] shrink-0">获得职业</label>
+                  <div
+                    className={
+                      featHasDescription
+                        ? 'mt-3 min-w-0 w-full border-t border-gray-600/35 pt-3'
+                        : 'mt-2 min-w-0 w-full'
+                    }
+                  >
+                    <div
+                      className={`${featAcquireText} flex flex-wrap items-center gap-x-0.5 gap-y-1.5`}
+                      role="group"
+                      aria-label="获得本专长的职业与等级"
+                    >
+                      <span className="shrink-0 select-none">在</span>
                       <select
                         value={item.sourceClass}
                         onChange={(e) => updateFeat(i, 'sourceClass', e.target.value)}
-                        className={selectClassFeatRow + ' min-w-0 flex-1 w-full'}
+                        className={featAcquireSelect}
+                        aria-label="获得职业"
                       >
                         <option value="">—</option>
                         {ALL_CLASS_NAMES.map((c) => (
                           <option key={c} value={c}>{c}</option>
                         ))}
                       </select>
+                      <span className="shrink-0 select-none">职业等级为</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={20}
+                        value={item.level}
+                        onChange={(e) => updateFeat(i, 'level', e.target.value)}
+                        className={featAcquireLevelInput}
+                        aria-label="在该职业中的等级"
+                      />
+                      <span className="shrink-0 select-none">时，从</span>
+                      <span
+                        className="inline-flex h-8 max-w-full items-center px-0.5 text-xs font-medium leading-none text-dnd-gold-light/90"
+                        title="由当前专长所属分类自动显示"
+                      >
+                        {featListLabelFromCategory(category)}
+                      </span>
+                      <span className="shrink-0 select-none">中选取</span>
                     </div>
                   </div>
                 ) : (
-                  <p className="text-gray-500 text-xs mt-1">
-                    {item.level} 级 · {item.sourceClass || '—'}
+                  <p
+                    className={
+                      featHasDescription
+                        ? `${CS_LIST_META} mt-3 border-t border-gray-600/35 pt-3 leading-relaxed`
+                        : `${CS_LIST_META} mt-2 leading-relaxed`
+                    }
+                  >
+                    {formatFeatAcquisitionSentence(item.sourceClass, item.level, category)}
                   </p>
                 )}
               </li>
@@ -1036,7 +1099,16 @@ function ClassSection({ char, level, canEdit, onSave }) {
   }
 
   const setMulticlassRow = (index, field, value) => {
-    let next = multiclass.map((m, i) => (i !== index ? m : { ...m, [field]: value }))
+    let next = multiclass.map((m, i) => {
+      if (i !== index) return m
+      if (field === 'class') {
+        const nextSubs = getSubclassOptions(value)
+        const sub = nextSubs.includes(m.subclass) ? m.subclass : ''
+        return { ...m, 'class': value, subclass: sub }
+      }
+      if (field === 'subclass') return { ...m, subclass: value }
+      return { ...m, [field]: value }
+    })
     if (field === 'level') {
       const v = Math.max(0, Math.min(maxLevel, Number(value) ?? 0))
       const other = classLevel + next.filter((_, i) => i !== index).reduce((s, m) => s + (m.level || 0), 0) + prestigeLevelSum
@@ -1047,7 +1119,7 @@ function ClassSection({ char, level, canEdit, onSave }) {
   }
 
   const addMulticlassRow = () => {
-    const next = [...multiclass, { 'class': '', level: 0 }]
+    const next = [...multiclass, { 'class': '', subclass: '', level: 0 }]
     setMulticlass(next)
     persistClass({ multiclass: next })
   }
@@ -1156,22 +1228,34 @@ function ClassSection({ char, level, canEdit, onSave }) {
                 return (
                   <div key={i} className="border border-[var(--card-border)] rounded-lg p-0.5 bg-[rgba(30,38,50,0.4)]">
                     <div className="flex gap-1 items-center flex-nowrap">
-                      <select value={m['class']} onChange={(e) => setMulticlassRow(i, 'class', e.target.value)} className={selectClass}>
+                      <select value={m['class']} onChange={(e) => setMulticlassRow(i, 'class', e.target.value)} className={selectClass + ' min-w-0 flex-[1.05] basis-0'}>
                         <option value="">—</option>
                         {ALL_CLASS_NAMES.filter((c) => c !== classVal).map((c) => (
                           <option key={c} value={c}>{c}</option>
                         ))}
                       </select>
-                      <div className="min-w-0 flex-1">
+                      <div className="w-[6.25rem] shrink-0">
                         <LevelStepper value={m.level} onChange={(n) => setMulticlassRow(i, 'level', n)} min={0} max={rowMax} disabled={!m['class']} />
                       </div>
+                      <select
+                        value={m.subclass ?? ''}
+                        onChange={(e) => setMulticlassRow(i, 'subclass', e.target.value)}
+                        className={selectClass + ' min-w-0 flex-1 basis-0'}
+                        aria-label="兼职子职（选填）"
+                        disabled={!m['class']}
+                      >
+                        <option value="">—</option>
+                        {getSubclassOptions(m['class']).map((s) => (
+                          <option key={s} value={s}>{s}</option>
+                        ))}
+                      </select>
                       <button
                         type="button"
                         onClick={() => removeMulticlassRow(i)}
-                        className="shrink-0 p-1 text-[var(--text-muted)] hover:text-[var(--btn-primary)]"
+                        className={`${CS_ICON_BTN} text-[var(--text-muted)] hover:text-[var(--btn-primary)]`}
                         title="移除"
                       >
-                        <Trash2 className="w-3 h-3" />
+                        <Trash2 className={CS_ICON_16} />
                       </button>
                     </div>
                   </div>
@@ -1217,10 +1301,10 @@ function ClassSection({ char, level, canEdit, onSave }) {
                       <button
                         type="button"
                         onClick={() => removePrestigeRow(i)}
-                        className="shrink-0 p-1 text-[var(--text-muted)] hover:text-[var(--btn-primary)]"
+                        className={`${CS_ICON_BTN} text-[var(--text-muted)] hover:text-[var(--btn-primary)]`}
                         title="移除"
                       >
-                        <Trash2 className="w-3 h-3" />
+                        <Trash2 className={CS_ICON_16} />
                       </button>
                     </div>
                   </div>
@@ -1249,7 +1333,10 @@ function briefClassSummary(c) {
   if (c.class) parts.push(`${getClassDisplayName(c.class)} ${Math.max(0, Number(c.classLevel) || 1)}`)
   if (Array.isArray(c.multiclass)) {
     c.multiclass.forEach((m) => {
-      if (m?.['class']) parts.push(`${getClassDisplayName(m['class'])} ${Math.max(0, Number(m.level) || 0)}`)
+      if (m?.['class'])
+        parts.push(
+          `${getClassDisplayName(m['class'])}${m.subclass ? `（${m.subclass}）` : ''} ${Math.max(0, Number(m.level) || 0)}`,
+        )
     })
   }
   if (Array.isArray(c.prestige)) {

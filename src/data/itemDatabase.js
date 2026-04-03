@@ -361,6 +361,28 @@ export const ITEM_DATABASE = [
   { id: 'hunting_trap', 类型: '冒险装备', 子类型: '其他', 类别: '捕猎陷阱', 攻击: '', 附注: '25磅', 精通: '', 伤害: '', 重量: '25磅', 价格: '5 GP', 详细介绍: '操作动作设下；踩压力板DC13敏捷豁免否则1d4穿刺且移速0至下回合；挣脱DC13力量（运动），失败则1穿刺。' },
 ]
 
+/** 参与 Buff「武器类别」筛选的武器顶层类型 */
+export const WEAPON_TYPES_FOR_BUFF_SCOPE = ['近战武器', '远程武器', '枪械']
+
+/**
+ * 命中/伤害加值「武器类别」多选选项：三大类型 + 库内上述类型全部「类别」（如长剑、手铳）。
+ * 匹配时同时比对物品 proto.类型 与 proto.类别（见 buffTypes.weaponProtoMatchesBuffWeaponCategories）。
+ */
+export const WEAPON_BUFF_CATEGORY_SELECT_OPTIONS = (() => {
+  const typeOpts = WEAPON_TYPES_FOR_BUFF_SCOPE.map((t) => ({ value: t, label: t }))
+  const seen = new Set(WEAPON_TYPES_FOR_BUFF_SCOPE)
+  const cats = []
+  for (const item of ITEM_DATABASE) {
+    if (!WEAPON_TYPES_FOR_BUFF_SCOPE.includes(item.类型)) continue
+    const c = String(item.类别 ?? '').trim()
+    if (!c || seen.has(c)) continue
+    seen.add(c)
+    cats.push(c)
+  }
+  cats.sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'))
+  return [...typeOpts, ...cats.map((c) => ({ value: c, label: c }))]
+})()
+
 /** 显示名：有自定义名称用名称，否则用类别 */
 export function getItemDisplayName(item) {
   if (!item) return '—'

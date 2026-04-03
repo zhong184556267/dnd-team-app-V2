@@ -254,8 +254,8 @@ export const BUFF_TYPES = {
     color: 'red',
     effects: [
       // 表格：命中/伤害加值
-      // 互动调整方式：数字输入 + 下拉（普通/优势/劣势），数值同时作用于命中与伤害。
-      // 为兼容旧数据，仍接受旧文本形式「攻击+X / 伤害+Y」，计算时自动解析。
+      // 互动：「全局生效」加值作用于所有武器；「局部生效」添加多行「武器 + 数字」叠加在对应武器上；二者可同时存在。优劣势可选。
+      // 兼容旧文本与旧版 weaponScope + weaponCategories 存档。
       { key: 'attack_damage_bonus', label: '命中/伤害加值', dataType: 'object', subSelect: 'numberAndAdvantage' },
       // 表格：攻击距离
       // 互动调整方式：数字输入（尺），用于记录近战/远程的基础攻击距离。
@@ -271,12 +271,11 @@ export const BUFF_TYPES = {
       //   ☑️ 正邪穿透: 忽略 [光/暗] 抗性
       // dataType: array + 自定义子选择器 damagePiercingTraits
       { key: 'damage_piercing_traits', label: '伤害穿透特性', dataType: 'array', subSelect: 'damagePiercingTraits' },
-      // 表格：暴击范围扩大
+      // 暴击范围扩大：仅本件物品；武器攻击快捷投掷威胁高亮按「当前这把武器」自己的附魔，不因其它已装备武器串用
       // 互动调整方式：范围选项：默认 20，可选 19-20、18-20。
-      // 这里用文本，直接填「20 / 19-20 / 18-20」之类的描述。
       { key: 'crit_range_expand', label: '暴击范围扩大', dataType: 'text' },
-      // 暴击X：暴击时额外投 X 个伤害骰（数字输入）
-      { key: 'crit_extra_dice', label: '暴击X', dataType: 'number' },
+      // 暴击×：仅作用于「该件物品」自身；战斗手段里每把武器单独读自己的附魔，不会因其它已装备武器上的×4而串用
+      { key: 'crit_extra_dice', label: '暴击×', dataType: 'number' },
       // 表格：伤害骰（自定义一行：箭 - 数字 + 骰子 箭 类型 箭，箭为下拉）
       { key: 'extra_damage_dice', label: '伤害骰', dataType: 'object', subSelect: 'damageDiceInline' },
       // 表格：弹药无限
@@ -388,6 +387,21 @@ export const ADVANTAGE_OPTIONS = [
   { value: 'advantage', label: '优势' },
   { value: 'disadvantage', label: '劣势' },
 ]
+
+/** 与物品库选项中的某一项一致：比对 proto.类型 或 proto.类别 */
+export function protoMatchesWeaponBuffKey(proto, key) {
+  const k = String(key ?? '').trim()
+  if (!k || !proto) return false
+  const t = String(proto.类型 ?? '').trim()
+  const c = String(proto.类别 ?? '').trim()
+  return k === t || (!!c && k === c)
+}
+
+/** 判断武器原型是否命中 Buff 勾选项：可与 proto.类型 或 proto.类别 一致（选项来自 itemDatabase.WEAPON_BUFF_CATEGORY_SELECT_OPTIONS） */
+export function weaponProtoMatchesBuffWeaponCategories(proto, categories) {
+  if (!proto || !Array.isArray(categories) || categories.length === 0) return false
+  return categories.some((s) => protoMatchesWeaponBuffKey(proto, s))
+}
 
 /** 已移除的效果类型（仅用于显示旧数据，不可新增） */
 const DEPRECATED_EFFECTS = {

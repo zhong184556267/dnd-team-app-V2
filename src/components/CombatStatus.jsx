@@ -14,7 +14,12 @@ import {
   getACModeOptionsForCharacter,
   getEffectiveACCalculationMode,
 } from '../lib/formulas'
-import { useBuffCalculator } from '../hooks/useBuffCalculator'
+import {
+  useBuffCalculator,
+  sumWeaponCategoryAttackDamageBonus,
+  getCritDamageDiceMultiplierFromItemEntry,
+  getCritThreatMinNaturalFromItemEntry,
+} from '../hooks/useBuffCalculator'
 import { getMergedBuffsForCalculator } from '../lib/effects/effectMapping'
 import { skillProfFactor } from '../data/dndSkills'
 import { CONDITION_OPTIONS, CONDITION_DESCRIPTIONS, EXHAUSTION_DESCRIPTIONS, DAMAGE_TYPES, ABILITY_NAMES_ZH, getDamageTypeLabel, formatDamageForAttack } from '../data/buffTypes'
@@ -32,6 +37,7 @@ import { getSpellById, getWandScrollSpellPower, getMergedSpells } from '../data/
 import { getSpellcastingLevel, getMaxSpellSlotsByRing } from '../data/classDatabase'
 import { getSpellcastingCombatStats } from '../lib/spellcastingStats'
 import { rollDice, rollCombatDicePool, parseCombatDiceExpression } from '../data/weaponDatabase'
+import { buildQuickRollAnimation } from '../lib/quickRollAnimation'
 import {
   MARTIAL_TECHNIQUE_STYLES,
   getMartialTechniqueById,
@@ -65,22 +71,10 @@ function quickRollTitle(detail) {
   return detail ? `${QUICK_ROLL_BTN}：${detail}` : QUICK_ROLL_BTN
 }
 
-/** 三类投掷图案：D20 检定 / 伤害 / 重击 */
+/** 快捷投掷：命中 / 伤害 / 重击均用 Lucide 双骰图标（与最初版一致）；kind 保留供调用处语义一致 */
 function QuickRollIcon({ kind, className = CM_DICE_IC }) {
   void kind
   return <Dices className={className} aria-hidden />
-}
-
-/** 与底栏 parseFormula 对齐，供 dnd-external-roll 触发 ThreeDiceOverlay（点数须与已掷结果一致） */
-function buildQuickRollAnimation(diceExpr, extraMod, rolls, isCrit) {
-  const p = parseCombatDiceExpression(diceExpr)
-  if (!p || !Array.isArray(rolls)) return null
-  const effCount = p.count * (isCrit ? 2 : 1)
-  if (rolls.length !== effCount) return null
-  const mod = p.flatMod + (Number(extraMod) || 0)
-  const body = `${effCount}d${p.sides}`
-  const formula = mod !== 0 ? `${body}${mod >= 0 ? '+' : ''}${mod}` : body
-  return { formula, diceValues: rolls.map((n) => Number(n)) }
 }
 
 function serializeCombatMartialForSave(slots) {
@@ -321,12 +315,19 @@ function formatSignedModifier(n) {
   return m > 0 ? `+${m}` : `${m}`
 }
 
+/** 远程武器与枪械在命中/伤害 Buff 上与近战区分（枪械原型子类型常为空） */
+function isRangedWeaponProto(proto) {
+  if (!proto) return false
+  return proto.子类型 === '远程' || proto.类型 === '枪械'
+}
+
 /**
  * 从武器背包条目的附魔 effects 读取：命中/伤害加值（仅平加值）、额外伤害骰文案
  * magicBonus 已在 enhancement 中体现，此处不重复读取 attack_melee
  */
-function getWeaponEntryDamageExtras(entry) {
+function getWeaponEntryDamageExtras(entry, proto) {
   if (!entry || !Array.isArray(entry.effects)) return { flatBonus: 0, extraDiceStrings: [] }
+  const isRangedWeapon = isRangedWeaponProto(proto)
   let flatBonus = 0
   const extraDiceStrings = []
   for (const e of entry.effects) {
@@ -339,6 +340,18 @@ function getWeaponEntryDamageExtras(entry) {
         const dmgMatch = raw.match(/伤害\s*[+＋]?\s*(\d+)/i)
         if (dmgMatch) flatBonus += parseInt(dmgMatch[1], 10) || 0
       }
+    }
+    if (e.effectType === 'dmg_bonus_all') {
+      const v = Number(e.value)
+      if (!Number.isNaN(v)) flatBonus += v
+    }
+    if (e.effectType === 'dmg_bonus_ranged' && isRangedWeapon) {
+      const v = Number(e.value)
+      if (!Number.isNaN(v)) flatBonus += v
+    }
+    if (e.effectType === 'dmg_bonus_melee' && !isRangedWeapon) {
+      const v = Number(e.value)
+      if (!Number.isNaN(v)) flatBonus += v
     }
     if (e.effectType === 'extra_damage_dice') {
       const raw = e.value
@@ -355,7 +368,7 @@ function getWeaponEntryDamageExtras(entry) {
 
 function getMergedWeaponExtraDiceStrings(cm, weaponOpt) {
   const fromMean = Array.isArray(cm?.extraDamageDice) ? [...cm.extraDamageDice] : []
-  const fromEntry = weaponOpt?.entry ? getWeaponEntryDamageExtras(weaponOpt.entry).extraDiceStrings : []
+  const fromEntry = weaponOpt?.entry ? getWeaponEntryDamageExtras(weaponOpt.entry, weaponOpt.proto).extraDiceStrings : []
   const seen = new Set()
   const out = []
   for (const d of [...fromMean, ...fromEntry]) {
@@ -389,6 +402,32 @@ function filterExtraDiceAgainstMain(attackParsed, rawDamageType, lines) {
 /** 武器是否使用敏捷（灵巧） */
 function weaponUsesDex(proto) {
   return proto?.附注 && /灵巧/i.test(String(proto.附注))
+}
+
+/** 未在战斗手段中指定属性时：远程/枪械/灵巧 → 敏，其余 → 力 */
+function inferPhysicalWeaponAbilityFromProto(proto) {
+  if (!proto) return 'str'
+  if (isRangedWeaponProto(proto) || weaponUsesDex(proto)) return 'dex'
+  return 'str'
+}
+
+/**
+ * 战斗手段「武器所用属性」：
+ * - 施法属性 / 敏捷 明确保存则沿用；
+ * - 远程与枪械在 5e 中攻击与伤害用敏调；旧存档常误存为「力量」，仍用力调会导致伤害只显示附魔 +5 而无敏调。
+ * - 未指定时按武器类型推断。
+ */
+function resolvePhysicalWeaponAbilityKind(cm, weaponOpt) {
+  const ex = cm?.abilityForAttack
+  const proto = weaponOpt?.proto
+  const ranged = proto && isRangedWeaponProto(proto)
+  if (ex === 'spell') return 'spell'
+  if (ex === 'dex') return 'dex'
+  if (ex === 'str') {
+    if (ranged) return 'dex'
+    return 'str'
+  }
+  return inferPhysicalWeaponAbilityFromProto(proto)
 }
 
 /** 从法术描述中解析伤害，如 "受到1d6点强酸伤害" → [{ dice: '1d6', type: '强酸' }] */
@@ -752,13 +791,15 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     const tagStyle = tech?.style ?? '—'
     const tagRange = tech?.range ?? tech?.target ?? '—'
     const descText = tech?.description != null && String(tech.description).trim() ? String(tech.description).trim() : ''
-    /** 内容区 9.5 份：状态图标 1 + 名称 1.5 + 附赠等 1 + 描述 6（行首 0.5 在栏外层） */
+    const styleGraphemes = tagStyle !== '—' ? Array.from(tagStyle) : []
+    const styleSubTracking = styleGraphemes.length === 2 ? 'tracking-[0.62em]' : ''
+    /** 内容区 13 份：按钮 1 + 名字 2 + 附赠/距离等 1 + 描述 9 */
     return (
       <div
         key={slot.id}
-        className="grid min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,6fr)] items-center divide-x divide-gray-600/45 py-2 text-[11px] leading-snug"
+        className="grid min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,2fr)_minmax(0,1fr)_minmax(0,9fr)] items-center divide-x divide-gray-600/45 py-2 text-[11px] leading-snug"
       >
-        <div className="flex min-w-0 shrink-0 items-center justify-center px-2">
+        <div className="flex min-w-0 w-full shrink-0 items-center justify-center px-2">
           {isStanceCol ? (
             <button
               type="button"
@@ -793,19 +834,24 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
             </button>
           )}
         </div>
-        <div className="min-w-0 self-center px-2 text-left">
+        <div className="flex min-w-0 flex-col items-center justify-center self-center px-2">
           <span
-            className={`block break-words font-semibold leading-tight ${tech ? 'text-sm text-white' : 'text-xs text-gray-500'}`}
+            className={`block w-full text-center break-words font-semibold leading-tight ${tech ? 'text-sm text-white' : 'text-xs text-gray-500'}`}
             title={tech?.name}
           >
             {tech?.name ?? '未知武技（库中无此条目）'}
           </span>
-          {tech && tagStyle && tagStyle !== '—' ? (
-            <span className="mt-0.5 block break-words text-[10px] leading-tight text-dnd-text-muted">{tagStyle}</span>
+          {tech && tagStyle !== '—' ? (
+            <span className="mt-0.5 block w-full text-center text-[10px] leading-tight text-dnd-text-muted">
+              <span className={['inline-block', 'break-words', styleSubTracking].filter(Boolean).join(' ')}>{tagStyle}</span>
+            </span>
+          ) : null}
+          {tech?.tag ? (
+            <span className="mt-0.5 block w-full text-center text-[10px] leading-tight text-violet-300/90">{tech.tag}</span>
           ) : null}
         </div>
-        <div className="min-w-0 self-center px-2">
-          <div className="flex flex-col items-start gap-0.5 text-left text-[10px] leading-tight">
+        <div className="flex min-w-0 flex-col items-center justify-center self-center px-2">
+          <div className="flex w-full flex-col items-center gap-0.5 text-center text-[10px] leading-tight">
             {/** 类型已在右侧分组竖栏展示，此处不再重复 tagType */}
             <span className={`break-words ${isStanceCol ? 'text-dnd-gold-light/85' : 'text-dnd-text-muted'}`}>{tagAction}</span>
             <span className={`break-words ${isStanceCol ? 'text-dnd-gold-light/85' : 'text-dnd-text-muted'}`}>{tagRange}</span>
@@ -843,14 +889,15 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     const first = weaponsFromInv[0]
     if (first) {
       setAddWeaponIndex(first.index)
+      setAddAbility(inferPhysicalWeaponAbilityFromProto(first.proto))
     } else {
       setAddWeaponIndex(null)
+      setAddAbility('str')
     }
     setAddDamageType('')
     setAddWeaponNameSuffix('')
     setAddWeaponExtraDice([])
     setShowWeaponExtraDiceEditor(false)
-    setAddAbility('str')
     setAddWeaponProficient(true)
     setShowAddCombatMeanModal(true)
   }
@@ -946,6 +993,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     if (diceExpr && /^\d+d\d+/i.test(diceExpr)) {
       const { total, rolls } = rollDice(diceExpr)
       const anim = buildQuickRollAnimation(diceExpr, 0, rolls, false)
+      const expDt = damageType ? getDamageTypeLabel(damageType) : ''
       setLastDamageRoll({
         key: Date.now(),
         label,
@@ -954,6 +1002,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
         dice: diceExpr,
         modifier: 0,
         ...(anim ? { animate: true, formula: anim.formula, diceValues: anim.diceValues } : {}),
+        ...(expDt ? { damageTypeLabel: expDt } : {}),
       })
     }
   }
@@ -986,6 +1035,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
         dice: diceExpr,
         modifier: 0,
         ...(anim ? { animate: true, formula: anim.formula, diceValues: anim.diceValues } : {}),
+        ...(damageTypeLabel ? { damageTypeLabel } : {}),
       })
     }
   }
@@ -1021,6 +1071,8 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
 
   /** 物理武器：汇总主伤+所有额外骰，按伤害类型分组投掷并展示 */
   const rollAllWeaponDamage = (cm, weaponOpt, attackParsed, totalDamageMod, displayDamageType, isCrit) => {
+    /** 仅本把武器 entry 上的「暴击×」；其它已装备武器的附魔不串用 */
+    const critMult = isCrit ? getCritDamageDiceMultiplierFromItemEntry(weaponOpt?.entry ?? null) : 1
     const animParts = []
     const animValues = []
     const sources = []
@@ -1046,20 +1098,35 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     })
     const byType = {}
     sources.forEach(({ dice, modifier, type }) => {
-      const r1 = rollDice(dice)
-      const r2 = isCrit ? rollDice(dice) : { total: 0, rolls: [] }
-      const rolls = [...(r1.rolls ?? []), ...(r2.rolls ?? [])]
-      /** 表达式内加值（如 2d8+2）：total 已含，按类型汇总时须写入 modifier，否则底栏只显示骰点和 */
-      const sumR1 = (r1.rolls ?? []).reduce((s, n) => s + (Number(n) || 0), 0)
-      const sumR2 = (r2.rolls ?? []).reduce((s, n) => s + (Number(n) || 0), 0)
-      const flatFromDice = (Number(r1.total) || 0) - sumR1 + (Number(r2.total) || 0) - sumR2
-      /** 须与 rollDice/parseCombatDiceExpression 一致；纯 NdM 正则会漏掉「2d8+2」等，导致 3D 只播主骰 */
-      const pExpr = parseCombatDiceExpression(dice)
-      if (pExpr && rolls.length === pExpr.count * (isCrit ? 2 : 1)) {
-        const effCount = pExpr.count * (isCrit ? 2 : 1)
-        const diceFlatTotal = pExpr.flatMod * (isCrit ? 2 : 1)
-        const sourceMod = Number(modifier) || 0
-        const totalFlat = sourceMod + diceFlatTotal
+      const pool1 = rollCombatDicePool(dice)
+      if (!pool1.parsed) {
+        const r1 = rollDice(dice)
+        const rolls = [...(r1.rolls ?? [])]
+        const sumR1 = (r1.rolls ?? []).reduce((s, n) => s + (Number(n) || 0), 0)
+        /** 重击：多轮骰点；表达式 flat 仅取首轮（与解析路径一致） */
+        const exprFlatOnce = (Number(r1.total) || 0) - sumR1
+        for (let k = 1; k < critMult; k++) {
+          const r = rollDice(dice)
+          rolls.push(...(r.rolls ?? []))
+        }
+        if (!byType[type]) byType[type] = { rolls: [], modifier: 0 }
+        byType[type].rolls.push(...rolls)
+        byType[type].modifier += (Number(modifier) || 0) + exprFlatOnce
+        return
+      }
+      const extraCritRolls = []
+      for (let k = 1; k < critMult; k++) {
+        const poolExtra = rollCombatDicePool(dice)
+        extraCritRolls.push(...poolExtra.rolls)
+      }
+      const rolls = [...pool1.rolls, ...extraCritRolls]
+      /** 重击：骰子多投若干轮；表达式末尾加值（XdY+N 的 N）只加一次（D&D 2024 与 5e 武器重击一致） */
+      const exprFlatOnce = pool1.flatMod
+      const sourceMod = Number(modifier) || 0
+      const pExpr = pool1.parsed
+      if (pExpr && rolls.length === pExpr.count * critMult) {
+        const effCount = pExpr.count * critMult
+        const totalFlat = sourceMod + exprFlatOnce
         const piece =
           totalFlat !== 0
             ? `${effCount}d${pExpr.sides}${totalFlat >= 0 ? '+' : ''}${totalFlat}`
@@ -1069,7 +1136,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       }
       if (!byType[type]) byType[type] = { rolls: [], modifier: 0 }
       byType[type].rolls.push(...rolls)
-      byType[type].modifier += (Number(modifier) || 0) + flatFromDice
+      byType[type].modifier += sourceMod + exprFlatOnce
     })
     const animBundle =
       animParts.length > 0 && animValues.length > 0
@@ -1078,67 +1145,85 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     setLastDamageRoll({ byType, ...animBundle })
   }
 
-  const rollDamageDice = (diceExpr, label, key, modifier = 0, isCrit = false) => {
+  const rollDamageDice = (diceExpr, label, key, modifier = 0, isCrit = false, damageTypeLabel = '') => {
     const mod = Number(modifier) || 0
     const raw = String(diceExpr || '').trim()
+    const dt = String(damageTypeLabel || '').trim()
+    const typeExtra = dt ? { damageTypeLabel: dt } : {}
     if (isCrit) {
-      const r1 = rollCombatDicePool(raw)
-      const r2 = rollCombatDicePool(raw)
-      if (!r1.parsed || !r2.parsed) {
-        const fb1 = rollDice(raw)
-        const fb2 = rollDice(raw)
-        const rolls = [...(fb1.rolls ?? []), ...(fb2.rolls ?? [])]
-        const finalTotal = (fb1.total || 0) + (fb2.total || 0) + mod
+      /** 法术/非武器伤害重击始终按规则 ×2；装备暴击× 仅作用于武器 rollAllWeaponDamage */
+      const critDiceMult = 2
+      const pools = []
+      for (let i = 0; i < critDiceMult; i++) pools.push(rollCombatDicePool(raw))
+      const r1 = pools[0]
+      if (!r1.parsed) {
+        const fb0 = rollDice(raw)
+        const rolls = [...(fb0.rolls ?? [])]
+        const sum0 = (fb0.rolls ?? []).reduce((s, n) => s + (Number(n) || 0), 0)
+        const exprFlatOnce = (Number(fb0.total) || 0) - sum0
+        for (let k = 1; k < critDiceMult; k++) {
+          const fb = rollDice(raw)
+          rolls.push(...(fb.rolls ?? []))
+        }
+        const sumDice = rolls.reduce((s, n) => s + (Number(n) || 0), 0)
+        const finalTotal = sumDice + exprFlatOnce + mod
+        const anim = buildQuickRollAnimation(raw, mod, rolls, true, critDiceMult)
         setLastDamageRoll({
           key: key ?? Date.now(),
-          label: (label || raw) + ' (重击)',
+          label: (label || raw) + ' (重击×2伤害骰)',
           total: finalTotal,
           rolls,
           dice: raw,
           modifier: mod,
           isCrit: true,
+          ...(anim ? { animate: true, formula: anim.formula, diceValues: anim.diceValues } : {}),
+          ...typeExtra,
         })
         return
       }
-      const rolls = [...r1.rolls, ...r2.rolls]
-      const finalTotal = r1.diceSum + r2.diceSum + r1.flatMod + mod
-      const anim = buildQuickRollAnimation(raw, mod, rolls, true)
+      const rolls = pools.flatMap((p) => p.rolls)
+      const diceSum = pools.reduce((s, p) => s + p.diceSum, 0)
+      const finalTotal = diceSum + r1.flatMod + mod
+      const anim = buildQuickRollAnimation(raw, mod, rolls, true, critDiceMult)
       setLastDamageRoll({
         key: key ?? Date.now(),
-        label: (label || raw) + ' (重击)',
+        label: (label || raw) + ' (重击×2伤害骰)',
         total: finalTotal,
         rolls,
         dice: raw,
         modifier: mod,
         isCrit: true,
         ...(anim ? { animate: true, formula: anim.formula, diceValues: anim.diceValues } : {}),
+        ...typeExtra,
       })
-    } else {
-      const pool = rollCombatDicePool(raw)
-      if (!pool.parsed) {
-        const { total, rolls } = rollDice(raw)
-        setLastDamageRoll({
-          key: key ?? Date.now(),
-          label: label || raw,
-          total: total + mod,
-          rolls,
-          dice: raw,
-          modifier: mod,
-        })
-        return
-      }
-      const finalTotal = pool.diceSum + pool.flatMod + mod
-      const anim = buildQuickRollAnimation(raw, mod, pool.rolls, false)
+      return
+    }
+    const pool = rollCombatDicePool(raw)
+    if (!pool.parsed) {
+      const { total, rolls } = rollDice(raw)
       setLastDamageRoll({
         key: key ?? Date.now(),
         label: label || raw,
-        total: finalTotal,
-        rolls: pool.rolls,
+        total: total + mod,
+        rolls,
         dice: raw,
         modifier: mod,
-        ...(anim ? { animate: true, formula: anim.formula, diceValues: anim.diceValues } : {}),
+        ...typeExtra,
       })
+      return
     }
+    const finalTotal = pool.diceSum + pool.flatMod + mod
+    const anim = buildQuickRollAnimation(raw, mod, pool.rolls, false)
+    setLastDamageRoll({
+      key: key ?? Date.now(),
+      label: label || raw,
+      total: finalTotal,
+      rolls: pool.rolls,
+      dice: raw,
+      modifier: mod,
+      ...(anim ? { animate: true, formula: anim.formula, diceValues: anim.diceValues } : {}),
+      ...typeExtra,
+    })
   }
 
   const weaponsFromInv = useMemo(() => getWeaponsFromInventory(char?.inventory ?? []), [char?.inventory])
@@ -1147,14 +1232,16 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     setEditingCombatMeanId(cm.id)
     setAddWeaponIndex(cm.weaponInventoryIndex ?? null)
     setAddWeaponNameSuffix(cm.weaponNameSuffix ?? '')
-    setAddAbility(cm.abilityForAttack === 'dex' ? 'dex' : cm.abilityForAttack === 'spell' ? 'spell' : 'str')
+    const wForEdit =
+      cm.weaponInventoryIndex != null ? weaponsFromInv.find((x) => x.index === cm.weaponInventoryIndex) : null
+    setAddAbility(resolvePhysicalWeaponAbilityKind(cm, wForEdit))
     setAddDamageType(cm.damageType ? String(cm.damageType) : '')
     setAddWeaponProficient(cm.weaponProficient !== false)
     setAddWeaponExtraDice(Array.isArray(cm.extraDamageDice) ? [...cm.extraDamageDice] : [])
     setShowWeaponExtraDiceEditor(false)
     setAddMeanStep('weapon')
     setShowAddCombatMeanModal(true)
-  }, [])
+  }, [weaponsFromInv])
 
   const explosivesFromInv = useMemo(() => getExplosivesFromInventory(char?.inventory ?? []), [char?.inventory])
   const focusFromInv = useMemo(() => getFocusItemsFromInventory(char?.inventory ?? []), [char?.inventory])
@@ -1354,9 +1441,19 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     let isCrit = false
     let isFumble = false
     if (roll === 20) {
-      results[emptyIdx] = 'success'
-      if (emptyIdx + 1 < results.length) results[emptyIdx + 1] = 'success'
-      isCrit = true
+      /** D&D 2024：自然 20 恢复 1 HP、清醒，死亡豁免轨迹重置（不再计两次成功） */
+      const wakeHp = Math.min(maxHp, Math.max(0, Number(hpCurrent) || 0) + 1)
+      const next = {
+        ...getDefaultDeathSaves(),
+        lastRoll: { roll, isCritical: true, isFumble: false },
+      }
+      setHpCurrent(wakeHp)
+      setDeathSaves(next)
+      onSave({
+        deathSaves: next,
+        hp: { current: wakeHp, max: maxHp, temp: hpTemp },
+      })
+      return
     } else if (roll === 1) {
       results[emptyIdx] = 'failure'
       if (emptyIdx + 1 < results.length) results[emptyIdx + 1] = 'failure'
@@ -1448,7 +1545,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   }, [deductVal, buffDamageReduction])
 
   const DEATH_SAVE_RULE_HINT =
-    'd20≥10 成功；投出 1 计两次失败；投出 20 恢复 1 HP 并清醒。累计 3 次成功伤势稳定；累计 3 次失败死亡。'
+    '（D&D 2024）d20≥10 成功；投出 1 计两次失败；投出 20 恢复 1 HP、清醒并重置死亡豁免。累计 3 次成功伤势稳定；累计 3 次失败死亡。'
 
   return (
     <div className="rounded-xl border border-white/10 bg-gradient-to-b from-[#243147]/35 to-[#1f2a3d]/30 p-3 space-y-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
@@ -1778,7 +1875,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       {showSpellModule ? (
         <div className="w-full mt-2 rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 p-2 flex flex-col gap-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
           {/* 第一行：施法能力整行均分平铺，保持一行内，字号统一 */}
-          <div className="flex flex-nowrap items-center justify-evenly gap-x-2 gap-y-1 min-w-0 overflow-x-auto text-sm">
+          <div className="flex flex-nowrap items-center justify-evenly gap-x-2 gap-y-1 min-w-0 overflow-x-auto text-sm [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
             <span className="text-dnd-gold-light font-bold uppercase tracking-wider shrink-0">施法能力</span>
             <span className="border-r border-white/10 h-5 self-center shrink-0" aria-hidden />
             <span className="text-dnd-text-muted shrink-0">法术攻击加值</span>
@@ -2100,15 +2197,22 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
               ? parseWeaponAttack(getWeaponAttackStringForParsing(weaponOpt))
               : { dice: null, diceList: [], type: '—' }
             const enhancement = Number(weaponOpt?.entry?.magicBonus) || 0
-            const abilityKey = cm.abilityForAttack === 'spell' ? spellAbility : (cm.abilityForAttack === 'dex' ? 'dex' : 'str')
+            const weaponAbilityKind = resolvePhysicalWeaponAbilityKind(cm, weaponOpt)
+            const abilityKey = weaponAbilityKind === 'spell' ? spellAbility : weaponAbilityKind
             const abilityMod = abilityModifier(effectiveAbilities?.[abilityKey] ?? 10)
-            const isRanged = weaponOpt?.proto?.子类型 === '远程'
-            const buffAttackBonus = isRanged ? (buffStats?.rangedAttackBonus ?? 0) : (buffStats?.meleeAttackBonus ?? 0)
+            const isRangedWeapon = weaponOpt ? isRangedWeaponProto(weaponOpt.proto) : false
+            const weaponCategoryAttackFlat = weaponOpt?.proto
+              ? sumWeaponCategoryAttackDamageBonus(buffStats?.weaponCategoryAttackDamageBonuses ?? [], weaponOpt.proto)
+              : 0
+            const buffAttackBonus =
+              (isRangedWeapon ? (buffStats?.rangedAttackBonus ?? 0) : (buffStats?.meleeAttackBonus ?? 0)) + weaponCategoryAttackFlat
+            const buffDamageBonus =
+              (isRangedWeapon ? (buffStats?.rangedDamageBonus ?? 0) : (buffStats?.meleeDamageBonus ?? 0)) + weaponCategoryAttackFlat
             const weaponProficient = cm.weaponProficient !== false
             const physicalAttackBonus = enhancement + abilityMod + (weaponProficient ? prof : 0) + buffAttackBonus
             const damageMod = abilityMod + enhancement
-            const weaponEffectFlat = weaponOpt?.entry ? getWeaponEntryDamageExtras(weaponOpt.entry).flatBonus : 0
-            const totalDamageMod = damageMod + weaponEffectFlat
+            const weaponEffectFlat = weaponOpt?.entry ? getWeaponEntryDamageExtras(weaponOpt.entry, weaponOpt.proto).flatBonus : 0
+            const totalDamageMod = damageMod + weaponEffectFlat + buffDamageBonus
             const rawDamageType = cm.damageType || attackParsed.type
             const displayDamageType = rawDamageType ? getDamageTypeLabel(rawDamageType) : '—'
             const isSpellAttack = cm.type === 'spell_attack'
@@ -2268,7 +2372,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                             <>
                               <button
                                 type="button"
-                                onClick={() => rollDamageDice((cm.damageDice || '').trim(), (cm.spellName || '法术') + ' ' + (getDamageTypeLabel(cm.damageTypeSpell) || ''), 'spell_attack-' + cm.id)}
+                                onClick={() => rollDamageDice((cm.damageDice || '').trim(), (cm.spellName || '法术') + ' ' + (getDamageTypeLabel(cm.damageTypeSpell) || ''), 'spell_attack-' + cm.id, 0, false, getDamageTypeLabel(cm.damageTypeSpell) || '')}
                                 className={CM_BTN_GOLD}
                                 title={quickRollTitle('伤害')}
                                 aria-label={quickRollTitle('伤害')}
@@ -2278,12 +2382,12 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                               {hitRes === 'spell_attack' && (
                                 <button
                                   type="button"
-                                  onClick={() => rollDamageDice((cm.damageDice || '').trim(), (cm.spellName || '法术') + ' ' + (getDamageTypeLabel(cm.damageTypeSpell) || ''), 'spell_attack-' + cm.id, 0, true)}
-                                  className={`${CM_BTN_CRIT} ${CM_MEAN_LABEL} font-bold leading-none`}
-                                  title={quickRollTitle('伤害（重击）')}
-                                  aria-label={quickRollTitle('伤害（重击）')}
+                                  onClick={() => rollDamageDice((cm.damageDice || '').trim(), (cm.spellName || '法术') + ' ' + (getDamageTypeLabel(cm.damageTypeSpell) || ''), 'spell_attack-' + cm.id, 0, true, getDamageTypeLabel(cm.damageTypeSpell) || '')}
+                                  className={CM_BTN_CRIT}
+                                  title={quickRollTitle('伤害（重击×2伤害骰）')}
+                                  aria-label={quickRollTitle('伤害（重击×2伤害骰）')}
                                 >
-                                  重
+                                  <QuickRollIcon kind="crit" className={CM_DICE_IC_GOLD} />
                                 </button>
                               )}
                             </>
@@ -2311,6 +2415,8 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                     </div>
                     {weaponOpt && (
                       (() => {
+                        const weaponCritDiceMult = getCritDamageDiceMultiplierFromItemEntry(weaponOpt.entry)
+                        const weaponCritThreatMin = getCritThreatMinNaturalFromItemEntry(weaponOpt.entry)
                         const isRanged = weaponOpt.proto?.子类型 === '远程'
                         const entryAttackDist = (weaponOpt.entry?.攻击距离 ?? '').toString().trim()
                         const protoAttackDist = (weaponOpt.proto?.攻击距离 ?? '').toString().trim()
@@ -2335,7 +2441,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                         <div className="col-span-4 pl-2 border-l border-gray-600 flex items-center gap-x-1.5 min-w-0 overflow-hidden">
                           <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>攻击</span>
                           <span className={`text-white font-mono ${CM_MEAN_HI} tabular-nums truncate`}>{physicalAttackBonus >= 0 ? '+' : ''}{physicalAttackBonus}</span>
-                          <button type="button" onClick={() => openForCheck(weaponOpt.name + ' 攻击', physicalAttackBonus, { quickRoll: true })} className={CM_BTN_RED} title={quickRollTitle('攻击')} aria-label={quickRollTitle('攻击')}>
+                          <button type="button" onClick={() => openForCheck(weaponOpt.name + ' 攻击', physicalAttackBonus, { quickRoll: true, critThreatMinNatural: weaponCritThreatMin })} className={CM_BTN_RED} title={quickRollTitle('攻击')} aria-label={quickRollTitle('攻击')}>
                             <QuickRollIcon kind="d20" />
                           </button>
                         </div>
@@ -2352,7 +2458,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                               <button type="button" onClick={() => rollAllWeaponDamage(cm, weaponOpt, attackParsed, totalDamageMod, displayDamageType, false)} className={CM_BTN_GOLD} title={quickRollTitle('伤害')} aria-label={quickRollTitle('伤害')}>
                                 <QuickRollIcon kind="damage" />
                               </button>
-                              <button type="button" onClick={() => rollAllWeaponDamage(cm, weaponOpt, attackParsed, totalDamageMod, displayDamageType, true)} className={CM_BTN_CRIT} title={quickRollTitle('伤害（重击）')} aria-label={quickRollTitle('伤害（重击）')}>
+                              <button type="button" onClick={() => rollAllWeaponDamage(cm, weaponOpt, attackParsed, totalDamageMod, displayDamageType, true)} className={CM_BTN_CRIT} title={quickRollTitle(`伤害（重击×${weaponCritDiceMult}伤害骰）`)} aria-label={quickRollTitle(`伤害（重击×${weaponCritDiceMult}伤害骰）`)}>
                                 <QuickRollIcon kind="crit" />
                               </button>
                             </>
@@ -2425,12 +2531,12 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                             {spellDamageList.map((d, i) => (
                               <span key={i} className="inline-flex items-center gap-0.5">
                                 <span className={`text-white font-mono ${CM_MEAN_HI}`}>{d.dice} {d.type}</span>
-                                <button type="button" onClick={() => rollDamageDice(d.dice, spell.name + ' ' + d.type, 'spell-' + cm.id + '-' + i)} className={CM_BTN_GOLD} title={quickRollTitle('伤害')} aria-label={quickRollTitle('伤害')}>
+                                <button type="button" onClick={() => rollDamageDice(d.dice, spell.name + ' ' + d.type, 'spell-' + cm.id + '-' + i, 0, false, getDamageTypeLabel(d.type) || d.type || '')} className={CM_BTN_GOLD} title={quickRollTitle('伤害')} aria-label={quickRollTitle('伤害')}>
                                   <QuickRollIcon kind="damage" className={CM_DICE_IC_GOLD} />
                                 </button>
                                 {spellIsAttack && (
-                                  <button type="button" onClick={() => rollDamageDice(d.dice, spell.name + ' ' + d.type, 'spell-' + cm.id + '-' + i, 0, true)} className={`${CM_BTN_CRIT} ${CM_MEAN_LABEL} font-bold shrink-0 leading-none`} title={quickRollTitle('伤害（重击）')} aria-label={quickRollTitle('伤害（重击）')}>
-                                    重
+                                  <button type="button" onClick={() => rollDamageDice(d.dice, spell.name + ' ' + d.type, 'spell-' + cm.id + '-' + i, 0, true, getDamageTypeLabel(d.type) || d.type || '')} className={CM_BTN_CRIT} title={quickRollTitle('伤害（重击×2伤害骰）')} aria-label={quickRollTitle('伤害（重击×2伤害骰）')}>
+                                    <QuickRollIcon kind="crit" className={CM_DICE_IC_GOLD} />
                                   </button>
                                 )}
                               </span>
@@ -2539,7 +2645,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                   <>
                     <h3 className="text-dnd-gold-light text-sm font-bold mb-3">添加战斗手段</h3>
                     <div className="flex flex-col gap-2">
-                      <button type="button" onClick={() => { const nextIdx = weaponsFromInv.length ? weaponsFromInv[0].index : null; setAddWeaponIndex(nextIdx); setAddDamageType(''); setShowWeaponExtraDiceEditor(false); setAddMeanStep('weapon'); }} className="w-full py-2.5 rounded bg-dnd-red hover:bg-dnd-red-hover text-white font-medium text-sm">
+                      <button type="button" onClick={() => { const w0 = weaponsFromInv[0]; const nextIdx = w0 ? w0.index : null; setAddWeaponIndex(nextIdx); setAddAbility(w0 ? inferPhysicalWeaponAbilityFromProto(w0.proto) : 'str'); setAddDamageType(''); setShowWeaponExtraDiceEditor(false); setAddMeanStep('weapon'); }} className="w-full py-2.5 rounded bg-dnd-red hover:bg-dnd-red-hover text-white font-medium text-sm">
                         武器攻击
                       </button>
                       <button type="button" onClick={() => { const first = itemMeansFromInv[0]; setAddItemIndex(first ? first.index : null); setAddMeanStep('item'); }} disabled={itemMeansFromInv.length === 0} className="w-full py-2.5 rounded bg-dnd-red hover:bg-dnd-red-hover disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium text-sm">
@@ -2647,7 +2753,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                       <div>
                         <label className="block text-dnd-text-muted text-xs mb-0.5">武器</label>
                         <div className="flex items-center gap-1.5 w-full min-w-0 flex-nowrap">
-                          <select value={addWeaponIndex ?? ''} onChange={(e) => { const v = e.target.value === '' ? null : parseInt(e.target.value, 10); setAddWeaponIndex(v); }} className={inputClass + ' h-8 text-xs shrink-0 max-w-[10rem]'} disabled={!canEdit} style={{ width: 'auto', minWidth: '6rem' }}>
+                          <select value={addWeaponIndex ?? ''} onChange={(e) => { const v = e.target.value === '' ? null : parseInt(e.target.value, 10); setAddWeaponIndex(v); const w = v != null ? weaponsFromInv.find((x) => x.index === v) : null; if (w?.proto) setAddAbility(inferPhysicalWeaponAbilityFromProto(w.proto)); }} className={inputClass + ' h-8 text-xs shrink-0 max-w-[10rem]'} disabled={!canEdit} style={{ width: 'auto', minWidth: '6rem' }}>
                             <option value="">—</option>
                             {weaponsFromInv.map((w) => (
                               <option key={w.index} value={w.index}>{w.name}</option>
@@ -3160,7 +3266,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                   type="button"
                   onClick={openMartialSettingsModal}
                   className="h-6 w-6 flex items-center justify-center rounded text-gray-400 hover:text-dnd-gold-light hover:bg-gray-700/40"
-                  title="编辑武技（打开设置弹窗）"
+                  title="编辑武技（添加招式、可学数量与准备状态）"
                   aria-label="编辑武技"
                 >
                   <Pencil size={12} />
@@ -3168,33 +3274,26 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                 <button
                   type="button"
                   onClick={() => {
-                    if (martialSlots.length > 0) return
                     setShowMartialModule(false)
                     onSave({ showMartialModule: false })
                   }}
-                  disabled={martialSlots.length > 0}
-                  className={`h-6 w-6 flex items-center justify-center rounded ${
-                    martialSlots.length > 0
-                      ? 'text-gray-600 cursor-not-allowed'
-                      : 'text-gray-400 hover:text-dnd-red hover:bg-red-900/35'
-                  }`}
-                  title={martialSlots.length > 0 ? '请先清空武技后再隐藏模块' : '隐藏武技模块'}
-                  aria-label="隐藏武技模块"
+                  className="h-6 w-6 flex items-center justify-center rounded text-gray-400 hover:text-dnd-red hover:bg-red-900/35"
+                  title="折叠武技模块（战斗区不再显示武技区块，数据保留）"
+                  aria-label="折叠武技模块"
                 >
                   <Trash2 size={12} />
                 </button>
               </div>
             ) : null}
           </div>
-          <div className="space-y-2">
-            <div className="min-w-0">
-              {martialSlots.length === 0 ? (
-                <p className="text-dnd-text-muted text-xs">暂无武技，点击下方在弹窗中设置可学数量并分配招式</p>
-              ) : (
-                <div className="overflow-hidden rounded-lg border border-gray-600/50">
-                  <div className="grid min-h-0 min-w-0 grid-cols-1 grid-rows-[auto_auto] divide-y divide-gray-600/40 sm:grid-cols-2 sm:grid-rows-1 sm:divide-y-0 sm:items-stretch">
-                    <div className="grid min-h-0 h-full min-w-0 grid-cols-[minmax(0,0.5fr)_minmax(0,9.5fr)] items-stretch border-gray-600/40 sm:border-r sm:pr-3">
-                      <div className="flex min-h-0 min-w-0 flex-col items-center justify-center border-r border-gray-600/40 bg-gray-950/20 py-2 px-0.5">
+          <div className="min-w-0">
+            {martialSlots.length === 0 ? (
+              <p className="text-dnd-text-muted text-xs">暂无武技，点击右上角「编辑」在弹窗中设置可学数量并分配招式</p>
+            ) : (
+              <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-stretch sm:gap-3">
+                  <div className="min-h-0 min-w-0 flex-1 basis-0 overflow-hidden rounded-lg border border-gray-600/50 bg-gray-800/50">
+                    <div className="grid min-h-0 h-full min-w-0 grid-cols-[minmax(0,0.5fr)_minmax(0,9.5fr)] items-stretch">
+                      <div className="flex min-h-0 min-w-0 flex-col items-center justify-center border-r border-gray-600/40 bg-gray-950/25 py-2 px-0.5">
                         <span className="select-none text-[11px] font-bold leading-none tracking-[0.28em] text-dnd-gold-light sm:text-xs sm:tracking-[0.38em] [writing-mode:vertical-lr] [text-orientation:upright]">
                           架势
                         </span>
@@ -3207,7 +3306,9 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                         )}
                       </div>
                     </div>
-                    <div className="min-h-0 min-w-0 flex flex-col divide-y divide-gray-600/40 sm:pl-3">
+                  </div>
+                  <div className="min-h-0 min-w-0 flex-1 basis-0 overflow-hidden rounded-lg border border-gray-600/50 bg-gray-800/50">
+                    <div className="flex min-h-0 min-w-0 flex-col divide-y divide-gray-600/40">
                       {martialOtherSlots.length === 0 ? (
                         <p className="px-1 py-2 text-dnd-text-muted text-[11px] sm:px-2">暂无在弹窗中勾选「已准备」的其他招式</p>
                       ) : martialOtherGroupedSections.length === 0 ? (
@@ -3218,7 +3319,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                             key={key}
                             className="grid min-h-0 grid-cols-[minmax(0,0.5fr)_minmax(0,9.5fr)] items-stretch"
                           >
-                            <div className="flex min-h-0 min-w-0 flex-col items-center justify-center gap-0 border-r border-gray-600/40 bg-gray-950/20 py-2 px-0.5">
+                            <div className="flex min-h-0 min-w-0 flex-col items-center justify-center gap-0 border-r border-gray-600/40 bg-gray-950/25 py-2 px-0.5">
                               {Array.from(key).map((ch, i) => (
                                 <span
                                   key={`${key}-${i}`}
@@ -3236,17 +3337,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                       )}
                     </div>
                   </div>
-                </div>
-              )}
-            </div>
-            {canEdit && (
-            <button
-              type="button"
-              onClick={openMartialSettingsModal}
-              className="w-full rounded-lg border border-dashed border-gray-500 py-1.5 text-xs font-bold uppercase tracking-wider text-gray-400 hover:bg-gray-800/50"
-            >
-              + 添加武技
-            </button>
+              </div>
             )}
           </div>
         </div>
@@ -3256,11 +3347,10 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
           onClick={() => {
             setShowMartialModule(true)
             onSave({ showMartialModule: true })
-            openMartialSettingsModal()
           }}
           className="w-full mt-2 py-1.5 rounded-lg border border-dashed border-gray-500 text-gray-400 hover:bg-gray-800/50 text-sm font-bold uppercase tracking-wider"
         >
-          + 添加武技
+          + 武技模块
         </button>
       ) : null}
     </div>

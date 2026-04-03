@@ -9,10 +9,10 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { Trash2, Plus } from 'lucide-react'
 import { getItemListGrouped, getItemById, getItemDisplayName, parseWeaponNoteToTraits, buildWeaponNoteFromTraits, WEAPON_TRAIT_OPTIONS, WEAPON_MASTERY_OPTIONS } from '../data/itemDatabase'
-import { inputClass, textareaClass } from '../lib/inputStyles'
+import { inputClass, inputClassInline, textareaClass } from '../lib/inputStyles'
 import { useModule } from '../contexts/ModuleContext'
 import { BUFF_TYPES, getCategories, normalizeEffectCategory, parseDamageString, formatDamageForAttack } from '../data/buffTypes'
-import { EffectValueEditor, isComplexValueType, DamageDiceInlineRow, NumberStepper } from './BuffForm'
+import { EffectValueEditor, isComplexValueType, DamageDiceInlineRow, NumberStepper, normalizeAttackDamageBonusModuleValue, AttackDamageBonusFields, newWeaponBonusRow } from './BuffForm'
 
 /** 从护甲/衣服附注解析为可编辑字段（先匹配护甲基础再匹配盾牌，与 formulas 一致） */
 function parseArmorNoteToFields(note) {
@@ -146,7 +146,7 @@ function effectModuleToEntryParts(mod, currentEffect) {
   if (key === 'save_dc_bonus' || key === 'spell_attack_bonus') return { spellDC: typeof val === 'object' && val && val.val != null ? Number(val.val) : 0 }
   if (key === 'dmg_bonus_melee') return { 附注Part: num > 0 ? '近战伤害+' + num : '' }
   if (key === 'dmg_bonus_ranged') return { 附注Part: num > 0 ? '远程伤害+' + num : '' }
-  if (key === 'crit_extra_dice') return { 附注Part: num > 0 ? '暴击+' + num : '' }
+  if (key === 'crit_extra_dice') return { 附注Part: num >= 2 ? '暴击×' + num : '' }
   if (key === 'crit_range_expand') return { 附注Part: text.trim() ? '暴击范围 ' + text.trim() : '' }
   if (key?.startsWith('custom_')) return { 附注Part: text.trim() }
   return {}
@@ -655,72 +655,132 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
                     const effectiveEffectType = hasCategory && effectTypeValid ? mod.effectType : ''
                     const currentEffect = effects.find((e) => e.key === effectiveEffectType)
                     const complexValue = currentEffect ? isComplexValueType(currentEffect) : false
+                    const isAttackDamageBonus = effectiveEffectType === 'attack_damage_bonus'
+                    const categorySelect = (
+                      <select
+                        value={mod.category || ''}
+                        onChange={(e) => {
+                          const newCat = e.target.value
+                          const newEffects = BUFF_TYPES[newCat]?.effects ?? []
+                          updateModule(mod.id, { ...mod, category: newCat, effectType: newCat ? (newEffects[0]?.key ?? '') : '' })
+                        }}
+                        className={inputClass + ' h-7 text-xs w-full min-w-0'}
+                      >
+                        <option value="">&lt;效果大类&gt;</option>
+                        {getCategories().map((c) => (
+                          <option key={c.key} value={c.key}>{c.label}</option>
+                        ))}
+                      </select>
+                    )
+                    const effectTypeSelect = (
+                      <select
+                        value={effectiveEffectType}
+                        onChange={(e) => {
+                          const nextType = e.target.value
+                          const patch = { ...mod, effectType: nextType }
+                          if (nextType === 'initiative_buff') patch.value = { bonus: 0, proficient: false }
+                          if (nextType === 'attack_damage_bonus') patch.value = normalizeAttackDamageBonusModuleValue(mod.value)
+                          updateModule(mod.id, patch)
+                        }}
+                        className={inputClass + ' h-7 text-xs w-full min-w-0'}
+                        disabled={!hasCategory}
+                      >
+                        <option value="">&lt;具体效果&gt;</option>
+                        {visibleEffects.map((e) => (
+                          <option key={e.key} value={e.key}>{e.label}</option>
+                        ))}
+                      </select>
+                    )
+                    const removeBtn = (
+                      <button
+                        type="button"
+                        onClick={() => removeModule(mod.id)}
+                        className="h-7 w-7 rounded border border-gray-600 text-gray-400 hover:bg-red-900/40 hover:text-red-400 hover:border-red-600 flex items-center justify-center shrink-0"
+                        title="删除此效果"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )
+                    const inlineEditor = (
+                      <EffectValueEditor
+                        module={{ ...mod, effectType: effectiveEffectType }}
+                        onChange={(next) => updateModule(mod.id, next)}
+                        catData={catData}
+                        inline
+                        spellDC={spellDC}
+                        spellAttackBonus={spellAttackBonus}
+                        useWandScrollTable={useWandScrollTable}
+                      />
+                    )
                     return (
                       <div key={mod.id} className="rounded border border-gray-600 bg-gray-700/30 p-1.5 space-y-1">
-                        <div className="grid grid-cols-[1fr_1fr_1fr_1fr_1fr_auto] items-center gap-1 w-full min-w-0">
-                          <div className="min-w-0">
-                            <select
-                              value={mod.category || ''}
-                              onChange={(e) => {
-                                const newCat = e.target.value
-                                const newEffects = BUFF_TYPES[newCat]?.effects ?? []
-                                updateModule(mod.id, { ...mod, category: newCat, effectType: newCat ? (newEffects[0]?.key ?? '') : '' })
-                              }}
-                              className={inputClass + ' h-7 text-xs w-full min-w-0'}
-                            >
-                              <option value="">&lt;效果大类&gt;</option>
-                              {getCategories().map((c) => (
-                                <option key={c.key} value={c.key}>{c.label}</option>
-                              ))}
-                            </select>
-                          </div>
-                          <div className="min-w-0">
-                            <select
-                              value={effectiveEffectType}
-                              onChange={(e) => updateModule(mod.id, { ...mod, effectType: e.target.value })}
-                              className={inputClass + ' h-7 text-xs w-full min-w-0'}
-                              disabled={!hasCategory}
-                            >
-                              <option value="">&lt;具体效果&gt;</option>
-                              {visibleEffects.map((e) => (
-                                <option key={e.key} value={e.key}>{e.label}</option>
-                              ))}
-                            </select>
-                          </div>
-                          {!complexValue && (
-                            <div className="col-span-3 min-w-0 flex flex-nowrap items-center gap-1 overflow-hidden">
-                              <EffectValueEditor
+                        {isAttackDamageBonus ? (
+                          <div className="flex flex-col gap-2.5 w-full min-w-0">
+                            <div className="flex flex-wrap items-center gap-1 w-full min-w-0 overflow-x-hidden">
+                              <div className="min-w-0 flex-1 basis-[5rem] max-w-[min(100%,12rem)]">{categorySelect}</div>
+                              <div className="min-w-0 flex-1 basis-[5rem] max-w-[min(100%,12rem)]">{effectTypeSelect}</div>
+                              <AttackDamageBonusFields
                                 module={{ ...mod, effectType: effectiveEffectType }}
                                 onChange={(next) => updateModule(mod.id, next)}
-                                catData={catData}
+                                compactClass={inputClassInline + ' h-7 text-xs'}
                                 inline
-                                spellDC={spellDC}
-                                spellAttackBonus={spellAttackBonus}
-                                useWandScrollTable={useWandScrollTable}
+                                variant="global"
+                              />
+                              <div className="ml-auto flex items-center gap-1 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const obj = normalizeAttackDamageBonusModuleValue(mod.value)
+                                    updateModule(mod.id, {
+                                      ...mod,
+                                      value: { ...obj, categoryRows: [...(obj.categoryRows || []), newWeaponBonusRow('', 0)] },
+                                    })
+                                  }}
+                                  className="shrink-0 rounded border border-amber-500/60 bg-gray-800/90 px-2 py-0.5 text-[10px] font-medium text-amber-400/95 hover:bg-amber-500/15 h-7 flex items-center"
+                                  title="添加一条按武器类型/类别的额外加值"
+                                >
+                                  局部生效
+                                </button>
+                                {removeBtn}
+                              </div>
+                            </div>
+                            <div className="w-full min-w-0 overflow-x-hidden border-t border-gray-600/50 pt-2.5">
+                              <AttackDamageBonusFields
+                                module={{ ...mod, effectType: effectiveEffectType }}
+                                onChange={(next) => updateModule(mod.id, next)}
+                                compactClass={inputClassInline + ' h-7 text-xs'}
+                                inline
+                                variant="weapons"
+                                hideWeaponAddButtons
                               />
                             </div>
-                          )}
-                          {complexValue && <div className="col-span-3" />}
-                          <button
-                            type="button"
-                            onClick={() => removeModule(mod.id)}
-                            className="h-7 w-7 rounded border border-gray-600 text-gray-400 hover:bg-red-900/40 hover:text-red-400 hover:border-red-600 flex items-center justify-center shrink-0"
-                            title="删除此效果"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                        {complexValue && (
-                          <div className="pt-0.5 border-t border-gray-600/80">
-                            <EffectValueEditor
-                              module={{ ...mod, effectType: effectiveEffectType }}
-                              onChange={(next) => updateModule(mod.id, next)}
-                              catData={catData}
-                              spellDC={spellDC}
-                              spellAttackBonus={spellAttackBonus}
-                              useWandScrollTable={useWandScrollTable}
-                            />
                           </div>
+                        ) : (
+                          <>
+                            <div className="grid grid-cols-[1fr_1fr_1fr_1fr_1fr_auto] items-center gap-1 w-full min-w-0">
+                              <div className="min-w-0">{categorySelect}</div>
+                              <div className="min-w-0">{effectTypeSelect}</div>
+                              {!complexValue && (
+                                <div className="col-span-3 min-w-0 flex flex-nowrap items-center gap-1 overflow-hidden">
+                                  {inlineEditor}
+                                </div>
+                              )}
+                              {complexValue && <div className="col-span-3" />}
+                              {removeBtn}
+                            </div>
+                            {complexValue && (
+                              <div className="pt-0.5 border-t border-gray-600/80">
+                                <EffectValueEditor
+                                  module={{ ...mod, effectType: effectiveEffectType }}
+                                  onChange={(next) => updateModule(mod.id, next)}
+                                  catData={catData}
+                                  spellDC={spellDC}
+                                  spellAttackBonus={spellAttackBonus}
+                                  useWandScrollTable={useWandScrollTable}
+                                />
+                              </div>
+                            )}
+                          </>
                         )}
                       </div>
                     )
@@ -818,72 +878,132 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
                     const effectiveEffectType = hasCategory && effectTypeValid ? mod.effectType : ''
                     const currentEffect = effects.find((e) => e.key === effectiveEffectType)
                     const complexValue = currentEffect ? isComplexValueType(currentEffect) : false
+                    const isAttackDamageBonus = effectiveEffectType === 'attack_damage_bonus'
+                    const categorySelect = (
+                      <select
+                        value={mod.category || ''}
+                        onChange={(e) => {
+                          const newCat = e.target.value
+                          const newEffects = BUFF_TYPES[newCat]?.effects ?? []
+                          updateModule(mod.id, { ...mod, category: newCat, effectType: newCat ? (newEffects[0]?.key ?? '') : '' })
+                        }}
+                        className={inputClass + ' h-7 text-xs w-full min-w-0'}
+                      >
+                        <option value="">&lt;效果大类&gt;</option>
+                        {getCategories().map((c) => (
+                          <option key={c.key} value={c.key}>{c.label}</option>
+                        ))}
+                      </select>
+                    )
+                    const effectTypeSelect = (
+                      <select
+                        value={effectiveEffectType}
+                        onChange={(e) => {
+                          const nextType = e.target.value
+                          const patch = { ...mod, effectType: nextType }
+                          if (nextType === 'initiative_buff') patch.value = { bonus: 0, proficient: false }
+                          if (nextType === 'attack_damage_bonus') patch.value = normalizeAttackDamageBonusModuleValue(mod.value)
+                          updateModule(mod.id, patch)
+                        }}
+                        className={inputClass + ' h-7 text-xs w-full min-w-0'}
+                        disabled={!hasCategory}
+                      >
+                        <option value="">&lt;具体效果&gt;</option>
+                        {visibleEffects.map((e) => (
+                          <option key={e.key} value={e.key}>{e.label}</option>
+                        ))}
+                      </select>
+                    )
+                    const removeBtn = (
+                      <button
+                        type="button"
+                        onClick={() => removeModule(mod.id)}
+                        className="h-7 w-7 rounded border border-gray-600 text-gray-400 hover:bg-red-900/40 hover:text-red-400 hover:border-red-600 flex items-center justify-center shrink-0"
+                        title="删除此效果"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )
+                    const inlineEditor = (
+                      <EffectValueEditor
+                        module={{ ...mod, effectType: effectiveEffectType }}
+                        onChange={(next) => updateModule(mod.id, next)}
+                        catData={catData}
+                        inline
+                        spellDC={spellDC}
+                        spellAttackBonus={spellAttackBonus}
+                        useWandScrollTable={useWandScrollTable}
+                      />
+                    )
                     return (
                       <div key={mod.id} className="rounded border border-gray-600 bg-gray-700/30 p-1.5 space-y-1">
-                        <div className="grid grid-cols-[1fr_1fr_1fr_1fr_1fr_auto] items-center gap-1 w-full min-w-0">
-                          <div className="min-w-0">
-                            <select
-                              value={mod.category || ''}
-                              onChange={(e) => {
-                                const newCat = e.target.value
-                                const newEffects = BUFF_TYPES[newCat]?.effects ?? []
-                                updateModule(mod.id, { ...mod, category: newCat, effectType: newCat ? (newEffects[0]?.key ?? '') : '' })
-                              }}
-                              className={inputClass + ' h-7 text-xs w-full min-w-0'}
-                            >
-                              <option value="">&lt;效果大类&gt;</option>
-                              {getCategories().map((c) => (
-                                <option key={c.key} value={c.key}>{c.label}</option>
-                              ))}
-                            </select>
-                          </div>
-                          <div className="min-w-0">
-                            <select
-                              value={effectiveEffectType}
-                              onChange={(e) => updateModule(mod.id, { ...mod, effectType: e.target.value })}
-                              className={inputClass + ' h-7 text-xs w-full min-w-0'}
-                              disabled={!hasCategory}
-                            >
-                              <option value="">&lt;具体效果&gt;</option>
-                              {visibleEffects.map((e) => (
-                                <option key={e.key} value={e.key}>{e.label}</option>
-                              ))}
-                            </select>
-                          </div>
-                          {!complexValue && (
-                            <div className="col-span-3 min-w-0 flex flex-nowrap items-center gap-1 overflow-hidden">
-                              <EffectValueEditor
+                        {isAttackDamageBonus ? (
+                          <div className="flex flex-col gap-2.5 w-full min-w-0">
+                            <div className="flex flex-wrap items-center gap-1 w-full min-w-0 overflow-x-hidden">
+                              <div className="min-w-0 flex-1 basis-[5rem] max-w-[min(100%,12rem)]">{categorySelect}</div>
+                              <div className="min-w-0 flex-1 basis-[5rem] max-w-[min(100%,12rem)]">{effectTypeSelect}</div>
+                              <AttackDamageBonusFields
                                 module={{ ...mod, effectType: effectiveEffectType }}
                                 onChange={(next) => updateModule(mod.id, next)}
-                                catData={catData}
+                                compactClass={inputClassInline + ' h-7 text-xs'}
                                 inline
-                                spellDC={spellDC}
-                                spellAttackBonus={spellAttackBonus}
-                                useWandScrollTable={useWandScrollTable}
+                                variant="global"
+                              />
+                              <div className="ml-auto flex items-center gap-1 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const obj = normalizeAttackDamageBonusModuleValue(mod.value)
+                                    updateModule(mod.id, {
+                                      ...mod,
+                                      value: { ...obj, categoryRows: [...(obj.categoryRows || []), newWeaponBonusRow('', 0)] },
+                                    })
+                                  }}
+                                  className="shrink-0 rounded border border-amber-500/60 bg-gray-800/90 px-2 py-0.5 text-[10px] font-medium text-amber-400/95 hover:bg-amber-500/15 h-7 flex items-center"
+                                  title="添加一条按武器类型/类别的额外加值"
+                                >
+                                  局部生效
+                                </button>
+                                {removeBtn}
+                              </div>
+                            </div>
+                            <div className="w-full min-w-0 overflow-x-hidden border-t border-gray-600/50 pt-2.5">
+                              <AttackDamageBonusFields
+                                module={{ ...mod, effectType: effectiveEffectType }}
+                                onChange={(next) => updateModule(mod.id, next)}
+                                compactClass={inputClassInline + ' h-7 text-xs'}
+                                inline
+                                variant="weapons"
+                                hideWeaponAddButtons
                               />
                             </div>
-                          )}
-                          {complexValue && <div className="col-span-3" />}
-                          <button
-                            type="button"
-                            onClick={() => removeModule(mod.id)}
-                            className="h-7 w-7 rounded border border-gray-600 text-gray-400 hover:bg-red-900/40 hover:text-red-400 hover:border-red-600 flex items-center justify-center shrink-0"
-                            title="删除此效果"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                        {complexValue && (
-                          <div className="pt-0.5 border-t border-gray-600/80">
-                            <EffectValueEditor
-                              module={{ ...mod, effectType: effectiveEffectType }}
-                              onChange={(next) => updateModule(mod.id, next)}
-                              catData={catData}
-                              spellDC={spellDC}
-                              spellAttackBonus={spellAttackBonus}
-                              useWandScrollTable={useWandScrollTable}
-                            />
                           </div>
+                        ) : (
+                          <>
+                            <div className="grid grid-cols-[1fr_1fr_1fr_1fr_1fr_auto] items-center gap-1 w-full min-w-0">
+                              <div className="min-w-0">{categorySelect}</div>
+                              <div className="min-w-0">{effectTypeSelect}</div>
+                              {!complexValue && (
+                                <div className="col-span-3 min-w-0 flex flex-nowrap items-center gap-1 overflow-hidden">
+                                  {inlineEditor}
+                                </div>
+                              )}
+                              {complexValue && <div className="col-span-3" />}
+                              {removeBtn}
+                            </div>
+                            {complexValue && (
+                              <div className="pt-0.5 border-t border-gray-600/80">
+                                <EffectValueEditor
+                                  module={{ ...mod, effectType: effectiveEffectType }}
+                                  onChange={(next) => updateModule(mod.id, next)}
+                                  catData={catData}
+                                  spellDC={spellDC}
+                                  spellAttackBonus={spellAttackBonus}
+                                  useWandScrollTable={useWandScrollTable}
+                                />
+                              </div>
+                            )}
+                          </>
                         )}
                       </div>
                     )
@@ -913,72 +1033,132 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
                   const effectiveEffectType = hasCategory && effectTypeValid ? mod.effectType : ''
                   const currentEffect = effects.find((e) => e.key === effectiveEffectType)
                   const complexValue = currentEffect ? isComplexValueType(currentEffect) : false
+                  const isAttackDamageBonus = effectiveEffectType === 'attack_damage_bonus'
+                  const categorySelect = (
+                    <select
+                      value={mod.category || ''}
+                      onChange={(e) => {
+                        const newCat = e.target.value
+                        const newEffects = BUFF_TYPES[newCat]?.effects ?? []
+                        updateModule(mod.id, { ...mod, category: newCat, effectType: newCat ? (newEffects[0]?.key ?? '') : '' })
+                      }}
+                      className={inputClass + ' h-7 text-xs w-full min-w-0'}
+                    >
+                      <option value="">&lt;效果大类&gt;</option>
+                      {getCategories().map((c) => (
+                        <option key={c.key} value={c.key}>{c.label}</option>
+                      ))}
+                    </select>
+                  )
+                  const effectTypeSelect = (
+                    <select
+                      value={effectiveEffectType}
+                      onChange={(e) => {
+                        const nextType = e.target.value
+                        const patch = { ...mod, effectType: nextType }
+                        if (nextType === 'initiative_buff') patch.value = { bonus: 0, proficient: false }
+                        if (nextType === 'attack_damage_bonus') patch.value = normalizeAttackDamageBonusModuleValue(mod.value)
+                        updateModule(mod.id, patch)
+                      }}
+                      className={inputClass + ' h-7 text-xs w-full min-w-0'}
+                      disabled={!hasCategory}
+                    >
+                      <option value="">&lt;具体效果&gt;</option>
+                      {visibleEffects.map((e) => (
+                        <option key={e.key} value={e.key}>{e.label}</option>
+                      ))}
+                    </select>
+                  )
+                  const removeBtn = (
+                    <button
+                      type="button"
+                      onClick={() => removeModule(mod.id)}
+                      className="h-7 w-7 rounded border border-gray-600 text-gray-400 hover:bg-red-900/40 hover:text-red-400 hover:border-red-600 flex items-center justify-center shrink-0"
+                      title="删除此效果"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )
+                  const inlineEditor = (
+                    <EffectValueEditor
+                      module={{ ...mod, effectType: effectiveEffectType }}
+                      onChange={(next) => updateModule(mod.id, next)}
+                      catData={catData}
+                      inline
+                      spellDC={spellDC}
+                      spellAttackBonus={spellAttackBonus}
+                      useWandScrollTable={useWandScrollTable}
+                    />
+                  )
                   return (
                     <div key={mod.id} className="rounded border border-gray-600 bg-gray-700/30 p-1.5 space-y-1">
-                      <div className="grid grid-cols-[1fr_1fr_1fr_1fr_1fr_auto] items-center gap-1 w-full min-w-0">
-                        <div className="min-w-0">
-                          <select
-                            value={mod.category || ''}
-                            onChange={(e) => {
-                              const newCat = e.target.value
-                              const newEffects = BUFF_TYPES[newCat]?.effects ?? []
-                              updateModule(mod.id, { ...mod, category: newCat, effectType: newCat ? (newEffects[0]?.key ?? '') : '' })
-                            }}
-                            className={inputClass + ' h-7 text-xs w-full min-w-0'}
-                          >
-                            <option value="">&lt;效果大类&gt;</option>
-                            {getCategories().map((c) => (
-                              <option key={c.key} value={c.key}>{c.label}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="min-w-0">
-                          <select
-                            value={effectiveEffectType}
-                            onChange={(e) => updateModule(mod.id, { ...mod, effectType: e.target.value })}
-                            className={inputClass + ' h-7 text-xs w-full min-w-0'}
-                            disabled={!hasCategory}
-                          >
-                            <option value="">&lt;具体效果&gt;</option>
-                            {visibleEffects.map((e) => (
-                              <option key={e.key} value={e.key}>{e.label}</option>
-                            ))}
-                          </select>
-                        </div>
-                        {!complexValue && (
-                          <div className="col-span-3 min-w-0 flex flex-nowrap items-center gap-1 overflow-hidden">
-                            <EffectValueEditor
+                      {isAttackDamageBonus ? (
+                        <div className="flex flex-col gap-2.5 w-full min-w-0">
+                          <div className="flex flex-wrap items-center gap-1 w-full min-w-0 overflow-x-hidden">
+                            <div className="min-w-0 flex-1 basis-[5rem] max-w-[min(100%,12rem)]">{categorySelect}</div>
+                            <div className="min-w-0 flex-1 basis-[5rem] max-w-[min(100%,12rem)]">{effectTypeSelect}</div>
+                            <AttackDamageBonusFields
                               module={{ ...mod, effectType: effectiveEffectType }}
                               onChange={(next) => updateModule(mod.id, next)}
-                              catData={catData}
+                              compactClass={inputClassInline + ' h-7 text-xs'}
                               inline
-                              spellDC={spellDC}
-                              spellAttackBonus={spellAttackBonus}
-                              useWandScrollTable={useWandScrollTable}
+                              variant="global"
+                            />
+                            <div className="ml-auto flex items-center gap-1 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const obj = normalizeAttackDamageBonusModuleValue(mod.value)
+                                  updateModule(mod.id, {
+                                    ...mod,
+                                    value: { ...obj, categoryRows: [...(obj.categoryRows || []), newWeaponBonusRow('', 0)] },
+                                  })
+                                }}
+                                className="shrink-0 rounded border border-amber-500/60 bg-gray-800/90 px-2 py-0.5 text-[10px] font-medium text-amber-400/95 hover:bg-amber-500/15 h-7 flex items-center"
+                                title="添加一条按武器类型/类别的额外加值"
+                              >
+                                局部生效
+                              </button>
+                              {removeBtn}
+                            </div>
+                          </div>
+                          <div className="w-full min-w-0 overflow-x-hidden border-t border-gray-600/50 pt-2.5">
+                            <AttackDamageBonusFields
+                              module={{ ...mod, effectType: effectiveEffectType }}
+                              onChange={(next) => updateModule(mod.id, next)}
+                              compactClass={inputClassInline + ' h-7 text-xs'}
+                              inline
+                              variant="weapons"
+                              hideWeaponAddButtons
                             />
                           </div>
-                        )}
-                        {complexValue && <div className="col-span-3" />}
-                        <button
-                          type="button"
-                          onClick={() => removeModule(mod.id)}
-                          className="h-7 w-7 rounded border border-gray-600 text-gray-400 hover:bg-red-900/40 hover:text-red-400 hover:border-red-600 flex items-center justify-center shrink-0"
-                          title="删除此效果"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                      {complexValue && (
-                        <div className="pt-0.5 border-t border-gray-600/80">
-                          <EffectValueEditor
-                            module={{ ...mod, effectType: effectiveEffectType }}
-                            onChange={(next) => updateModule(mod.id, next)}
-                            catData={catData}
-                            spellDC={spellDC}
-                            spellAttackBonus={spellAttackBonus}
-                            useWandScrollTable={useWandScrollTable}
-                          />
                         </div>
+                      ) : (
+                        <>
+                          <div className="grid grid-cols-[1fr_1fr_1fr_1fr_1fr_auto] items-center gap-1 w-full min-w-0">
+                            <div className="min-w-0">{categorySelect}</div>
+                            <div className="min-w-0">{effectTypeSelect}</div>
+                            {!complexValue && (
+                              <div className="col-span-3 min-w-0 flex flex-nowrap items-center gap-1 overflow-hidden">
+                                {inlineEditor}
+                              </div>
+                            )}
+                            {complexValue && <div className="col-span-3" />}
+                            {removeBtn}
+                          </div>
+                          {complexValue && (
+                            <div className="pt-0.5 border-t border-gray-600/80">
+                              <EffectValueEditor
+                                module={{ ...mod, effectType: effectiveEffectType }}
+                                onChange={(next) => updateModule(mod.id, next)}
+                                catData={catData}
+                                spellDC={spellDC}
+                                spellAttackBonus={spellAttackBonus}
+                                useWandScrollTable={useWandScrollTable}
+                              />
+                            </div>
+                          )}
+                        </>
                       )}
                     </div>
                   )

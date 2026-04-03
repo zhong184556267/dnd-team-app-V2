@@ -30,11 +30,15 @@ function displayClassLevel(c) {
   const parts = []
   if (c.class) {
     const mainLevel = Math.max(0, Math.min(20, Number(c.classLevel) ?? 1))
-    parts.push(`${getClassDisplayName(c.class)} ${mainLevel}`)
+    const sub = c.subclass ? `（${c.subclass}）` : ''
+    parts.push(`${getClassDisplayName(c.class)}${sub} ${mainLevel}`)
   }
   if (Array.isArray(c.multiclass) && c.multiclass.length) {
     c.multiclass.forEach((m) => {
-      if (m?.['class']) parts.push(`${getClassDisplayName(m['class'])} ${Math.max(0, Number(m.level) || 0)}`)
+      if (m?.['class']) {
+        const sub = m.subclass ? `（${m.subclass}）` : ''
+        parts.push(`${getClassDisplayName(m['class'])}${sub} ${Math.max(0, Number(m.level) || 0)}`)
+      }
     })
   }
   if (Array.isArray(c.prestige) && c.prestige.length) {

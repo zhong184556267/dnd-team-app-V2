@@ -1,5 +1,5 @@
 /**
- * D&D 5e 本地武器库 - 下拉选择与自动填充数据源
+ * D&D 2024 本地武器库 - 下拉选择与自动填充数据源
  * 结构: id, name, type(近战/远程), damageDice, damageType, properties, baseStat(str/dex)
  */
 export const WEAPON_DATABASE = [
@@ -31,7 +31,7 @@ export function getWeaponById(id) {
 
 /**
  * 解析战斗伤害骰串：XdY 或 XdY+N / XdY-N（法术位等常写成 13d6+13）
- * 不含多段逗号，重击倍骰请用 rollCombatDicePool 两次再合并。
+ * 不含多段逗号，重击倍骰请对同一表达式多次调用 rollCombatDicePool 再合并骰点（加值只取一轮）。
  */
 export function parseCombatDiceExpression(expr) {
   let s = String(expr ?? '').trim()

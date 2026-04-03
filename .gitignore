@@ -23,6 +23,11 @@ dist-ssr
 *.sln
 *.sw?
 
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+
 # Env (不要提交密钥)
 .env
 .env.local

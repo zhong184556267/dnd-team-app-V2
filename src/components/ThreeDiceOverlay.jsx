@@ -1034,5 +1034,13 @@ export default function ThreeDiceOverlay({ diceSpecs = [], showFinal = false }) 
     }
   }, [normalized])
 
-  return <div ref={mountRef} className="pointer-events-none fixed inset-0 z-[72]" />
+  return (
+    <div
+      ref={mountRef}
+      className="pointer-events-none fixed inset-0 z-[72]"
+      data-testid="three-dice-overlay"
+      role="presentation"
+      aria-hidden
+    />
+  )
 }

@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom'
 import { useState } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { CLASS_LIST, getClassData, isFanxingClass, ELDRITCH_INVOCATIONS, MULTICLASS_SPELL_SLOT_ROWS } from '../data/classDatabase'
-import { FEATS_BY_CATEGORY } from '../data/feats'
+import { FEATS_BY_CATEGORY, formatFeatDescriptionForDisplay } from '../data/feats'
 import { MARTIAL_TECHNIQUES } from '../data/martialTechniques'
 import MartialStyleIntroBlock from '../components/MartialStyleIntroBlock'
 import { ABILITY_NAMES_ZH } from '../data/buffTypes'
@@ -530,7 +530,9 @@ export default function HouseRules() {
                                 {f.prerequisite}
                               </p>
                             )}
-                            <p className="text-dnd-text-muted text-sm whitespace-pre-line mt-3">{f.description}</p>
+                            <p className="text-dnd-text-muted text-sm whitespace-pre-line mt-3">
+                              {formatFeatDescriptionForDisplay(f.description)}
+                            </p>
                             {f.table && (
                               <div className="mt-3 overflow-x-auto">
                                 <p className="text-dnd-gold-light text-xs font-bold uppercase tracking-wider mb-2">
@@ -626,6 +628,11 @@ export default function HouseRules() {
                             <div className="flex flex-wrap items-center gap-2 mb-1">
                               <span className="font-medium text-white">{t.name}</span>
                               <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/20 text-amber-300 border border-amber-500/40">{t.type}</span>
+                              {t.tag ? (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-violet-500/15 text-violet-200/95 border border-violet-400/35">
+                                  {t.tag}
+                                </span>
+                              ) : null}
                             </div>
                             <div className="text-dnd-text-muted text-xs flex flex-wrap gap-x-3 gap-y-0.5 mb-2">
                               {t.level != null && <span>等级：{t.level}</span>}

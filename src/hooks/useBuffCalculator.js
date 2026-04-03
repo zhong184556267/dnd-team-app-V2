@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
-import { abilityModifier, getAC, getHPBuffSum, proficiencyBonus } from '../lib/formulas'
+import { abilityModifier, getAC, proficiencyBonus } from '../lib/formulas'
 import { levelFromXP } from '../lib/xp5e'
-import { ABILITY_KEYS, getDamageTypeValue } from '../data/buffTypes'
+import { ABILITY_KEYS, getDamageTypeValue, weaponProtoMatchesBuffWeaponCategories, protoMatchesWeaponBuffKey } from '../data/buffTypes'
 import { getFlatEffectEntries } from '../lib/effects/effectMapping'
 
 /**
@@ -13,9 +13,70 @@ import { getFlatEffectEntries } from '../lib/effects/effectMapping'
 /** 自由填写类效果仅作展示，不参与 AC/攻击/豁免等数值计算 */
 const DISPLAY_ONLY_EFFECT_TYPES = ['custom_condition']
 
-export function useBuffCalculator(character, activeBuffs) {
-  return useMemo(() => {
-    const buffs = (activeBuffs || []).filter((b) => b.enabled !== false)
+/** 解析「18-20」「19-20」等暴击威胁范围，返回自然骰下限（含）；无法识别时返回 null */
+export function parseCritRangeThreatMin(raw) {
+  const s = String(raw ?? '').trim()
+  if (!s) return null
+  const m = s.match(/(\d{1,2})\s*[-～~−－]\s*20\b/i)
+  if (m) {
+    const lo = parseInt(m[1], 10)
+    if (lo >= 1 && lo <= 20) return lo
+  }
+  if (/^20$/i.test(s.replace(/\s/g, ''))) return 20
+  return null
+}
+
+/** 仅从单件背包/装备条目的 effects 读取重击伤害骰倍数（规则默认 2；多件武器互不串用） */
+export function getCritDamageDiceMultiplierFromItemEntry(entry) {
+  let mult = 2
+  const arr = entry?.effects
+  if (!Array.isArray(arr)) return mult
+  for (const e of arr) {
+    if (e?.effectType === 'crit_extra_dice') {
+      const n = Number(e.value)
+      if (!Number.isNaN(n) && n >= 2) mult = Math.max(mult, Math.floor(n))
+    }
+  }
+  return mult
+}
+
+/** 按武器 proto 累加「分武器加值」条目（categoryRows 每行单独数值；兼容旧 weaponCategories + 统一 val） */
+export function sumWeaponCategoryAttackDamageBonus(entries, proto) {
+  if (!Array.isArray(entries) || entries.length === 0 || !proto) return 0
+  let sum = 0
+  for (const e of entries) {
+    const rows = Array.isArray(e.categoryRows) ? e.categoryRows : []
+    if (rows.length > 0) {
+      for (const r of rows) {
+        if (protoMatchesWeaponBuffKey(proto, r.key)) sum += Number(r.val) || 0
+      }
+    } else {
+      const cats = Array.isArray(e.weaponCategories) ? e.weaponCategories : []
+      if (weaponProtoMatchesBuffWeaponCategories(proto, cats)) sum += Number(e.val) || 0
+    }
+  }
+  return sum
+}
+
+/** 仅从单件物品 effects 读取重击威胁下限（含）；默认仅自然 20 */
+export function getCritThreatMinNaturalFromItemEntry(entry) {
+  let min = 20
+  const arr = entry?.effects
+  if (!Array.isArray(arr)) return min
+  for (const e of arr) {
+    if (e?.effectType === 'crit_range_expand') {
+      const mn = parseCritRangeThreatMin(e.value)
+      if (mn != null) min = Math.min(min, mn)
+    }
+  }
+  return min
+}
+
+/**
+ * 纯函数版 BUFF 计算（与 useBuffCalculator 结果一致），供单元测试与效果覆盖校验。
+ */
+export function computeBuffStats(character, activeBuffs) {
+  const buffs = (activeBuffs || []).filter((b) => b.enabled !== false)
     const rawEntries = getFlatEffectEntries(buffs)
     const entries = rawEntries.filter((e) => !DISPLAY_ONLY_EFFECT_TYPES.includes(e.effectType))
     const baseAbilities = character?.abilities ?? { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 }
@@ -57,9 +118,50 @@ export function useBuffCalculator(character, activeBuffs) {
     let dmgMelee = 0
     let dmgRanged = 0
     let dmgAll = 0
+    const weaponCategoryAttackDamageBonuses = []
 
     for (const b of entries) {
       const raw = b.value
+      if (b.effectType === 'attack_damage_bonus' && typeof raw === 'string') {
+        const attackMatch = raw.match(/攻击\s*[+＋]?\s*(\d+)/i)
+        const dmgMatch = raw.match(/伤害\s*[+＋]?\s*(\d+)/i)
+        if (attackMatch) attackAll += (parseInt(attackMatch[1], 10) || 0)
+        if (dmgMatch) dmgAll += (parseInt(dmgMatch[1], 10) || 0)
+        continue
+      }
+      if (b.effectType === 'attack_damage_bonus' && raw && typeof raw === 'object' && !Array.isArray(raw)) {
+        const adv = raw.advantage === 'advantage' || raw.advantage === 'disadvantage' ? raw.advantage : ''
+        const gv = Number(raw.val)
+        const globalVal = Number.isNaN(gv) ? 0 : gv
+        const rows = Array.isArray(raw.categoryRows)
+          ? raw.categoryRows
+              .map((r) => ({ key: String(r.key ?? '').trim(), val: Number(r.val) || 0 }))
+              .filter((r) => r.key)
+          : []
+        const cats = Array.isArray(raw.weaponCategories) ? raw.weaponCategories.filter(Boolean) : []
+        const legacyScopedOnly =
+          raw.weaponScope === 'weapon_category' &&
+          cats.length > 0 &&
+          rows.length === 0
+        if (legacyScopedOnly) {
+          if (!Number.isNaN(globalVal)) {
+            weaponCategoryAttackDamageBonuses.push({
+              val: globalVal,
+              weaponCategories: cats,
+              advantage: adv,
+            })
+          }
+          continue
+        }
+        if (globalVal !== 0) {
+          attackAll += globalVal
+          dmgAll += globalVal
+        }
+        if (rows.length > 0) {
+          weaponCategoryAttackDamageBonuses.push({ categoryRows: rows, advantage: adv })
+        }
+        continue
+      }
       const v = Number(typeof raw === 'object' && raw && 'val' in raw ? raw.val : raw)
       if (!Number.isNaN(v)) {
         if (b.effectType === 'attack_melee') attackMelee += v
@@ -68,18 +170,11 @@ export function useBuffCalculator(character, activeBuffs) {
         else if (b.effectType === 'dmg_bonus_melee') dmgMelee += v
         else if (b.effectType === 'dmg_bonus_ranged') dmgRanged += v
         else if (b.effectType === 'dmg_bonus_all') dmgAll += v
-        // 新表：命中/伤害加值（数字输入），数值同时加到命中与伤害
+        // 新表：命中/伤害加值（数字输入），数值同时加到命中与伤害（全局；武器类别见 weaponCategoryAttackDamageBonuses）
         else if (b.effectType === 'attack_damage_bonus') {
           attackAll += v
           dmgAll += v
         }
-      }
-      // 兼容旧数据：攻击/伤害数值加值（文本解析，如「攻击+2 / 伤害+3」）
-      if (b.effectType === 'attack_damage_bonus' && typeof raw === 'string') {
-        const attackMatch = raw.match(/攻击\s*[+＋]?\s*(\d+)/i)
-        const dmgMatch = raw.match(/伤害\s*[+＋]?\s*(\d+)/i)
-        if (attackMatch) attackAll += (parseInt(attackMatch[1], 10) || 0)
-        if (dmgMatch) dmgAll += (parseInt(dmgMatch[1], 10) || 0)
       }
     }
 
@@ -107,10 +202,28 @@ export function useBuffCalculator(character, activeBuffs) {
         if (objAdv === 'advantage') advSkill++
         else if (objAdv === 'disadvantage') disadvSkill++
       }
-      // 命中/伤害加值上的优势/劣势：视为所有攻击的优势/劣势来源
+      // 命中/伤害加值上的优势/劣势：视为所有攻击的优势/劣势来源（「武器类别」限定的不计入全局，由武器行单独处理时可扩展）
       if (b.effectType === 'attack_damage_bonus') {
-        if (objAdv === 'advantage') advAllAttack++
-        else if (objAdv === 'disadvantage') disadvAll++
+        const rawA = b.value
+        if (rawA && typeof rawA === 'object' && !Array.isArray(rawA)) {
+          const gv = Number(rawA.val)
+          const globalVal = Number.isNaN(gv) ? 0 : gv
+          const rowsHaveKeys =
+            Array.isArray(rawA.categoryRows) &&
+            rawA.categoryRows.some((r) => String(r.key ?? '').trim())
+          const legacyScopedOnly =
+            rawA.weaponScope === 'weapon_category' &&
+            (Array.isArray(rawA.weaponCategories) ? rawA.weaponCategories.filter(Boolean).length : 0) > 0 &&
+            !rowsHaveKeys
+          const skipGlobalAdv = legacyScopedOnly || (globalVal === 0 && rowsHaveKeys)
+          if (!skipGlobalAdv) {
+            if (objAdv === 'advantage') advAllAttack++
+            else if (objAdv === 'disadvantage') disadvAll++
+          }
+        } else {
+          if (objAdv === 'advantage') advAllAttack++
+          else if (objAdv === 'disadvantage') disadvAll++
+        }
       }
       if (b.value !== true && b.value !== 'true' && b.value !== 1 && !objAdv) continue
       if (b.effectType === 'adv_melee') advMelee++
@@ -321,6 +434,7 @@ export function useBuffCalculator(character, activeBuffs) {
       const cap = baseACTotal + Math.min(...acCapStoneLayerValues)
       ac = Math.min(ac, cap)
     }
+
     return {
       abilities: finalAbilities,
       meleeAttackBonus,
@@ -358,8 +472,12 @@ export function useBuffCalculator(character, activeBuffs) {
       maxHpMultiplier,
       d20ExhaustionPenalty,
       speedExhaustionPenalty,
+      weaponCategoryAttackDamageBonuses,
     }
-  }, [character, activeBuffs])
+}
+
+export function useBuffCalculator(character, activeBuffs) {
+  return useMemo(() => computeBuffStats(character, activeBuffs), [character, activeBuffs])
 }
 
 /**

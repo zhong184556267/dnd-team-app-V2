@@ -1,6 +1,19 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, Fragment } from 'react'
 import { Trash2, Plus, ChevronDown } from 'lucide-react'
-import { BUFF_TYPES, getCategories, normalizeEffectCategory, DAMAGE_TYPES, CONDITION_OPTIONS, ABILITY_KEYS, ADVANTAGE_OPTIONS, PIERCING_DAMAGE_OPTIONS, DAMAGE_DICE_ARROW_OPTIONS, DICE_SIDES_OPTIONS, parseDamageString } from '../data/buffTypes'
+import {
+  BUFF_TYPES,
+  getCategories,
+  normalizeEffectCategory,
+  DAMAGE_TYPES,
+  CONDITION_OPTIONS,
+  ABILITY_KEYS,
+  ADVANTAGE_OPTIONS,
+  PIERCING_DAMAGE_OPTIONS,
+  DAMAGE_DICE_ARROW_OPTIONS,
+  DICE_SIDES_OPTIONS,
+  parseDamageString,
+} from '../data/buffTypes'
+import { WEAPON_BUFF_CATEGORY_SELECT_OPTIONS } from '../data/itemDatabase'
 import { SAVE_NAMES, SKILLS } from '../data/dndSkills'
 import { SPELLS, getWandScrollSpellPower } from '../data/spellDatabase'
 import { inputClass, inputClassInline, textareaClass } from '../lib/inputStyles'
@@ -29,12 +42,81 @@ function normalizeConcentrationSaveEnhanceValue(value) {
   return { val, advantage }
 }
 
+function newWeaponBonusRow(key = '', val = 0) {
+  return { id: 'rw_' + Math.random().toString(36).slice(2, 11), key, val }
+}
+
+/** 命中/伤害加值：编辑态归一（val=全体；categoryRows=按武器叠加；兼容旧 weaponScope + weaponCategories） */
+export function normalizeAttackDamageBonusModuleValue(value) {
+  const base = { val: 0, advantage: '', categoryRows: [] }
+  if (value == null) return { ...base }
+  if (typeof value === 'number' && !Number.isNaN(value)) return { ...base, val: value }
+  if (typeof value === 'string') {
+    const attackMatch = value.match(/攻击\s*[+＋]?\s*(\d+)/i)
+    const dmgMatch = value.match(/伤害\s*[+＋]?\s*(\d+)/i)
+    const a = attackMatch ? (parseInt(attackMatch[1], 10) || 0) : 0
+    const d = dmgMatch ? (parseInt(dmgMatch[1], 10) || 0) : 0
+    const val = a || d || (parseInt(value, 10) || 0)
+    const advantage = /优势/i.test(value) ? 'advantage' : /劣势/i.test(value) ? 'disadvantage' : ''
+    return { ...base, val, advantage }
+  }
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    const advantage = value.advantage === 'advantage' || value.advantage === 'disadvantage' ? value.advantage : ''
+    const valRaw = Number(value.val)
+    let val = Number.isNaN(valRaw) ? 0 : valRaw
+    let categoryRows = []
+    if (Array.isArray(value.categoryRows)) {
+      categoryRows = value.categoryRows.map((r, i) => ({
+        id: r.id || `cr_${i}_${String(r.key ?? '')}`,
+        key: String(r.key ?? '').trim(),
+        val: Number(r.val) || 0,
+      }))
+    }
+    const hasKeyedRows = categoryRows.some((r) => r.key)
+    const weaponCategories = Array.isArray(value.weaponCategories)
+      ? [...new Set(value.weaponCategories.map((x) => String(x).trim()).filter(Boolean))]
+      : []
+    const legacyScoped =
+      value.weaponScope === 'weapon_category' && weaponCategories.length > 0 && !hasKeyedRows
+    if (legacyScoped) {
+      categoryRows = weaponCategories.map((k) => newWeaponBonusRow(k, val))
+      val = 0
+    }
+    return { val, advantage, categoryRows }
+  }
+  return { ...base }
+}
+
+/** 保存前：同武器多行合并为一条加值 */
+function mergeAttackDamageCategoryRows(rows) {
+  const m = new Map()
+  for (const r of rows || []) {
+    const k = String(r.key ?? '').trim()
+    if (!k) continue
+    m.set(k, (m.get(k) || 0) + (Number(r.val) || 0))
+  }
+  return [...m.entries()].map(([key, val]) => ({ key, val }))
+}
+
+/** 持久化用的精简结构（全体 val + 可选 categoryRows，不再写 weaponScope） */
+export function serializeAttackDamageBonusForSave(value) {
+  const n = normalizeAttackDamageBonusModuleValue(value)
+  const rows = mergeAttackDamageCategoryRows(n.categoryRows)
+  const out = {
+    val: Number(n.val) || 0,
+    advantage: n.advantage,
+  }
+  if (rows.length > 0) out.categoryRows = rows
+  return out
+}
+
 /** 从 initial 归一化为 effects 数组（兼容旧单条与新版 effects[]，旧 4 大类规范化为 6 大类） */
 function normalizeInitialEffects(initial) {
   if (Array.isArray(initial?.effects) && initial.effects.length) {
     return initial.effects.map((e) => {
       let value = e.value ?? 0
       if (e.effectType === 'concentration_save_enhance') value = normalizeConcentrationSaveEnhanceValue(value)
+      if (e.effectType === 'attack_damage_bonus') value = normalizeAttackDamageBonusModuleValue(value)
       return {
         id: 'e_' + Math.random().toString(36).slice(2),
         category: normalizeEffectCategory(e.effectType ?? '', e.category),
@@ -47,6 +129,7 @@ function normalizeInitialEffects(initial) {
   if (initial?.category != null || initial?.effectType != null) {
     let value = initial.value ?? 0
     if (initial.effectType === 'concentration_save_enhance') value = normalizeConcentrationSaveEnhanceValue(value)
+    if (initial.effectType === 'attack_damage_bonus') value = normalizeAttackDamageBonusModuleValue(value)
     return [{
       id: 'e_' + Math.random().toString(36).slice(2),
       category: normalizeEffectCategory(initial.effectType ?? '', initial.category),
@@ -92,6 +175,9 @@ function normalizeValueForSave(module, currentEffect) {
     }
     return { bonus: typeof value === 'number' && !Number.isNaN(value) ? value : 0, proficient: false }
   }
+  if (currentEffect?.key === 'attack_damage_bonus') {
+    return serializeAttackDamageBonusForSave(value)
+  }
   if (needsSubSelect === 'numberAndAdvantage' || needsSubSelect === 'flightSpeed' || needsSubSelect === 'abilityScoresAndAdvantage' || needsSubSelect === 'skillsAndAdvantage' || needsSubSelect === 'attackAreaSize') return value
   if (needsSubSelect === 'containedSpell') {
     if (value && typeof value === 'object' && !Array.isArray(value)) return value
@@ -104,6 +190,11 @@ function normalizeValueForSave(module, currentEffect) {
       return [' - ', minus, ' + ', plus, ' ', type].join('').replace(/\s+/g, ' ').trim()
     }
     return ''
+  }
+  if (currentEffect.key === 'crit_extra_dice') {
+    const n = Number(value)
+    if (Number.isNaN(n) || n < 2) return 2
+    return Math.min(10, Math.floor(n))
   }
   return value
 }
@@ -332,7 +423,7 @@ function NumberStepper({ value, onChange, min = -999, max = 999, step = 1, compa
 }
 
 /** 多选下拉：点击显示已选，展开后为复选框列表，选择感强 */
-function MultiSelectDropdown({ options, selected, onChange, placeholder, id }) {
+function MultiSelectDropdown({ options, selected, onChange, placeholder, id, className }) {
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
   useEffect(() => {
@@ -346,7 +437,7 @@ function MultiSelectDropdown({ options, selected, onChange, placeholder, id }) {
   const labels = selected.map((v) => options.find((o) => o.value === v)?.label ?? v).filter(Boolean)
   const display = labels.length > 0 ? labels.join('、') : placeholder
   return (
-    <div ref={ref} className="relative min-w-0 max-w-[12rem]">
+    <div ref={ref} className={className ?? 'relative min-w-0 max-w-[12rem]'}>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -383,6 +474,158 @@ function MultiSelectDropdown({ options, selected, onChange, placeholder, id }) {
           })}
         </div>
       )}
+    </div>
+  )
+}
+
+/** 命中/伤害加值：variant=all 时单行 flex-wrap；global / weapons 供 BuffForm 分两行且第二行全宽顶格；hideWeaponAddButtons 时由外侧「局部生效」统一添加行 */
+function AttackDamageBonusFields({ module, onChange, compactClass, inline, variant = 'all', hideWeaponAddButtons = false }) {
+  const obj = normalizeAttackDamageBonusModuleValue(module.value)
+  const patch = (p) => onChange({ ...module, value: { ...obj, ...p } })
+  const rows = obj.categoryRows || []
+  const selectCls = inline
+    ? `${compactClass} min-w-0 max-w-[5.75rem] pr-6 w-auto shrink-0`
+    : `${inputClass} h-8 min-w-0 max-w-[6.5rem] pr-6 text-sm shrink-0`
+  const chevCls = inline ? 'w-3 h-3 right-1.5' : 'w-4 h-4 right-2'
+  const rowSelectCls = inline
+    ? `${compactClass} min-w-0 flex-1 basis-[4.5rem] max-w-[min(100%,11rem)]`
+    : `${inputClass} h-8 text-sm min-w-0 flex-1 basis-[5rem] max-w-[min(100%,14rem)]`
+  const delBtnClass = inline
+    ? 'h-7 w-7 shrink-0 rounded border border-gray-600 text-gray-400 hover:bg-red-900/40 hover:text-red-400 flex items-center justify-center'
+    : 'h-8 w-8 shrink-0 rounded border border-gray-600 text-gray-400 hover:bg-red-900/40 hover:text-red-400 flex items-center justify-center'
+  const addIconBtnClass = inline
+    ? 'h-7 w-7 shrink-0 rounded border border-amber-500/60 text-amber-400/90 hover:bg-amber-500/15 flex items-center justify-center'
+    : 'h-8 w-8 shrink-0 rounded border border-amber-500/60 text-amber-400/90 hover:bg-amber-500/15 flex items-center justify-center'
+  const stepperCompact = true
+  const stepperNarrow = true
+
+  const setRows = (nextRows) => patch({ categoryRows: nextRows })
+  const updateRow = (id, field, v) => {
+    setRows(rows.map((r) => (r.id === id ? { ...r, [field]: v } : r)))
+  }
+  const removeRow = (id) => {
+    setRows(rows.filter((r) => r.id !== id))
+  }
+  const addRow = () => setRows([...rows, newWeaponBonusRow('', 0)])
+
+  const advantageBlock = (
+    <div className="relative shrink-0">
+      <select
+        value={obj.advantage ?? ''}
+        onChange={(e) => patch({ advantage: e.target.value })}
+        className={selectCls}
+        title="优势/劣势"
+        aria-label="优势或劣势"
+      >
+        {ADVANTAGE_OPTIONS.map((o) => (
+          <option key={o.value || 'n'} value={o.value}>{o.label}</option>
+        ))}
+      </select>
+      <ChevronDown className={`${chevCls} text-gray-400 absolute top-1/2 -translate-y-1/2 pointer-events-none`} />
+    </div>
+  )
+
+  const weaponExtraTitle =
+    '在全局加值之外，仅对所选武器类型或类别再叠加；可选近战/远程等或具体类别（如长剑）。'
+
+  const globalTitle = `全局命中/伤害加值与优势/劣势。${weaponExtraTitle}`
+
+  const globalBlock = (
+    <>
+      <span className="text-[10px] font-bold uppercase tracking-wider text-dnd-gold-light shrink-0">全局生效</span>
+      <NumberStepper
+        value={obj.val ?? 0}
+        onChange={(v) => patch({ val: v })}
+        compact={stepperCompact}
+        narrow={stepperNarrow}
+      />
+      {advantageBlock}
+    </>
+  )
+
+  const weaponRowsContent = (
+    <>
+      {rows.map((r, idx) => (
+        <Fragment key={r.id}>
+          <select
+            value={r.key || ''}
+            onChange={(e) => updateRow(r.id, 'key', e.target.value)}
+            className={rowSelectCls}
+            title={weaponExtraTitle}
+            aria-label="武器类型或类别"
+          >
+            <option value="">— 选择武器 —</option>
+            {WEAPON_BUFF_CATEGORY_SELECT_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+          <NumberStepper
+            value={r.val ?? 0}
+            onChange={(v) => updateRow(r.id, 'val', v)}
+            compact={stepperCompact}
+            narrow={stepperNarrow}
+          />
+          <button
+            type="button"
+            onClick={() => removeRow(r.id)}
+            className={delBtnClass}
+            title="删除此行"
+            aria-label="删除此行"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+          {!hideWeaponAddButtons && idx === rows.length - 1 && (
+            <button
+              type="button"
+              onClick={addRow}
+              className={addIconBtnClass}
+              title="添加武器限定行"
+              aria-label="添加武器限定行"
+            >
+              <Plus className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </Fragment>
+      ))}
+      {!hideWeaponAddButtons && rows.length === 0 && (
+        <button
+          type="button"
+          onClick={addRow}
+          className={addIconBtnClass}
+          title="添加武器限定行"
+          aria-label="添加武器限定行"
+        >
+          <Plus className="w-3.5 h-3.5" />
+        </button>
+      )}
+    </>
+  )
+
+  if (variant === 'global') {
+    return (
+      <div className="flex flex-wrap items-center gap-1 min-w-0 overflow-x-hidden" title={globalTitle}>
+        {globalBlock}
+      </div>
+    )
+  }
+  if (variant === 'weapons') {
+    return (
+      <div
+        className="flex flex-wrap items-center gap-1 min-w-0 w-full overflow-x-hidden"
+        title={weaponExtraTitle}
+      >
+        {weaponRowsContent}
+      </div>
+    )
+  }
+
+  return (
+    <div
+      className="flex flex-wrap items-center gap-1 min-w-0 flex-1 basis-[min(100%,10rem)] overflow-x-hidden"
+      title={globalTitle}
+    >
+      {globalBlock}
+      {weaponRowsContent}
     </div>
   )
 }
@@ -671,6 +914,26 @@ function EffectValueEditor({
         </div>
       )
     }
+    if (currentEffect?.key === 'crit_extra_dice') {
+      const raw = typeof value === 'number' ? value : (parseInt(value, 10) || 0)
+      const n = raw >= 2 ? Math.min(10, raw) : 2
+      return (
+        <>
+          <div className="min-w-0">
+            <NumberStepper
+              value={n}
+              min={2}
+              max={10}
+              onChange={(v) => onChange({ ...module, value: v })}
+              compact
+            />
+            <p className="mt-0.5 text-[10px] leading-tight text-gray-500">仅本件物品生效；各武器重击倍数互不串用；Buff 栏此项不参与投掷；法术重击×2</p>
+          </div>
+          <div />
+          <div />
+        </>
+      )
+    }
     if (isNumber) {
       return (
         <>
@@ -713,6 +976,16 @@ function EffectValueEditor({
     }
     const numAdvVal = typeof value === 'object' && value && !Array.isArray(value) ? value : { val: typeof value === 'number' ? value : 0, advantage: '' }
     if (needsSubSelect === 'numberAndAdvantage') {
+      if (currentEffect?.key === 'attack_damage_bonus') {
+        return (
+          <AttackDamageBonusFields
+            module={module}
+            onChange={onChange}
+            compactClass={inputClassInline + ' h-7 text-xs'}
+            inline
+          />
+        )
+      }
       return (
         <div className="flex items-center gap-1.5 flex-nowrap">
           <NumberStepper
@@ -847,6 +1120,20 @@ function EffectValueEditor({
           rows={2}
           className={textareaClass}
         />
+      ) : currentEffect?.key === 'crit_extra_dice' ? (
+        <div className="space-y-1">
+          <NumberStepper
+            value={(() => {
+              const raw = typeof value === 'number' ? value : (parseInt(value, 10) || 0)
+              return raw >= 2 ? Math.min(10, raw) : 2
+            })()}
+            min={2}
+            max={10}
+            onChange={(v) => onChange({ ...module, value: v })}
+            compact={false}
+          />
+          <p className="text-xs text-gray-500">写在装备上时：只影响「这一件」武器的战斗快捷投掷，其它已装备武器上的暴击×不会串到本武器。角色 Buff 栏此项不生效。法术重击始终×2。武器加值仍只加一次。</p>
+        </div>
       ) : isNumber ? (
         <NumberStepper
           value={typeof value === 'number' ? value : (parseInt(value, 10) || 0)}
@@ -976,25 +1263,29 @@ function EffectValueEditor({
           )
         })()
       ) : needsSubSelect === 'numberAndAdvantage' ? (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <NumberStepper
-            value={(typeof value === 'object' && value && 'val' in value ? value.val : (typeof value === 'number' ? value : 0)) ?? 0}
-            onChange={(v) => onChange({ ...module, value: { ...(typeof value === 'object' && value && !Array.isArray(value) ? value : {}), val: v } })}
-            compact
-          />
-          <div className="relative">
-            <select
-              value={(typeof value === 'object' && value && value.advantage != null ? value.advantage : '') ?? ''}
-              onChange={(e) => onChange({ ...module, value: { ...(typeof value === 'object' && value && !Array.isArray(value) ? value : {}), advantage: e.target.value } })}
-              className={inputClass + ' min-w-[6rem] pr-6'}
-            >
-              {ADVANTAGE_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-            <ChevronDown className="w-4 h-4 text-gray-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+        currentEffect?.key === 'attack_damage_bonus' ? (
+          <AttackDamageBonusFields module={module} onChange={onChange} compactClass={inputClass + ' h-8 text-xs'} inline={false} />
+        ) : (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <NumberStepper
+              value={(typeof value === 'object' && value && 'val' in value ? value.val : (typeof value === 'number' ? value : 0)) ?? 0}
+              onChange={(v) => onChange({ ...module, value: { ...(typeof value === 'object' && value && !Array.isArray(value) ? value : {}), val: v } })}
+              compact
+            />
+            <div className="relative">
+              <select
+                value={(typeof value === 'object' && value && value.advantage != null ? value.advantage : '') ?? ''}
+                onChange={(e) => onChange({ ...module, value: { ...(typeof value === 'object' && value && !Array.isArray(value) ? value : {}), advantage: e.target.value } })}
+                className={inputClass + ' min-w-[6rem] pr-6'}
+              >
+                {ADVANTAGE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+              <ChevronDown className="w-4 h-4 text-gray-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+            </div>
           </div>
-        </div>
+        )
       ) : needsSubSelect === 'flightSpeed' ? (
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-1.5">
@@ -1445,80 +1736,142 @@ export default function BuffForm({ initial, onSave, onCancel, defaultSourceKind,
             const effectiveEffectType = hasCategory && effectTypeValid ? mod.effectType : ''
             const currentEffect = effects.find((e) => e.key === effectiveEffectType)
             const complexValue = isComplexValueType(currentEffect)
+            const isAttackDamageBonus = effectiveEffectType === 'attack_damage_bonus'
+            const categorySelect = (
+              <select
+                value={mod.category || ''}
+                onChange={(e) => {
+                  const newCat = e.target.value
+                  const newEffects = BUFF_TYPES[newCat]?.effects ?? []
+                  updateModule(mod.id, { ...mod, category: newCat, effectType: newCat ? (newEffects[0]?.key ?? '') : '' })
+                }}
+                className={inputClass + ' h-7 text-xs w-full min-w-0'}
+              >
+                <option value="">&lt;效果大类&gt;</option>
+                {getCategories().map((c) => (
+                  <option key={c.key} value={c.key}>{c.label}</option>
+                ))}
+              </select>
+            )
+            const effectTypeSelect = (
+              <select
+                value={effectiveEffectType}
+                onChange={(e) => {
+                  const nextType = e.target.value
+                  const patch = { ...mod, effectType: nextType }
+                  if (nextType === 'initiative_buff') patch.value = { bonus: 0, proficient: false }
+                  if (nextType === 'attack_damage_bonus') patch.value = normalizeAttackDamageBonusModuleValue(mod.value)
+                  updateModule(mod.id, patch)
+                }}
+                className={inputClass + ' h-7 text-xs w-full min-w-0'}
+                disabled={!hasCategory}
+              >
+                <option value="">&lt;具体效果&gt;</option>
+                {visibleEffects.map((e) => (
+                  <option key={e.key} value={e.key}>{e.label}</option>
+                ))}
+              </select>
+            )
+            const removeBtn = (
+              <button
+                type="button"
+                onClick={() => removeModule(mod.id)}
+                className="h-7 w-7 rounded border border-gray-600 text-gray-400 hover:bg-red-900/40 hover:text-red-400 hover:border-red-600 flex items-center justify-center shrink-0"
+                title="删除此效果"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            )
+            const inlineValueEditor = (
+              <EffectValueEditor
+                module={{ ...mod, effectType: effectiveEffectType }}
+                onChange={(next) => updateModule(mod.id, next)}
+                catData={catData}
+                inline
+                spellDC={spellDC}
+                spellAttackBonus={spellAttackBonus}
+                useWandScrollTable={useWandScrollTable}
+              />
+            )
+            const attackDamageCompactClass = inputClassInline + ' h-7 text-xs'
+            const attackDamageModule = { ...mod, effectType: effectiveEffectType }
+            const attackDamageOnChange = (next) => updateModule(mod.id, next)
+            const addAttackDamageLocalRow = () => {
+              const obj = normalizeAttackDamageBonusModuleValue(mod.value)
+              updateModule(mod.id, {
+                ...mod,
+                value: { ...obj, categoryRows: [...(obj.categoryRows || []), newWeaponBonusRow('', 0)] },
+              })
+            }
             return (
               <div key={mod.id} className="rounded border border-gray-600 bg-gray-700/30 p-1.5 space-y-1">
-                <div className="grid grid-cols-[1.25rem_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-1 w-full min-w-0">
-                  <div className="flex items-center justify-center shrink-0 w-5 pointer-events-none select-none" aria-hidden>
-                    <DragHandleIcon className="w-3.5 h-3.5 text-dnd-text-muted opacity-70" />
-                  </div>
-                  <div className="min-w-0">
-                    <select
-                      value={mod.category || ''}
-                      onChange={(e) => {
-                        const newCat = e.target.value
-                        const newEffects = BUFF_TYPES[newCat]?.effects ?? []
-                        updateModule(mod.id, { ...mod, category: newCat, effectType: newCat ? (newEffects[0]?.key ?? '') : '' })
-                      }}
-                      className={inputClass + ' h-7 text-xs w-full min-w-0'}
-                    >
-                      <option value="">&lt;效果大类&gt;</option>
-                      {getCategories().map((c) => (
-                        <option key={c.key} value={c.key}>{c.label}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="min-w-0">
-                    <select
-                      value={effectiveEffectType}
-                      onChange={(e) => {
-                        const nextType = e.target.value
-                        const patch = { ...mod, effectType: nextType }
-                        if (nextType === 'initiative_buff') patch.value = { bonus: 0, proficient: false }
-                        updateModule(mod.id, patch)
-                      }}
-                      className={inputClass + ' h-7 text-xs w-full min-w-0'}
-                      disabled={!hasCategory}
-                    >
-                      <option value="">&lt;具体效果&gt;</option>
-                      {visibleEffects.map((e) => (
-                        <option key={e.key} value={e.key}>{e.label}</option>
-                      ))}
-                    </select>
-                  </div>
-                  {!complexValue && (
-                    <div className="col-span-2 min-w-0 flex flex-nowrap items-center gap-1 overflow-hidden">
-                      <EffectValueEditor
-                        module={{ ...mod, effectType: effectiveEffectType }}
-                        onChange={(next) => updateModule(mod.id, next)}
-                        catData={catData}
+                {isAttackDamageBonus ? (
+                  <div className="flex flex-col gap-2.5 w-full min-w-0">
+                    <div className="flex flex-wrap items-center gap-1 w-full min-w-0 overflow-x-hidden">
+                      <div className="flex items-center justify-center shrink-0 w-5 pointer-events-none select-none" aria-hidden>
+                        <DragHandleIcon className="w-3.5 h-3.5 text-dnd-text-muted opacity-70" />
+                      </div>
+                      <div className="min-w-0 flex-1 basis-[5rem] max-w-[min(100%,12rem)]">{categorySelect}</div>
+                      <div className="min-w-0 flex-1 basis-[5rem] max-w-[min(100%,12rem)]">{effectTypeSelect}</div>
+                      <AttackDamageBonusFields
+                        module={attackDamageModule}
+                        onChange={attackDamageOnChange}
+                        compactClass={attackDamageCompactClass}
                         inline
-                        spellDC={spellDC}
-                        spellAttackBonus={spellAttackBonus}
-                        useWandScrollTable={useWandScrollTable}
+                        variant="global"
+                      />
+                      <div className="ml-auto flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          onClick={addAttackDamageLocalRow}
+                          className="shrink-0 rounded border border-amber-500/60 bg-gray-800/90 px-2 py-0.5 text-[10px] font-medium text-amber-400/95 hover:bg-amber-500/15 h-7 flex items-center"
+                          title="添加一条按武器类型/类别的额外加值"
+                        >
+                          局部生效
+                        </button>
+                        {removeBtn}
+                      </div>
+                    </div>
+                    <div className="w-full min-w-0 overflow-x-hidden border-t border-gray-600/50 pt-2.5">
+                      <AttackDamageBonusFields
+                        module={attackDamageModule}
+                        onChange={attackDamageOnChange}
+                        compactClass={attackDamageCompactClass}
+                        inline
+                        variant="weapons"
+                        hideWeaponAddButtons
                       />
                     </div>
-                  )}
-                  {complexValue && <div className="col-span-2" />}
-                  <button
-                    type="button"
-                    onClick={() => removeModule(mod.id)}
-                    className="h-7 w-7 rounded border border-gray-600 text-gray-400 hover:bg-red-900/40 hover:text-red-400 hover:border-red-600 flex items-center justify-center shrink-0"
-                    title="删除此效果"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-                {complexValue && (
-                  <div className="pt-0.5 border-t border-gray-600/80">
-                    <EffectValueEditor
-                      module={{ ...mod, effectType: effectiveEffectType }}
-                      onChange={(next) => updateModule(mod.id, next)}
-                      catData={catData}
-                      spellDC={spellDC}
-                      spellAttackBonus={spellAttackBonus}
-                      useWandScrollTable={useWandScrollTable}
-                    />
                   </div>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-[1.25rem_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-1 w-full min-w-0">
+                      <div className="flex items-center justify-center shrink-0 w-5 pointer-events-none select-none" aria-hidden>
+                        <DragHandleIcon className="w-3.5 h-3.5 text-dnd-text-muted opacity-70" />
+                      </div>
+                      <div className="min-w-0">{categorySelect}</div>
+                      <div className="min-w-0">{effectTypeSelect}</div>
+                      {!complexValue && (
+                        <div className="col-span-2 min-w-0 flex flex-nowrap items-center gap-1 overflow-hidden">
+                          {inlineValueEditor}
+                        </div>
+                      )}
+                      {complexValue && <div className="col-span-2" />}
+                      {removeBtn}
+                    </div>
+                    {complexValue && (
+                      <div className="pt-0.5 border-t border-gray-600/80">
+                        <EffectValueEditor
+                          module={{ ...mod, effectType: effectiveEffectType }}
+                          onChange={(next) => updateModule(mod.id, next)}
+                          catData={catData}
+                          spellDC={spellDC}
+                          spellAttackBonus={spellAttackBonus}
+                          useWandScrollTable={useWandScrollTable}
+                        />
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             )
@@ -1538,4 +1891,4 @@ export default function BuffForm({ initial, onSave, onCancel, defaultSourceKind,
   )
 }
 
-export { EffectValueEditor, isComplexValueType, DamageDiceInlineRow, NumberStepper }
+export { EffectValueEditor, isComplexValueType, DamageDiceInlineRow, NumberStepper, AttackDamageBonusFields, newWeaponBonusRow }

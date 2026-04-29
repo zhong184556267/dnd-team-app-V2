@@ -42,15 +42,38 @@ export function getCraftDepositDestLabel(p) {
   return '已入库'
 }
 
-/** 拖拽 MIME：JSON { moduleId, projectId?, index? } */
-export const DND_CRAFT_COMPLETED_MIME = 'text/dnd-craft-completed'
+/** DataTransfer MIME：已领取、待入库的「已完成」制作行拖入仓库页「公家次元袋」 */
+export const DND_CRAFT_COMPLETED_MIME = 'application/x-dnd-craft-completed+json'
 
-export function parseCraftCompletedDragPayload(raw) {
-  if (raw == null || raw === '') return null
+/** @param {{ moduleId: string, projectId?: string, index?: number }} payload */
+export function stringifyCraftCompletedDragPayload(payload) {
   try {
-    const o = JSON.parse(raw)
-    if (!o || typeof o.moduleId !== 'string') return null
-    return o
+    const o = { moduleId: String(payload?.moduleId ?? '') }
+    if (payload?.projectId != null && String(payload.projectId).trim()) o.projectId = String(payload.projectId).trim()
+    if (typeof payload?.index === 'number' && Number.isFinite(payload.index)) o.index = Math.max(0, Math.floor(payload.index))
+    return JSON.stringify(o)
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * @param {string} raw dataTransfer.getData 结果
+ * @returns {{ moduleId: string, projectId?: string, index?: number } | null}
+ */
+export function parseCraftCompletedDragPayload(raw) {
+  if (raw == null || typeof raw !== 'string') return null
+  const s = raw.trim()
+  if (!s) return null
+  try {
+    const o = JSON.parse(s)
+    if (!o || typeof o !== 'object') return null
+    const moduleId = o.moduleId != null ? String(o.moduleId).trim() : ''
+    if (!moduleId) return null
+    const out = { moduleId }
+    if (o.projectId != null && String(o.projectId).trim()) out.projectId = String(o.projectId).trim()
+    if (typeof o.index === 'number' && Number.isFinite(o.index)) out.index = Math.max(0, Math.floor(o.index))
+    return out
   } catch {
     return null
   }

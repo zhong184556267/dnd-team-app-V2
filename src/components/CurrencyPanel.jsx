@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import { Plus, Minus, ArrowRightLeft } from 'lucide-react'
 import { useModule } from '../contexts/ModuleContext'
-import { adjustVault, convertCurrency, loadTeamVaultIntoCache } from '../lib/currencyStore'
-import { getEffectiveTeamVaultBalances, deductTeamCurrency, convertEffectiveTeamCurrency } from '../lib/teamCurrencyPublicBags'
+import { convertCurrency, loadTeamVaultIntoCache, getTeamVault, setTeamVault } from '../lib/currencyStore'
+import { getEffectiveTeamVaultBalances, deductTeamCurrency, convertEffectiveTeamCurrency, sumWarehouseWalletBalances, sumPublicBagWalletBalances } from '../lib/teamCurrencyPublicBags'
+import { loadWarehouseIntoCache, addWarehouseCurrencyStack, tryConsumeWarehouseCurrencyStacks } from '../lib/warehouseStore'
 import { CURRENCY_CONFIG, getCurrencyDisplayName } from '../data/currencyConfig'
 import { CurrencyGrid } from './CurrencyDisplay'
 
@@ -41,7 +42,7 @@ function formatAmountInputWithCommas(raw) {
 }
 
 /** 团队仓库页用：金库兑换 + 金库 +/- 输入 + 团队金库展示 */
-export default function CurrencyPanel() {
+export default function CurrencyPanel({ variant = 'panel', showControls = true, showTotals = true }) {
   const { currentModuleId } = useModule()
   const [vault, setVault] = useState({})
   const [sign, setSign] = useState('+')
@@ -58,15 +59,17 @@ export default function CurrencyPanel() {
 
   useEffect(() => {
     if (!currentModuleId) return
-    Promise.resolve(loadTeamVaultIntoCache(currentModuleId)).then(() => refresh())
+    Promise.all([loadTeamVaultIntoCache(currentModuleId), loadWarehouseIntoCache(currentModuleId)]).then(() => refresh())
   }, [currentModuleId])
 
   useEffect(() => {
     const h = () => refresh()
     window.addEventListener('dnd-realtime-team-vault', h)
+    window.addEventListener('dnd-realtime-warehouse', h)
     window.addEventListener('dnd-realtime-characters', h)
     return () => {
       window.removeEventListener('dnd-realtime-team-vault', h)
+      window.removeEventListener('dnd-realtime-warehouse', h)
       window.removeEventListener('dnd-realtime-characters', h)
     }
   }, [currentModuleId])
@@ -86,7 +89,7 @@ export default function CurrencyPanel() {
       return
     }
     if (sign === '+') {
-      Promise.resolve(adjustVault(currentModuleId, currencyId, num)).then((result) => {
+      Promise.resolve(addWarehouseCurrencyStack(currentModuleId, currencyId, num)).then((result) => {
         if (result.success) {
           refresh()
           setAmountInput('')
@@ -134,18 +137,49 @@ export default function CurrencyPanel() {
     })
   }
 
+  const handleCurrencyChange = async (currencyId, value) => {
+    if (!currentModuleId) return
+    const isGem = currencyId === 'gem_lb'
+    const targetValue = isGem
+      ? Math.round(Math.max(0, value) * 10) / 10
+      : Math.max(0, Math.floor(value))
+
+    // 1. 账面清零
+    const vault = getTeamVault(currentModuleId)
+    await setTeamVault(currentModuleId, { ...vault, [currencyId]: 0 })
+
+    // 2. 清空秘法箱中该货币的实物（顶层）
+    const whCurrent = sumWarehouseWalletBalances(currentModuleId)
+    const currentWh = whCurrent[currencyId] ?? 0
+    if (currentWh > 0) {
+      await tryConsumeWarehouseCurrencyStacks(currentModuleId, currencyId, currentWh)
+    }
+
+    // 3. 按目标值重新添加实物到秘法箱
+    if (targetValue > 0) {
+      await addWarehouseCurrencyStack(currentModuleId, currencyId, targetValue)
+    }
+
+    window.dispatchEvent(new CustomEvent('dnd-realtime-team-vault'))
+    window.dispatchEvent(new CustomEvent('dnd-realtime-warehouse'))
+    refresh()
+  }
+
+  const isTopBar = variant === 'topbar'
   const inputClass = 'h-9 rounded-lg bg-gray-800 border border-gray-600 text-white px-2.5 text-sm focus:border-dnd-red focus:ring-1 focus:ring-dnd-red'
   const btnClass = 'h-9 px-3 rounded-lg bg-dnd-red hover:bg-dnd-red-hover text-white font-bold text-sm shrink-0'
 
   return (
-    <div className="space-y-3">
-      {/* 金额调整 | 金库兑换：左右分栏紧凑排布 */}
-      <div className="rounded-xl bg-dnd-card border border-white/10 p-3">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 lg:gap-4">
+    <div className={isTopBar ? '' : 'space-y-3'}>
+      {showControls ? (
+        <>
+          {/* 金额调整 | 金库兑换 */}
+          <div className={isTopBar ? 'flex flex-row items-center gap-2' : 'rounded-xl bg-dnd-card border border-white/10 p-3'}>
+            <div className={isTopBar ? 'flex flex-row items-center gap-2' : 'grid grid-cols-1 lg:grid-cols-2 gap-3 lg:gap-4'}>
           {/* 左：金额调整 */}
-          <div className="space-y-1.5 min-w-0">
-            <h3 className="text-dnd-text-body text-xs font-semibold">金额调整</h3>
-            <div className="flex flex-wrap gap-1.5 items-center">
+          <div className={`min-w-0 ${isTopBar ? 'flex items-center gap-1' : 'space-y-1'}`}>
+            {!isTopBar && <h3 className="text-dnd-text-body text-[11px] font-semibold">金额调整</h3>}
+            <div className={`items-center ${isTopBar ? 'flex gap-1' : 'flex flex-wrap gap-1.5'}`}>
               <div className="flex rounded-lg overflow-hidden border border-gray-600">
                 <button type="button" onClick={() => setSign('+')} className={`h-9 w-9 shrink-0 flex items-center justify-center transition-colors ${sign === '+' ? 'bg-dnd-red text-white' : 'bg-gray-800 text-gray-400 hover:text-white'}`} title="增加"><Plus className="w-4 h-4" /></button>
                 <button type="button" onClick={() => setSign('-')} className={`h-9 w-9 shrink-0 flex items-center justify-center transition-colors ${sign === '-' ? 'bg-dnd-red text-white' : 'bg-gray-800 text-gray-400 hover:text-white'}`} title="减少"><Minus className="w-4 h-4" /></button>
@@ -161,25 +195,23 @@ export default function CurrencyPanel() {
                   setError('')
                 }}
                 onKeyDown={(e) => e.key === 'Enter' && handleApply()}
-                className={inputClass + ' w-[6.5rem] min-w-0 font-mono placeholder:text-gray-500 tabular-nums'}
+                className={inputClass + ` ${isTopBar ? 'w-20 px-1.5' : 'w-[6.5rem]'} min-w-0 font-mono placeholder:text-gray-500 tabular-nums`}
               />
-              <select value={currencyId} onChange={(e) => setCurrencyId(e.target.value)} className={inputClass + ' min-w-[6rem]'}>
+              <select value={currencyId} onChange={(e) => setCurrencyId(e.target.value)} className={inputClass + ` ${isTopBar ? 'min-w-[5rem] px-1 text-xs' : 'min-w-[6rem]'}`}>
                 {CURRENCY_CONFIG.map((c) => (
                   <option key={c.id} value={c.id}>{getCurrencyDisplayName(c)}</option>
                 ))}
               </select>
-              <button type="button" onClick={handleApply} className={btnClass}>{sign === '+' ? '加入' : '扣除'}</button>
+              <button type="button" onClick={handleApply} className={`h-9 rounded-lg bg-dnd-red hover:bg-dnd-red-hover text-white font-bold text-sm shrink-0 ${isTopBar ? 'px-2 text-xs' : 'px-3'}`}>{sign === '+' ? '加入' : '扣除'}</button>
             </div>
-            {error && <p className="text-red-400 text-xs">{error}</p>}
+            {!isTopBar && error && <p className="text-red-400 text-xs">{error}</p>}
           </div>
 
           {/* 右：金库兑换 */}
-          <div className="space-y-1.5 min-w-0 lg:border-l lg:border-white/10 lg:pl-4">
-            <h3 className="text-dnd-text-body text-xs font-semibold flex items-center gap-1.5">
-              <ArrowRightLeft size={14} /> 金库兑换
-            </h3>
-            <div className="flex flex-wrap gap-1.5 items-center">
-              <select value={convertFrom} onChange={(e) => { setConvertFrom(e.target.value); setConvertError(''); }} className={inputClass + ' min-w-[6rem]'}>
+          <div className={`min-w-0 ${isTopBar ? 'flex items-center gap-1' : 'space-y-1'} ${isTopBar ? '' : 'lg:border-l lg:border-white/10 lg:pl-4'}`}>
+            {!isTopBar && <h3 className="text-dnd-text-body text-[11px] font-semibold flex items-center gap-1.5"><ArrowRightLeft size={14} /> 金库兑换</h3>}
+            <div className={`items-center ${isTopBar ? 'flex gap-1' : 'flex flex-wrap gap-1.5'}`}>
+              <select value={convertFrom} onChange={(e) => { setConvertFrom(e.target.value); setConvertError(''); }} className={inputClass + ` ${isTopBar ? 'min-w-[5rem] px-1 text-xs' : 'min-w-[6rem]'}`}>
                 {CURRENCY_CONFIG.map((c) => (
                   <option key={c.id} value={c.id}>{getCurrencyDisplayName(c)}</option>
                 ))}
@@ -202,33 +234,34 @@ export default function CurrencyPanel() {
                   setConvertError('')
                 }}
                 onKeyDown={(e) => e.key === 'Enter' && handleConvert()}
-                className={inputClass + ' w-[6.5rem] min-w-0 font-mono placeholder:text-gray-500 tabular-nums'}
+                className={inputClass + ` ${isTopBar ? 'w-20 px-1.5' : 'w-[6.5rem]'} min-w-0 font-mono placeholder:text-gray-500 tabular-nums`}
               />
               <span className="text-dnd-text-muted text-xs">→</span>
-              <select value={convertTo} onChange={(e) => { setConvertTo(e.target.value); setConvertError(''); }} className={inputClass + ' min-w-[6rem]'}>
+              <select value={convertTo} onChange={(e) => { setConvertTo(e.target.value); setConvertError(''); }} className={inputClass + ` ${isTopBar ? 'min-w-[5rem] px-1 text-xs' : 'min-w-[6rem]'}`}>
                 {CURRENCY_CONFIG.filter((c) => c.id !== convertFrom).map((c) => (
                   <option key={c.id} value={c.id}>{getCurrencyDisplayName(c)}</option>
                 ))}
               </select>
-              <button type="button" onClick={handleConvert} className={btnClass}>兑换</button>
+              <button type="button" onClick={handleConvert} className={`h-9 rounded-lg bg-dnd-red hover:bg-dnd-red-hover text-white font-bold text-sm shrink-0 ${isTopBar ? 'px-2 text-xs' : 'px-3'}`}>兑换</button>
             </div>
-            {convertPreview != null && toCfg && (
+            {!isTopBar && convertPreview != null && toCfg && (
               <p className="text-dnd-text-muted text-[10px]">约 <span className="text-cyan-200 font-medium">{convertPreview}</span> {getCurrencyDisplayName(toCfg)}</p>
             )}
-            {convertError && <p className="text-red-400 text-xs">{convertError}</p>}
-            <p className="text-dnd-text-muted text-[10px] leading-snug">
-              兑换会先从<strong className="text-dnd-text-body">账面金库</strong>扣源币种，不足部分再从<strong className="text-dnd-text-body">公家次元袋</strong>钱币堆扣除；兑得货币记入<strong className="text-dnd-text-body">账面</strong>（与下方合计一致）。
-            </p>
+            {!isTopBar && convertError && <p className="text-red-400 text-xs">{convertError}</p>}
           </div>
-        </div>
-      </div>
+            </div>
+          </div>
+        </>
+      ) : null}
 
-      <div className="space-y-1">
-        <CurrencyGrid balances={vault} title="团队金库" />
-        <p className="text-dnd-text-muted text-[10px] px-1 leading-relaxed">
-          合计含<strong className="text-dnd-text-body">账面金库</strong>与各角色<strong className="text-dnd-text-body">公家次元袋</strong>内的钱币堆；增加金额只入账面，可将账面货币<strong className="text-dnd-text-body">拖入公家次元袋</strong>（仍计入本合计）。
-        </p>
-      </div>
+      {showTotals ? (
+        <CurrencyGrid
+          balances={vault}
+          title="团队资金总计"
+          editable
+          onCurrencyChange={handleCurrencyChange}
+        />
+      ) : null}
     </div>
   )
 }

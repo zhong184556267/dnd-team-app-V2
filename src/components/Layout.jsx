@@ -44,7 +44,8 @@ export default function Layout() {
   return (
     <RollProvider>
       <ScrollToTop />
-      <div className="min-h-screen w-full min-w-[1180px]" style={{ background: 'linear-gradient(180deg, var(--page-bg) 0%, var(--page-bg-end) 100%)' }}>
+      {/* 与中间版心同色：勿在此处用纵向渐变，否则两侧露边会在滚动时出现「一节颜色不对」的接缝 */}
+      <div className="min-h-screen w-full min-w-[1180px]" style={{ backgroundColor: 'var(--page-bg)' }}>
         <div className="mx-auto w-[1180px] min-w-[1180px] shrink-0 min-h-screen min-h-[100dvh] font-body text-dnd-text-body" style={{ backgroundColor: 'var(--page-bg)' }}>
           <main className="w-full min-w-0 pb-[calc(3.5rem+env(safe-area-inset-bottom,0px))]">
             <Outlet />

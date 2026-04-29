@@ -7,6 +7,7 @@ import { EFFECT_SOURCE_KIND } from './effectModel'
 import { normalizeEffectCategory } from '../../data/buffTypes'
 import { FEATS } from '../../data/feats'
 import { getItemById, getItemDisplayName } from '../../data/itemDatabase'
+import { loadRuleTextOverrides, resolveRuleText, buildFeatNameKey } from '../ruleTextOverrides'
 
 const FEAT_BY_ID = new Map(FEATS.map((x) => [x.id, x]))
 
@@ -77,14 +78,20 @@ export function mergeFeatBuffPatchesFromMergedList(character, buffsList) {
 /**
  * 从角色已选专长生成虚拟 BUFF（栏内不展示规则原文；效果由用户在编辑中填写，存于 featBuffPatch）
  * @param {Object} character
+ * @param {string} [moduleId] - 有则套用规则收录中的专长显示名称覆盖
  * @returns {Array<{ id: string, source: string, effects: Array, enabled: boolean, fromFeat: true, featId: string }>}
  */
-export function getBuffsFromSelectedFeats(character) {
+export function getBuffsFromSelectedFeats(character, moduleId) {
   const rows = normalizeSelectedFeatsForBuffs(character)
+  const map =
+    moduleId && String(moduleId).trim()
+      ? loadRuleTextOverrides(String(moduleId).trim())
+      : {}
   const out = []
   rows.forEach((item, index) => {
     const def = FEAT_BY_ID.get(item.featId)
-    const name = def?.name ?? item.featId
+    const baseName = def?.name ?? item.featId
+    const name = resolveRuleText(map, buildFeatNameKey(item.featId), baseName)
     const patch = item.featBuffPatch
     const effects = Array.isArray(patch?.effects) && patch.effects.length ? patch.effects : []
     const duration = patch?.duration
@@ -106,10 +113,10 @@ export function getBuffsFromSelectedFeats(character) {
  * 与角色卡 Buff 栏一致：专长虚拟条 + 手动 buff + 装备附魔。
  * 凡调用 useBuffCalculator 且需与栏内数值一致处，应使用此列表（勿只合并 buffs + 装备而漏掉专长）。
  */
-export function getMergedBuffsForCalculator(character) {
+export function getMergedBuffsForCalculator(character, moduleId) {
   if (!character) return []
   const manual = character.buffs ?? []
-  const fromFeats = getBuffsFromSelectedFeats(character)
+  const fromFeats = getBuffsFromSelectedFeats(character, moduleId)
   const fromItems = getBuffsFromEquipmentAndInventory(character)
   return [...fromFeats, ...manual, ...fromItems]
 }

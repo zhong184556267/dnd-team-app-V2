@@ -10,7 +10,7 @@
     "dev": "vite --host",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview",
+    "preview": "vite preview --host",
     "test:e2e": "playwright test",
     "test:unit": "vitest run",
     "purge:e2e-chars": "node scripts/delete-e2e-test-characters.mjs"

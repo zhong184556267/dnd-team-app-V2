@@ -22,6 +22,16 @@ import {
   getAvailableFeatures,
   resolveSelectedFeatures,
 } from '../data/classDatabase'
+import { useRuleTextOverridesMap } from '../hooks/useRuleTextOverridesMap'
+import {
+  buildClassFeatureKey,
+  buildClassFeatureNameKey,
+  buildSubclassFeatureKey,
+  buildSubclassFeatureNameKey,
+  buildFeatDescriptionKey,
+  buildFeatNameKey,
+  resolveRuleText,
+} from '../lib/ruleTextOverrides'
 import { FANXING_PRESTIGE_CLASSES } from '../data/fanxing'
 import { ABILITY_NAMES_ZH } from '../data/buffTypes'
 import { FEATS, FEATS_BY_CATEGORY, formatFeatDescriptionForDisplay } from '../data/feats'
@@ -698,6 +708,10 @@ function featureKey(f) {
 
 /** 职业特性：从职业库调出可选特性，在角色卡上勾选展示；已添加的显示在上方列表 */
 function ClassFeaturesSection({ char, canEdit, onSave }) {
+  const { currentModuleId } = useModule()
+  const moduleId = currentModuleId || 'default'
+  const overridesMap = useRuleTextOverridesMap(moduleId)
+
   const selected = resolveSelectedFeatures(char)
   const available = getAvailableFeatures(char)
   const selectedKeys = new Set(char?.selectedClassFeatures ?? [])
@@ -724,9 +738,25 @@ function ClassFeaturesSection({ char, canEdit, onSave }) {
               <li key={f.selectedKey} className="rounded-lg border border-gray-600 bg-gray-800/50 p-3">
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <span className={CS_LIST_TITLE}>{f.name}</span>
+                    <span className={CS_LIST_TITLE}>
+                      {resolveRuleText(
+                        overridesMap,
+                        f.sourceSubclass
+                          ? buildSubclassFeatureNameKey(f.sourceClass, f.sourceSubclass, f.id)
+                          : buildClassFeatureNameKey(f.sourceClass, f.id),
+                        f.name,
+                      )}
+                    </span>
                     <span className={`${CS_LIST_META} ml-2`}>{f.sourceClass}{f.sourceSubclass ? `（${f.sourceSubclass}）` : ''} · {f.level} 级</span>
-                    <p className={`${CS_LIST_BODY} mt-1 whitespace-pre-line`}>{f.description}</p>
+                    <p className={`${CS_LIST_BODY} mt-1 whitespace-pre-line`}>
+                      {resolveRuleText(
+                        overridesMap,
+                        f.sourceSubclass
+                          ? buildSubclassFeatureKey(f.sourceClass, f.sourceSubclass, f.id)
+                          : buildClassFeatureKey(f.sourceClass, f.id),
+                        f.description,
+                      )}
+                    </p>
                   </div>
                   {canEdit && (
                     <button
@@ -760,9 +790,16 @@ function ClassFeaturesSection({ char, canEdit, onSave }) {
             <option value="">— 选择特性 —</option>
             {toAdd.map((f) => {
               const key = featureKey(f)
+              const displayName = resolveRuleText(
+                overridesMap,
+                f.sourceSubclass
+                  ? buildSubclassFeatureNameKey(f.sourceClass, f.sourceSubclass, f.id)
+                  : buildClassFeatureNameKey(f.sourceClass, f.id),
+                f.name,
+              )
               return (
                 <option key={key} value={key}>
-                  {f.sourceClass}{f.sourceSubclass ? `（${f.sourceSubclass}）` : ''} · {f.name}（{f.level} 级）
+                  {f.sourceClass}{f.sourceSubclass ? `（${f.sourceSubclass}）` : ''} · {displayName}（{f.level} 级）
                 </option>
               )
             })}
@@ -791,6 +828,10 @@ function formatFeatAcquisitionSentence(sourceClass, level, category) {
 
 /** 专长：从专长库调出，每项可选获得等级与获得职业；先选类型再选专长，列表标出类型（星辰用星标）；可拖动排序 */
 function FeatsSection({ char, canEdit, onSave }) {
+  const { currentModuleId } = useModule()
+  const moduleId = currentModuleId || 'default'
+  const overridesMap = useRuleTextOverridesMap(moduleId)
+
   const raw = char?.selectedFeats ?? []
   const featDragFrom = useRef(null)
   const [featDragOver, setFeatDragOver] = useState(null)
@@ -898,7 +939,9 @@ function FeatsSection({ char, canEdit, onSave }) {
                   {!selectedCategory ? '选择专长类型后再选专长' : toAddInCategory.length === 0 ? '— 该类型已选完 —' : '— 选择专长 —'}
                 </option>
                 {toAddInCategory.map((x) => (
-                  <option key={x.id} value={x.id}>{x.name}</option>
+                  <option key={x.id} value={x.id}>
+                    {resolveRuleText(overridesMap, buildFeatNameKey(x.id), x.name)}
+                  </option>
                 ))}
               </select>
             </div>
@@ -909,7 +952,11 @@ function FeatsSection({ char, canEdit, onSave }) {
         <ul className="space-y-2">
           {feats.map((item, i) => {
             const feat = featById.get(item.featId)
-            const name = feat?.name ?? item.featId
+            const name = resolveRuleText(
+              overridesMap,
+              buildFeatNameKey(item.featId),
+              feat?.name ?? item.featId,
+            )
             const category = feat?.category
             const featHasDescription = Boolean(feat?.description)
             return (
@@ -977,7 +1024,9 @@ function FeatsSection({ char, canEdit, onSave }) {
                 </div>
                 {feat?.description && (
                   <p className={`${CS_LIST_BODY} mt-2 whitespace-pre-line`}>
-                    {formatFeatDescriptionForDisplay(feat.description)}
+                    {formatFeatDescriptionForDisplay(
+                      resolveRuleText(overridesMap, buildFeatDescriptionKey(item.featId), feat.description),
+                    )}
                   </p>
                 )}
                 {canEdit ? (
@@ -1351,6 +1400,7 @@ export default function CharacterSheet() {
   const { id } = useParams()
   const { user, isAdmin } = useAuth()
   const { currentModuleId } = useModule()
+  const sheetModuleId = currentModuleId || 'default'
   const [char, setChar] = useState(null)
   const [editingName, setEditingName] = useState(null)
   const [editingCodename, setEditingCodename] = useState(null)
@@ -1363,8 +1413,15 @@ export default function CharacterSheet() {
   const spellLevel = char ? getSpellcastingLevel(char) : 0
   const combatState = useCombatState(char)
   const mergedBuffs = useMemo(
-    () => getMergedBuffsForCalculator(char),
-    [char?.buffs, char?.selectedFeats, char?.inventory, char?.equippedHeld, char?.equippedWorn],
+    () => getMergedBuffsForCalculator(char, sheetModuleId),
+    [
+      char?.buffs,
+      char?.selectedFeats,
+      char?.inventory,
+      char?.equippedHeld,
+      char?.equippedWorn,
+      sheetModuleId,
+    ],
   )
   const buffStats = useBuffCalculator(char, mergedBuffs)
   const canEdit = isAdmin || char?.owner === user?.name

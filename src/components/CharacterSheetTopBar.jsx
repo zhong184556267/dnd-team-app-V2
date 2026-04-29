@@ -6,6 +6,7 @@ import { getCharacter } from '../lib/characterStore'
 import { resolveCreatureHpDisplay } from '../lib/creatureHpDisplay'
 import { hpBarMainFillClass, hpBarMainFillClassFromPct, HP_BAR_TEMP_FILL_CLASS } from '../lib/hpBarShared'
 import { inputClass } from '../lib/inputStyles'
+import { TOPBAR_BACK_ARROW_CLASS, TOPBAR_BACK_LINK_CLASS } from '../lib/topBarShared'
 
 const LAYOUT_INNER = 'mx-auto w-[1180px] min-w-[1180px] shrink-0'
 
@@ -140,21 +141,22 @@ export default function CharacterSheetTopBar({
   const [summonPanelOpen, setSummonPanelOpen] = useState(false)
   /** 正在选择分身类型的空槽索引（点击虚框后展开下拉，类似兼职添加行） */
   const [activeSlotPicker, setActiveSlotPicker] = useState(null)
-  const topBarRef = useRef(null)
+  /** 挂在 nav 上：高度含 safe-area-pt，与正文 padding-top 一致 */
+  const navRef = useRef(null)
 
   const stellar = Array.isArray(char?.stellarClones) ? char.stellarClones : []
 
   /** 仅测量第一行顶栏高度（不含召唤叠层），避免展开/收起时推动正文 padding 导致视跳动 */
   useLayoutEffect(() => {
-    const el = topBarRef.current
-    if (!el || typeof document === 'undefined') return undefined
+    const nav = navRef.current
+    if (!nav || typeof document === 'undefined') return undefined
     const apply = () => {
-      const h = Math.ceil(el.getBoundingClientRect().height)
+      const h = Math.ceil(nav.getBoundingClientRect().height)
       if (h > 0) document.documentElement.style.setProperty('--character-sheet-topbar-h', `${h}px`)
     }
     apply()
     const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(apply) : null
-    ro?.observe(el)
+    ro?.observe(nav)
     window.addEventListener('resize', apply)
     return () => {
       ro?.disconnect()
@@ -356,9 +358,6 @@ export default function CharacterSheetTopBar({
       clear()
     }
   }
-
-  const linkClass =
-    'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-dnd-text-muted transition-colors hover:bg-white/10 hover:text-dnd-red sm:h-10 sm:w-10'
 
   const avatarEl = char?.avatar ? (
     <img
@@ -595,26 +594,26 @@ export default function CharacterSheetTopBar({
 
   const navEl = (
     <nav
+      ref={navRef}
       className="fixed inset-x-0 top-0 z-40 w-full safe-area-pt"
       aria-label="角色卡顶栏"
     >
       <div className="relative">
         <div
-          ref={topBarRef}
           className="relative z-10 bg-[#2D3748]/78 backdrop-blur-md border-b border-white/10 shadow-[0_4px_20px_rgba(0,0,0,0.5)]"
         >
           <div className={`${LAYOUT_INNER} flex min-w-0 flex-col px-4`}>
         {/* 第一层（顶栏主条）：返回、头像、名称/血条/召唤按钮、快捷跳转 */}
-        <div className="flex w-full min-w-0 flex-nowrap items-center gap-x-2 gap-y-0 py-1.5 sm:gap-3 sm:py-2">
+        <div className="flex w-full min-w-0 flex-nowrap items-center gap-x-2 gap-y-0 py-2 sm:gap-3 sm:py-2.5">
           <div className="flex min-w-0 flex-1 items-center gap-2 sm:min-w-[12rem]">
             <div className="flex shrink-0 items-center gap-2">
               <Link
                 to="/characters"
-                className={linkClass}
+                className={TOPBAR_BACK_LINK_CLASS}
                 title="返回角色列表"
                 aria-label="返回角色列表"
               >
-                <ArrowLeft className="h-5 w-5 sm:h-6 sm:w-6" strokeWidth={2} />
+                <ArrowLeft className={TOPBAR_BACK_ARROW_CLASS} strokeWidth={2} />
               </Link>
               {avatarEl}
             </div>

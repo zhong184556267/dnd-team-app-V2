@@ -19,6 +19,7 @@ import {
   isCraftDeposited,
   getCraftDepositDestLabel,
   DND_CRAFT_COMPLETED_MIME,
+  stringifyCraftCompletedDragPayload,
 } from '../lib/craftingProjectUtils'
 import {
   parseCostFromString,
@@ -703,11 +704,15 @@ export default function MagicCraftingPanel() {
   }
 
   return (
-    <div className="rounded-xl bg-dnd-card border border-white/10 shadow-dnd-card p-5 space-y-5">
+    <div className="rounded-xl bg-dnd-card border border-white/10 p-5 space-y-5 shadow-[0_6px_22px_rgba(0,0,0,0.48),0_2px_6px_rgba(0,0,0,0.28),inset_0_-1px_0_rgba(0,0,0,0.22)]">
       <h2 className="text-dnd-gold-light text-base font-bold uppercase tracking-wider">魔法物品制作工厂</h2>
 
       {/* 新建制作：按钮 + 弹窗 */}
-      <button type="button" onClick={() => setShowNewCraftModal(true)} className="w-full h-12 rounded-lg bg-dnd-red hover:bg-dnd-red-hover text-white font-bold text-base flex items-center justify-center gap-2">
+      <button
+        type="button"
+        onClick={() => setShowNewCraftModal(true)}
+        className="w-full h-12 rounded-lg bg-dnd-red hover:bg-dnd-red-hover text-white font-bold text-base flex items-center justify-center gap-2 shadow-none ring-0 focus-visible:ring-2 focus-visible:ring-white/30 focus-visible:ring-offset-0 focus-visible:ring-offset-transparent"
+      >
         <Plus size={20} /> 新建制作
       </button>
 
@@ -1249,11 +1254,9 @@ export default function MagicCraftingPanel() {
                 .map(({ p, i }) => {
                   const claimed = isCraftFeeClaimed(p)
                   const deposited = isCraftDeposited(p)
-                  const canDragToBag = claimed && !deposited
                   const delName = (p.委托角色 && characters.find((c) => c.id === p.委托角色)?.name) || '—'
                   const makerName = (p.实际制作者 && characters.find((c) => c.id === p.实际制作者)?.name) || '—'
                   const costGp = parseCostFromString(p.消耗金额)
-                  const modId = currentModuleId ?? 'default'
                   const rowMuted =
                     deposited
                       ? 'bg-gray-950/50 text-gray-500/95 border-t border-gray-800/90'
@@ -1261,36 +1264,35 @@ export default function MagicCraftingPanel() {
                         ? 'bg-gray-900/35 text-gray-400/95 border-t border-gray-700/80'
                         : 'border-t border-gray-700/80 text-dnd-text-body'
                   const rowHover = deposited ? '' : 'hover:bg-gray-800/30'
-                  const grabClass = canDragToBag ? 'cursor-grab active:cursor-grabbing' : 'cursor-default'
                   return (
                     <tr
                       key={p.id ?? i}
-                      className={`${rowMuted} ${rowHover} ${grabClass}`}
-                      draggable={canDragToBag}
+                      draggable={claimed && !deposited}
+                      onDragStart={(e) => {
+                        if (!claimed || deposited) return
+                        e.dataTransfer.setData(
+                          DND_CRAFT_COMPLETED_MIME,
+                          stringifyCraftCompletedDragPayload({
+                            moduleId: currentModuleId,
+                            projectId: p.id,
+                            index: i,
+                          }),
+                        )
+                        e.dataTransfer.effectAllowed = 'copy'
+                      }}
+                      className={`${rowMuted} ${rowHover} ${claimed && !deposited ? 'cursor-grab active:cursor-grabbing' : 'cursor-default'}`}
                       title={
                         deposited
                           ? '已入库，仅作记录（可从列表移除）'
                           : claimed
-                            ? '按住拖入上方「公家次元袋」卡片（须已领取结算）'
-                            : '请先点击「领取结算」后再拖入次元袋'
+                            ? '可拖入仓库页「公家次元袋」；或点击「存入」'
+                            : '请先点击「领取结算」，再使用「存入」放入次元袋'
                       }
-                      onDragStart={(e) => {
-                        if (!canDragToBag) {
-                          e.preventDefault()
-                          return
-                        }
-                        e.dataTransfer.setData(
-                          DND_CRAFT_COMPLETED_MIME,
-                          JSON.stringify({ moduleId: modId, projectId: p.id, index: i }),
-                        )
-                        e.dataTransfer.setData('text/plain', `dnd-craft:${p.id ?? i}`)
-                        e.dataTransfer.effectAllowed = 'copy'
-                        e.currentTarget.classList.add('opacity-60')
-                      }}
-                      onDragEnd={(e) => e.currentTarget.classList.remove('opacity-60')}
                     >
                       <td className="py-2 px-2 text-center align-middle text-dnd-text-muted">
-                        <DragHandleIcon className={`w-4 h-4 mx-auto ${canDragToBag ? 'opacity-70' : 'opacity-25'}`} />
+                        <DragHandleIcon
+                          className={`w-4 h-4 mx-auto ${claimed && !deposited ? 'opacity-70 text-dnd-gold-light/80' : 'opacity-25'}`}
+                        />
                       </td>
                       <td className="py-2 px-3 tabular-nums whitespace-nowrap">{formatCompleteTime(p.完成时间)}</td>
                       <td className={`py-2 px-3 font-medium ${deposited ? 'text-gray-500' : claimed ? 'text-gray-300' : 'text-white'}`}>{p.物品名称 || '—'}</td>

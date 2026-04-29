@@ -13,6 +13,10 @@ import { dataTransferHasType } from '../lib/dndTransferTypes'
 
 const STASH_DRAG_MIME = 'application/x-dnd-team-buff-stash'
 
+/** 最外框：与 shadow-dnd-card 同款黑系外投影，但去掉顶部白色 inset（圆角处易看成一圈外发光） */
+const BUFF_PANEL_OUTER_SHADOW =
+  'shadow-[0_6px_22px_rgba(0,0,0,0.48),0_2px_6px_rgba(0,0,0,0.28),inset_0_-1px_0_rgba(0,0,0,0.22)]'
+
 export default function BuffManager({
   buffs = [],
   baseAbilities = {},
@@ -174,7 +178,9 @@ export default function BuffManager({
   )
 
   return (
-    <div className="rounded-xl border border-white/10 bg-gradient-to-b from-[#243147]/35 to-[#1f2a3d]/30 p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
+    <div
+      className={`rounded-xl border border-white/[0.11] bg-gradient-to-b from-[#2c384c] via-[#242f42] to-[#1b2433] p-2 ${BUFF_PANEL_OUTER_SHADOW}`}
+    >
       {showStashSection && (
         <div className="mb-3 rounded-lg border border-white/10 bg-[#1a2333]/60 p-2">
           <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">

@@ -11,8 +11,35 @@
   </head>
   <body style="background-color: #121212; color: #e2e8f0; margin: 0; min-height: 100vh;">
     <div id="root" style="min-height: 100vh;">
-      <p style="padding: 2rem; color: #94a3b8; font-size: 1rem;">正在加载…</p>
+      <p id="root-boot-fallback" style="padding: 2rem; color: #94a3b8; font-size: 1rem; max-width: 36rem; line-height: 1.6;">
+        正在加载…<br /><br />
+        <span style="font-size: 0.875rem; color: #64748b;">必须用终端在项目目录执行 <strong style="color: #94a3b8">npm run dev</strong>（Vite），不要用 Live Server、python -m http.server 等<strong style="color: #94a3b8">纯静态服务</strong>打开——否则 <code>/src/main.jsx</code> 无法转译，会一直停在此页。<br /><br />若已运行 dev 仍卡住，请换 <strong style="color: #94a3b8">Chrome / Edge</strong> 打开（部分 IDE 内置预览对 ES 模块支持不完整）。</span>
+      </p>
     </div>
+    <script>
+      ;(function () {
+        var root = document.getElementById('root')
+        var t = setTimeout(function () {
+          var el = document.getElementById('root-boot-fallback')
+          if (!el || !el.isConnected) return
+          el.innerHTML =
+            '仍在加载…请确认已在<strong>本仓库根目录</strong>终端执行 <code>npm run dev</code>（终端里应出现 Vite 的 Local 地址），<strong>不要</strong>用 Live Server / 纯静态服务器打开本项目。<br /><br />然后按 F12 →「网络」找到 <code>main.jsx</code>：若为红色失败，把状态码与「控制台」第一条红字发开发者。另请检查防火墙是否放行 5173。'
+          el.style.color = '#cbd5e1'
+          el.style.maxWidth = '42rem'
+        }, 10000)
+        /** 勿在 window load 时清定时器：模块脚本加载失败时 load 仍会触发，会导致永远不显示上述提示 */
+        if (root && typeof MutationObserver !== 'undefined') {
+          var mo = new MutationObserver(function () {
+            var el = document.getElementById('root-boot-fallback')
+            if (!el || !el.isConnected) {
+              clearTimeout(t)
+              mo.disconnect()
+            }
+          })
+          mo.observe(root, { childList: true, subtree: true })
+        }
+      })()
+    </script>
     <noscript><p style="padding: 2rem; color: #f87171;">请启用 JavaScript 以使用本应用。</p></noscript>
     <script type="module" src="/src/main.jsx"></script>
   </body>

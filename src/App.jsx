@@ -38,7 +38,23 @@ function AppRoutes() {
         <Route path="/" element={<Dashboard />} />
         <Route path="/characters" element={<Dashboard />} />
         <Route path="/characters/new" element={<CharacterNew />} />
-        <Route path="/characters/:id" element={<Suspense fallback={<div className="min-h-screen flex items-center justify-center bg-dnd-bg text-dnd-text-muted">加载角色卡…</div>}><CharacterSheet /></Suspense>} />
+        <Route
+          path="/characters/:id"
+          element={
+            <Suspense
+              fallback={
+                <div
+                  className="min-h-screen flex items-center justify-center text-dnd-text-muted"
+                  style={{ backgroundColor: 'var(--page-bg)' }}
+                >
+                  加载角色卡…
+                </div>
+              }
+            >
+              <CharacterSheet />
+            </Suspense>
+          }
+        />
         <Route path="/character-spells" element={<CharacterSpellsPage />} />
         <Route path="/warehouse" element={<Warehouse />} />
         <Route path="/spells" element={<Spells />} />

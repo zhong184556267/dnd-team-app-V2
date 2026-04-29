@@ -356,7 +356,10 @@ export default function Characters({ embedded = false, embeddedModuleId = null }
   }
 
   return (
-    <div className={embedded ? '' : 'p-4 pb-24 min-h-screen bg-dnd-bg'}>
+    <div
+      className={embedded ? '' : 'p-4 pb-24 min-h-screen'}
+      style={embedded ? undefined : { backgroundColor: 'var(--page-bg)' }}
+    >
       {!embedded && (
       <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
           <div className="flex flex-wrap items-center gap-2">

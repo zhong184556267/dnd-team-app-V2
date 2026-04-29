@@ -1,7 +1,13 @@
 import { useMemo, useState, useEffect, useCallback } from 'react'
 import { Package, Plus, Trash2, Pencil, ChevronDown, ChevronRight, Lock, Unlock } from 'lucide-react'
 import DragHandleIcon from './DragHandleIcon'
-import { getBagOfHoldingSelfWeightLb } from '../lib/encumbrance'
+import {
+  getBagOfHoldingSelfWeightLb,
+  getInventoryEntryStackWeightLb,
+  formatDisplayWeightLb,
+  formatDisplayGemLbQty,
+} from '../lib/encumbrance'
+import { getPublicBagModuleCapacityLimits } from '../lib/teamCurrencyPublicBags'
 import { normalizeBagOfHoldingVisibility } from '../lib/bagOfHoldingVisibility'
 import {
   entryBelongsToBagModule,
@@ -12,14 +18,63 @@ import {
 import { getCurrencyById, getCurrencyDisplayName } from '../data/currencyConfig'
 import { NumberStepper } from './BuffForm'
 import { inputClassInline } from '../lib/inputStyles'
+import {
+  inventoryItemCardListGapClass,
+  inventoryItemActionsCellClass,
+  inventoryItemCardShellClass,
+  inventoryItemChargeCellClass,
+  inventoryItemNameExtrasClass,
+  inventoryItemNameRowClass,
+  inventoryItemNameTextClass,
+  inventoryItemNameTitleGroupClass,
+  inventoryItemQtyWeightCellClass,
+  inventoryItemRowGridEditableNoCharge,
+  inventoryItemRowGridEditableWithCharge,
+  inventoryItemRowGridReadNoCharge,
+  inventoryItemRowGridReadWithCharge,
+} from '../lib/inventoryItemCardStyles'
+import { InventoryItemBriefChevron, InventoryItemBriefExpandedText } from './InventoryItemCardBrief'
 
 function collapseStorageKey(characterId) {
   return characterId ? `dnd-bag-panel-collapsed-${characterId}` : 'dnd-bag-panel-collapsed'
 }
 
 /**
+ * 统一处理「身上物品 / 背包货币行 / 个人持有 ⋮ 货币」拖入某一模块袋内。
+ * 供袋内虚线区、袋底入袋条、下方次元袋面板的快捷投放条共用。
+ */
+/** 从拖放数据中解析背包 inventory 下标（优先 text/plain，兼容 Safari/部分内核） */
+export function parseDragInventoryIndex(dataTransfer) {
+  const plain = dataTransfer.getData('text/plain') || ''
+  const m = /\binv:(\d+)\b/.exec(plain)
+  if (m) {
+    const n = parseInt(m[1], 10)
+    if (!Number.isNaN(n)) return n
+  }
+  const raw = parseInt(dataTransfer.getData('text/dnd-character-inv'), 10)
+  return Number.isNaN(raw) ? NaN : raw
+}
+
+export function deliverBagDrop(e, { canEdit, mod, totalBags, onMoveToBag, onMoveCurrencyToBag }) {
+  e.preventDefault()
+  /** 阻止冒泡到背包表外层 td/tr 的 handleBackpackRowDrop，否则会再执行一次「排序」把物品插到次元袋下一行 */
+  e.stopPropagation()
+  if (!canEdit || !mod || totalBags <= 0) return
+  const wc = e.dataTransfer.getData('text/dnd-wallet-currency')
+  const wcQty = Number(e.dataTransfer.getData('text/dnd-wallet-currency-qty'))
+  if (wc && onMoveCurrencyToBag) {
+    onMoveCurrencyToBag(wc, mod.id, Number.isFinite(wcQty) ? wcQty : undefined)
+    return
+  }
+  if (!onMoveToBag) return
+  const fromIndex = parseDragInventoryIndex(e.dataTransfer)
+  if (Number.isNaN(fromIndex)) return
+  onMoveToBag(fromIndex, mod.id)
+}
+
+/**
  * 次元袋：可多个模块；每模块独立「次元袋个数」+ 私人/公家 + 袋内表。
- * 公家模块在团队仓库页列出并可与储物栏互通；私人仅本角色卡可见。
+ * 公家模块在团队仓库页列出并可与秘法箱互通；私人仅本角色卡可见。
  */
 export default function BagOfHoldingPanel({
   bagModules,
@@ -27,12 +82,15 @@ export default function BagOfHoldingPanel({
   onRemoveModule,
   onSetModuleBagCount,
   onSetModuleVisibility,
+  /** 若提供则替代 getPublicBagModuleCapacityLimits（如秘法箱内次元袋实体行） */
+  getBagCapacityLimits,
+  /** 底部说明；undefined 用默认文案；null 不渲染 */
+  footerNote,
   inventory,
   onMoveToBag,
   onMoveCurrencyToBag,
   canEdit,
   invDisplayName,
-  getEntryWeight,
   getEntryBriefFull,
   /** 袋内行内编辑：(背包 inventory 下标, { qty?, charge? }) */
   onPatchBagItem,
@@ -42,6 +100,8 @@ export default function BagOfHoldingPanel({
   onBagRowRemove,
   /** 用于折叠状态持久化 */
   characterId,
+  /** 为 true 时不列出各模块（模块已在背包表锚点行下展开），仅保留标题栏与说明 */
+  hideModuleList = false,
 }) {
   const modules = Array.isArray(bagModules) ? bagModules : []
   const canAddMoreModules = modules.length < MAX_BAG_OF_HOLDING_MODULES
@@ -122,22 +182,24 @@ export default function BagOfHoldingPanel({
         .map((entry, i) => ({ entry, i }))
         .filter(({ entry }) => entryBelongsToBagModule(entry, m, modules))
       for (const { entry } of rows) {
-        const qty = Math.max(1, Number(entry?.qty) ?? 1)
-        const unit = typeof getEntryWeight === 'function' ? getEntryWeight(entry) : 0
-        s += unit * qty
+        s += getInventoryEntryStackWeightLb(entry)
       }
     }
-    return Math.round(s * 100) / 100
-  }, [inventory, modules, getEntryWeight])
+    return Math.round(s * 10) / 10
+  }, [inventory, modules])
 
   const handleDragStart = (e, globalIndex) => {
     e.dataTransfer.setData('text/dnd-character-inv', String(globalIndex))
     e.dataTransfer.setData('text/dnd-from-bag', '1')
     e.dataTransfer.setData('text/plain', `bag-inv:${globalIndex}`)
+    if (characterId) {
+      e.dataTransfer.setData('text/dnd-bag-source-char-id', characterId)
+    }
     e.dataTransfer.effectAllowed = 'copyMove'
-    e.currentTarget.classList.add('opacity-60')
+    ;(e.currentTarget.closest('[data-bag-item-card]') ?? e.currentTarget).classList.add('opacity-60')
   }
-  const handleDragEnd = (e) => e.currentTarget.classList.remove('opacity-60')
+  const handleDragEnd = (e) =>
+    (e.currentTarget.closest('[data-bag-item-card]') ?? e.currentTarget).classList.remove('opacity-60')
   const handleDragOver = (e) => {
     e.preventDefault()
     e.dataTransfer.dropEffect = 'copyMove'
@@ -147,9 +209,6 @@ export default function BagOfHoldingPanel({
     'inline-flex items-center justify-center h-7 w-7 shrink-0 rounded-lg border border-gray-500/70 bg-gray-800/90 text-gray-300 hover:bg-gray-700 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed'
   const removeBagBtn =
     'inline-flex items-center justify-center h-7 w-7 shrink-0 rounded-lg border border-dnd-red/60 bg-gray-800/90 text-dnd-red hover:bg-dnd-red/20 hover:border-dnd-red/80 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-gray-800/90 disabled:hover:border-dnd-red/60'
-  const moduleLockBtn =
-    'inline-flex items-center justify-center h-7 w-7 shrink-0 rounded-lg border border-amber-500/45 bg-gray-800/90 text-amber-400/95 hover:bg-amber-500/15 hover:border-amber-500/65'
-
   const renderNameExtras = (entry) => {
     const stoneEffect = Array.isArray(entry?.effects) ? entry.effects.find((x) => x.effectType === 'ac_cap_stone_layer') : null
     const stoneVal = stoneEffect != null && stoneEffect.value != null ? Number(stoneEffect.value) : null
@@ -166,7 +225,7 @@ export default function BagOfHoldingPanel({
     return null
   }
 
-  const tableColSpan = canEdit ? 6 : 4
+  const tableColSpan = canEdit ? 5 : 3
   const patchBag = typeof onPatchBagItem === 'function' ? onPatchBagItem : null
   const hasBagRowActions =
     canEdit &&
@@ -227,7 +286,7 @@ export default function BagOfHoldingPanel({
             className="text-dnd-text-muted text-[10px] tabular-nums shrink-0"
             title="所有模块袋内物品合计重量（不含次元袋自重）"
           >
-            合计 <span className="text-dnd-gold-light/95 font-semibold">{allBagContentsTotalLb}</span> lb
+            合计 <span className="text-dnd-gold-light/95 font-semibold">{formatDisplayWeightLb(allBagContentsTotalLb)}</span> lb
           </span>
         ) : null}
         <span className="flex-1 min-w-[1rem]" aria-hidden />
@@ -254,6 +313,69 @@ export default function BagOfHoldingPanel({
           {panelCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
         </button>
       </h3>
+      {hideModuleList && modules.length > 0 && (
+        <div className="px-2 py-2 border-b border-white/10 space-y-2 bg-[#151c28]/45">
+          <p className="text-dnd-text-muted text-[11px] leading-relaxed">
+            <strong className="text-dnd-text-body">投放区</strong>（折叠右侧「次元袋」面板时仍显示）：从背包<strong className="text-dnd-text-body">⋮ 列或名称列</strong>起拖入对应模块；货币请从<strong className="text-dnd-text-body">个人持有</strong>拖 ⋮ 柄。
+          </p>
+          <div className="space-y-1.5">
+            {modules.map((mod, ix) => {
+              const tb = Math.max(0, Math.floor(Number(mod?.bagCount) || 0))
+              const allowDrop = canEdit && tb > 0
+              return (
+                <div
+                  key={mod.id}
+                  onDragEnter={
+                    allowDrop
+                      ? (ev) => {
+                          ev.preventDefault()
+                          ev.dataTransfer.dropEffect = 'copyMove'
+                        }
+                      : undefined
+                  }
+                  onDragOver={
+                    allowDrop
+                      ? (ev) => {
+                          ev.preventDefault()
+                          ev.dataTransfer.dropEffect = 'copyMove'
+                        }
+                      : undefined
+                  }
+                  onDrop={
+                    canEdit
+                      ? (ev) =>
+                          deliverBagDrop(ev, {
+                            canEdit,
+                            mod,
+                            totalBags: tb,
+                            onMoveToBag,
+                            onMoveCurrencyToBag,
+                          })
+                      : undefined
+                  }
+                  className={`rounded-md border border-dashed px-2 py-2 min-h-[2.5rem] flex flex-col justify-center gap-0.5 ${
+                    tb > 0
+                      ? 'border-dnd-gold/40 bg-[#151c28]/55 hover:border-dnd-gold/60'
+                      : 'border-white/10 bg-[#151c28]/30 opacity-70'
+                  }`}
+                  title={
+                    tb > 0
+                      ? '拖背包身上物品、背包货币行，或个人持有货币的 ⋮ 柄至此入袋'
+                      : '请先在背包表将该模块「袋个数」调到至少 1'
+                  }
+                >
+                  <span className="text-[11px] text-dnd-gold-light/95 font-medium">
+                    模块 {ix + 1} · {normalizeBagOfHoldingVisibility(mod.visibility) === 'public' ? '公家' : '私人'}
+                  </span>
+                  <span className="text-[10px] text-dnd-text-muted leading-snug">
+                    {tb > 0 ? '拖放到此处入袋' : '袋个数为 0 时无法投放'}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
       {!panelCollapsed && (
         <div className="p-2 space-y-2 flex-1 min-h-0 flex flex-col text-xs">
           {modules.length === 0 ? (
@@ -262,9 +384,13 @@ export default function BagOfHoldingPanel({
                 当前无存档次元袋。点击标题行右侧 <span className="text-dnd-text-body">+</span> 添加<strong className="text-dnd-text-body">第一个</strong>
                 模块；之后可继续增加模块，把<strong className="text-dnd-text-body">公用</strong>与
                 <strong className="text-dnd-text-body">私人</strong>物品分到不同袋组。<strong className="text-dnd-text-body">公家</strong>袋会出现在
-                团队仓库页并与仓库储物互通。
+                团队仓库页并与秘法箱互通。
               </p>
             </div>
+          ) : hideModuleList ? (
+            <p className="text-dnd-text-muted text-[11px] leading-relaxed px-0.5">
+              各模块的<strong className="text-dnd-text-body">投放条在标题下方</strong>（折叠本区也可用）。查看袋内表请在背包中展开对应「次元袋」行。
+            </p>
           ) : (
             modules.map((mod, modIndex) => (
               <BagModuleSection
@@ -272,6 +398,7 @@ export default function BagOfHoldingPanel({
                 mod={mod}
                 modIndex={modIndex}
                 modules={modules}
+                characterId={characterId}
                 inventory={inventory}
                 canEdit={canEdit}
                 patchBag={patchBag}
@@ -283,11 +410,11 @@ export default function BagOfHoldingPanel({
                 onSetModuleBagCount={onSetModuleBagCount}
                 onSetModuleVisibility={handleSetModuleVisibility}
                 onRemoveModule={onRemoveModule}
+                getBagCapacityLimits={getBagCapacityLimits}
                 moduleDeleteUnlocked={!!moduleDeleteUnlocked[mod.id]}
                 onToggleModuleDeleteLock={() => toggleModuleDeleteLock(mod.id)}
                 iconBtn={iconBtn}
                 removeBagBtn={removeBagBtn}
-                moduleLockBtn={moduleLockBtn}
                 tableColSpan={tableColSpan}
                 handleDragStart={handleDragStart}
                 handleDragEnd={handleDragEnd}
@@ -296,26 +423,30 @@ export default function BagOfHoldingPanel({
                 onMoveCurrencyToBag={onMoveCurrencyToBag}
                 expanded={moduleExpanded[mod.id] !== false}
                 onToggleExpanded={() => toggleModuleExpanded(mod.id)}
-                getEntryWeight={getEntryWeight}
               />
             ))
           )}
-          {modules.length > 0 && (
-            <p className="text-dnd-text-muted leading-snug text-[11px] border-t border-white/10 pt-2">
-              负重只算背包、钱币与各模块次元袋自重，不提高负重上限；袋内物品不计入背负。
-              <strong className="text-dnd-text-body">公家</strong>模块会同步到团队仓库。
-            </p>
-          )}
+          {modules.length > 0 && footerNote !== null ? (
+            footerNote === undefined ? (
+              <p className="text-dnd-text-muted leading-snug text-[11px] border-t border-white/10 pt-2">
+                负重只算背包、钱币与各模块次元袋自重，不提高负重上限；袋内物品不计入背负。
+                <strong className="text-dnd-text-body">公家</strong>模块会同步到团队仓库。
+              </p>
+            ) : (
+              footerNote
+            )
+          ) : null}
         </div>
       )}
     </div>
   )
 }
 
-function BagModuleSection({
+export function BagModuleSection({
   mod,
   modIndex,
   modules,
+  characterId,
   inventory,
   canEdit,
   patchBag,
@@ -327,12 +458,12 @@ function BagModuleSection({
   onSetModuleBagCount,
   onSetModuleVisibility,
   onRemoveModule,
+  getBagCapacityLimits,
   moduleDeleteUnlocked,
   onToggleModuleDeleteLock,
   iconBtn,
   removeBagBtn,
-  moduleLockBtn,
-  tableColSpan,
+  tableColSpan: _legacyTableColSpan,
   handleDragStart,
   handleDragEnd,
   handleDragOver,
@@ -340,7 +471,8 @@ function BagModuleSection({
   onMoveCurrencyToBag,
   expanded,
   onToggleExpanded,
-  getEntryWeight,
+  /** 为 true 时不渲染模块标题行（模块/个数/可见性/锁删），仅袋内表+拖放区；用于背包「锚点行」已承载这些控件时 */
+  hideModuleChrome = false,
 }) {
   const totalBags = mod ? mod.bagCount : 0
   const selfLb = getBagOfHoldingSelfWeightLb(totalBags)
@@ -358,40 +490,316 @@ function BagModuleSection({
   const bagContentsTotalLb = useMemo(() => {
     let s = 0
     for (const { entry } of bagRows) {
-      const qty = Math.max(1, Number(entry?.qty) ?? 1)
-      const unit = typeof getEntryWeight === 'function' ? getEntryWeight(entry) : 0
-      s += unit * qty
+      s += getInventoryEntryStackWeightLb(entry)
     }
-    return Math.round(s * 100) / 100
-  }, [bagRows, getEntryWeight])
+    return Math.round(s * 10) / 10
+  }, [bagRows])
 
-  const handleDropZone = (e) => {
-    e.preventDefault()
-    if (!canEdit || !mod || totalBags <= 0) return
-    const wc = e.dataTransfer.getData('text/dnd-wallet-currency')
-    const wcQty = Number(e.dataTransfer.getData('text/dnd-wallet-currency-qty'))
-    if (wc && onMoveCurrencyToBag) {
-      onMoveCurrencyToBag(wc, mod.id, Number.isFinite(wcQty) ? wcQty : undefined)
-      return
-    }
-    if (!onMoveToBag) return
-    let fromIndex = parseInt(e.dataTransfer.getData('text/dnd-character-inv'), 10)
-    if (Number.isNaN(fromIndex)) {
-      const plain = e.dataTransfer.getData('text/plain')
-      const m = /^inv:(\d+)$/.exec(plain)
-      if (m) fromIndex = parseInt(m[1], 10)
-    }
-    if (Number.isNaN(fromIndex)) return
-    onMoveToBag(fromIndex, mod.id)
-  }
+  const bagCap =
+    typeof getBagCapacityLimits === 'function' && mod
+      ? getBagCapacityLimits(mod)
+      : characterId && mod
+        ? getPublicBagModuleCapacityLimits(characterId, mod.id)
+        : { maxLb: 0, maxCuFt: 0, bagCount: 0 }
+
+  const handleDropZone = (e) =>
+    deliverBagDrop(e, { canEdit, mod, totalBags, onMoveToBag, onMoveCurrencyToBag })
+
+  /** 物品卡详情：默认折叠，点名称行右侧 chevron 展开（与背包、团队仓库一致） */
+  const [itemBriefOpen, setItemBriefOpen] = useState({})
+  const itemBriefKey = (entry, rowIdx) => `${mod.id}:${entry?.id ?? `r-${rowIdx}`}`
+  const toggleItemBrief = (key) => setItemBriefOpen((p) => ({ ...p, [key]: !p[key] }))
 
   const visLabelId = `bag-vis-label-${mod.id}`
   const countLabelId = `bag-count-label-${mod.id}`
 
+  const expandedContent = (
+    <>
+      {totalBags <= 0 ? (
+        <p
+          className={`text-dnd-text-muted text-[11px] leading-snug ${
+            hideModuleChrome ? 'px-1 pb-1 pt-0' : 'px-2 pb-2 pt-1'
+          }`}
+        >
+          {hideModuleChrome
+            ? '将上方「袋个数」调到至少 1 后出现袋内拖放区。'
+            : '将「次元袋个数」调到至少 1 后出现袋内拖放区。'}
+        </p>
+      ) : (
+        <div
+          onDragEnter={canEdit ? handleDragOver : undefined}
+          onDragOver={canEdit ? handleDragOver : undefined}
+          onDrop={canEdit ? handleDropZone : undefined}
+          className={
+            hideModuleChrome
+              ? 'rounded-b-md rounded-t-sm bg-[#0f141d]/40 flex flex-col min-h-[64px] max-h-[min(32vh,18rem)] overflow-hidden'
+              : 'flex flex-col min-h-[88px] max-h-[min(32vh,18rem)] overflow-hidden'
+          }
+          title={
+            canEdit
+              ? hideModuleChrome
+                ? '袋内区域与上方次元袋为同一张卡；可在此松手入袋，或使用下方灰条'
+                : '列表区域内、下方灰条均可松手入袋；背包整行可拖（勿从数字、按钮上起拖）；个人持有拖货币 ⋮ 柄'
+              : ''
+          }
+        >
+          <div className="overflow-x-auto overflow-y-auto flex-1 min-h-0">
+            <div className={`flex flex-col min-w-0 ${inventoryItemCardListGapClass} ${hideModuleChrome ? 'p-1.5' : 'p-2'}`}>
+              {bagRows.length === 0 ? (
+                <div
+                  className="rounded-lg border border-dashed border-gray-600/80 bg-[#151c28]/40 py-8 px-3 text-center text-gray-500 text-[11px] leading-relaxed min-h-[4.5rem]"
+                >
+                  {canEdit ? '暂无。可拖入背包内物品，或将个人持有中货币的 ⋮ 柄拖入此处。' : '—'}
+                </div>
+              ) : (
+                bagRows.map(({ entry, i }) => {
+                  const qty = Math.max(1, Number(entry?.qty) ?? 1)
+                  const brief = getEntryBriefFull ? getEntryBriefFull(entry) : ''
+                  const stackLb = getInventoryEntryStackWeightLb(entry)
+                  const walletQtyDisplay =
+                    entry?.walletCurrencyId === 'gem_lb'
+                      ? Math.max(0, Number(entry?.qty) || 0)
+                      : Math.max(0, Math.floor(Number(entry?.qty) || 0))
+                  const bagItemCardClass = inventoryItemCardShellClass
+                  /** 钱币行：充能格占位「—」，固定 6 列与物品行对齐 */
+                  const bagRowGridCurrency = canEdit
+                    ? inventoryItemRowGridEditableWithCharge
+                    : inventoryItemRowGridReadWithCharge
+
+                  if (entry?.walletCurrencyId) {
+                    const cfg = getCurrencyById(entry.walletCurrencyId)
+                    const label = cfg ? getCurrencyDisplayName(cfg) : entry?.name ?? '—'
+                    const walletBriefHelp = isPublic
+                      ? '公家袋钱币数量请在团队仓库页通过「货币与金库」与拖移调整；此处只读。'
+                      : '袋内钱币数量不在此修改；请用个人持有与拖移在钱包、背包、次元袋间调配。'
+                    const wbKey = itemBriefKey(entry, i)
+                    return (
+                      <div
+                        key={entry.id ?? `bag-${mod.id}-wc-${i}`}
+                        data-bag-item-card
+                        draggable={!!canEdit}
+                        onDragStart={canEdit ? (e) => handleDragStart(e, i) : undefined}
+                        onDragEnd={canEdit ? handleDragEnd : undefined}
+                        className={`${bagItemCardClass} ${canEdit ? 'cursor-grab active:cursor-grabbing' : ''}`}
+                      >
+                        <div className={bagRowGridCurrency}>
+                          {canEdit && (
+                            <div
+                              className="shrink-0 text-dnd-text-muted pointer-events-none select-none"
+                              title="拖回背包"
+                              aria-hidden
+                            >
+                              <DragHandleIcon className="w-3.5 h-3.5 opacity-60" />
+                            </div>
+                          )}
+                          <div className={inventoryItemNameRowClass}>
+                            <InventoryItemBriefChevron
+                              brief={walletBriefHelp}
+                              expanded={!!itemBriefOpen[wbKey]}
+                              onToggle={() => toggleItemBrief(wbKey)}
+                            />
+                            <div className="min-w-0 flex-1 leading-tight">
+                              <span className="text-[10px] text-dnd-text-muted">钱币</span>
+                              <span className="text-dnd-gold-light/95 font-medium text-sm truncate block">{label}</span>
+                            </div>
+                          </div>
+                          <div className={`${inventoryItemChargeCellClass} justify-center`} aria-hidden="true">
+                            <span className="text-[10px] text-dnd-text-muted tabular-nums">—</span>
+                          </div>
+                          <div className={inventoryItemQtyWeightCellClass}>
+                            <div
+                              className="flex shrink-0 min-h-7 items-center justify-end gap-1 text-[10px] text-dnd-text-muted"
+                              onMouseDown={(e) => e.stopPropagation()}
+                              role="presentation"
+                            >
+                              <span className="shrink-0 leading-none">数量</span>
+                              <div className="w-[5.125rem] shrink-0 max-w-full">
+                                <span className="text-dnd-text-body text-xs font-semibold tabular-nums inline-block text-right w-full pr-0.5">
+                                  {entry.walletCurrencyId === 'gem_lb'
+                                    ? formatDisplayGemLbQty(walletQtyDisplay)
+                                    : walletQtyDisplay}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="flex shrink-0 min-h-7 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
+                              {stackLb > 0 ? (
+                                <span className="text-dnd-text-body">{formatDisplayWeightLb(stackLb)} lb</span>
+                              ) : (
+                                <span className="opacity-0 select-none text-dnd-text-muted" aria-hidden>
+                                  —
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          {canEdit && (
+                            <div
+                              className={inventoryItemActionsCellClass}
+                              onMouseDown={(e) => e.stopPropagation()}
+                              role="presentation"
+                            >
+                              {renderBagActionCell(entry, i)}
+                            </div>
+                          )}
+                        </div>
+                        <InventoryItemBriefExpandedText
+                          brief={walletBriefHelp}
+                          expanded={!!itemBriefOpen[wbKey]}
+                          variant="muted"
+                        />
+                      </div>
+                    )
+                  }
+
+                  const showChargeCol = (Number(entry.charge) || 0) > 0
+                  const bagRowGridItem = canEdit
+                    ? showChargeCol
+                      ? inventoryItemRowGridEditableWithCharge
+                      : inventoryItemRowGridEditableNoCharge
+                    : showChargeCol
+                      ? inventoryItemRowGridReadWithCharge
+                      : inventoryItemRowGridReadNoCharge
+                  const ibKey = itemBriefKey(entry, i)
+
+                  return (
+                    <div
+                      key={entry.id ?? `bag-${mod.id}-${i}`}
+                      data-bag-item-card
+                      draggable={!!canEdit}
+                      onDragStart={canEdit ? (e) => handleDragStart(e, i) : undefined}
+                      onDragEnd={canEdit ? handleDragEnd : undefined}
+                      className={`${bagItemCardClass} ${canEdit ? 'cursor-grab active:cursor-grabbing hover:border-gray-500/65' : ''}`}
+                    >
+                      <div className={bagRowGridItem}>
+                        {canEdit && (
+                          <div
+                            className="shrink-0 text-dnd-text-muted pointer-events-none select-none"
+                            title="拖回背包"
+                            aria-hidden
+                          >
+                            <DragHandleIcon className="w-3.5 h-3.5" />
+                          </div>
+                        )}
+                        <div className={inventoryItemNameRowClass}>
+                          <InventoryItemBriefChevron
+                            brief={brief}
+                            expanded={!!itemBriefOpen[ibKey]}
+                            onToggle={() => toggleItemBrief(ibKey)}
+                          />
+                          <div className={inventoryItemNameTitleGroupClass}>
+                            <span className={inventoryItemNameTextClass}>{invDisplayName(entry)}</span>
+                            <span className={inventoryItemNameExtrasClass}>{renderNameExtras(entry)}</span>
+                          </div>
+                        </div>
+                        {showChargeCol ? (
+                          <div
+                            className={inventoryItemChargeCellClass}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            role="presentation"
+                          >
+                            <span className="shrink-0 leading-none">充能</span>
+                            <div className="w-[5.125rem] shrink-0 max-w-full">
+                              {canEdit && patchBag ? (
+                                <NumberStepper
+                                  value={Number(entry.charge) || 0}
+                                  onChange={(v) => patchBag(i, { charge: v })}
+                                  min={0}
+                                  compact
+                                  pill
+                                  subtle
+                                />
+                              ) : (
+                                <span className="text-dnd-text-body text-xs tabular-nums inline-block text-right w-full pr-0.5">{entry.charge}</span>
+                              )}
+                            </div>
+                          </div>
+                        ) : null}
+                        <div className={inventoryItemQtyWeightCellClass}>
+                          <div
+                            className="flex shrink-0 min-h-7 items-center justify-end gap-1 text-[10px] text-dnd-text-muted"
+                            onMouseDown={(e) => e.stopPropagation()}
+                            role="presentation"
+                          >
+                            <span className="shrink-0 leading-none">数量</span>
+                            <div className="w-[5.125rem] shrink-0 max-w-full">
+                              {canEdit && patchBag ? (
+                                <NumberStepper
+                                  value={qty}
+                                  onChange={(v) => patchBag(i, { qty: v })}
+                                  min={1}
+                                  compact
+                                  pill
+                                  subtle
+                                />
+                              ) : (
+                                <span className="text-dnd-text-body text-xs tabular-nums inline-block text-right w-full pr-0.5">{qty}</span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex shrink-0 min-h-7 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
+                            {stackLb > 0 ? (
+                              <span className="text-dnd-text-body">{formatDisplayWeightLb(stackLb)} lb</span>
+                            ) : (
+                              <span className="opacity-0 select-none text-dnd-text-muted" aria-hidden>
+                                —
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        {canEdit && (
+                          <div
+                            className={inventoryItemActionsCellClass}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            role="presentation"
+                          >
+                            {renderBagActionCell(entry, i)}
+                          </div>
+                        )}
+                      </div>
+                      <InventoryItemBriefExpandedText brief={brief} expanded={!!itemBriefOpen[ibKey]} variant="body" />
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          </div>
+          {canEdit ? (
+            <div
+              className={
+                hideModuleChrome
+                  ? 'shrink-0 border-t border-white/[0.06] bg-[#0c1018]/80 px-2 py-1'
+                  : 'shrink-0 border-t border-white/[0.06] bg-[#141c28]/90 px-2 py-1.5'
+              }
+              onDragEnter={handleDragOver}
+              onDragOver={handleDragOver}
+              onDrop={handleDropZone}
+              title="袋内列表较长时，拖到此处更易入袋"
+            >
+              <p className="text-[10px] text-dnd-text-muted text-center leading-snug">
+                {hideModuleChrome
+                  ? '拖到此条入袋 · 或松手在上方列表区域内'
+                  : '拖放到此条入袋 · 或松手在上方列表区域内'}
+              </p>
+            </div>
+          ) : null}
+        </div>
+      )}
+      {!hideModuleChrome ? (
+        <p className="text-dnd-text-muted text-[10px] px-2 pb-2 leading-snug">
+          本模块次元袋自重约 <span className="text-dnd-gold-light tabular-nums">{formatDisplayWeightLb(selfLb)}</span> lb（计入负重说明见上）。
+        </p>
+      ) : null}
+    </>
+  )
+
+  if (hideModuleChrome) {
+    if (!expanded) return null
+    return <div className="min-w-0">{expandedContent}</div>
+  }
+
   return (
     <div
-      className={`rounded-lg border overflow-hidden flex flex-col min-w-0 ${
-        isPublic ? 'border-dnd-gold/25 bg-[#152030]/55' : 'border-white/10 bg-[#151c28]/40'
+      className={`rounded-lg overflow-hidden flex flex-col min-w-0 ${
+        isPublic ? 'bg-[#152030]/35' : 'bg-[#151c28]/30'
       }`}
     >
       {/* 左右两组 flex：下拉不用 inputClass 的 w-full，避免 select 铺满后盖住右侧锁/删 */}
@@ -408,9 +816,16 @@ function BagModuleSection({
             <span className="text-[11px] font-semibold whitespace-nowrap shrink-0">
               模块 {modIndex + 1} · {isPublic ? '公家' : '私人'}
             </span>
-            {bagContentsTotalLb > 0 ? (
+            {totalBags > 0 && bagCap.maxLb > 0 ? (
+              <span
+                className="text-dnd-text-muted text-[10px] font-normal tabular-nums ml-1 truncate min-w-0"
+                title={`${bagCap.bagCount} 个次元袋，总上限约 ${formatDisplayWeightLb(bagCap.maxLb)} lb（${bagCap.maxCuFt} ft³ 等效）`}
+              >
+                （袋内 {formatDisplayWeightLb(bagContentsTotalLb)} / {formatDisplayWeightLb(bagCap.maxLb)} lb）
+              </span>
+            ) : bagContentsTotalLb > 0 ? (
               <span className="text-dnd-text-muted text-[10px] font-normal tabular-nums ml-1 truncate min-w-0">
-                （袋内 {bagContentsTotalLb} lb）
+                （袋内 {formatDisplayWeightLb(bagContentsTotalLb)} lb）
               </span>
             ) : null}
           </button>
@@ -439,7 +854,7 @@ function BagModuleSection({
               disabled={!canEdit || !onSetModuleVisibility}
               value={normalizeBagOfHoldingVisibility(mod.visibility)}
               onChange={(e) => onSetModuleVisibility?.(mod.id, e.target.value === 'public' ? 'public' : 'private')}
-              title="私人：仅本角色卡可见，团队仓库不列出。公家（新建默认）：全体玩家可在团队仓库「公家次元袋」查看并与储物栏互拖。"
+              title="私人：仅本角色卡可见，团队仓库不列出。公家（新建默认）：全体玩家可在团队仓库「公家次元袋」查看并与秘法箱互拖。"
               className={`${inputClassInline} box-border !h-7 w-[11rem] min-w-[11rem] max-w-[11rem] shrink-0 py-0 pl-1.5 pr-7 text-[11px] leading-none`}
             >
               <option value="public">公家（团队可见）</option>
@@ -453,7 +868,9 @@ function BagModuleSection({
               <button
                 type="button"
                 onClick={onToggleModuleDeleteLock}
-                className={moduleLockBtn}
+                className={`p-1 rounded shrink-0 ${
+                  moduleDeleteUnlocked ? 'text-emerald-400 hover:bg-emerald-400/20' : 'text-gray-300 hover:bg-white/10'
+                }`}
                 title={
                   moduleDeleteUnlocked
                     ? '模块删除已解锁：点击重新上锁，避免误删整个次元袋'
@@ -462,7 +879,7 @@ function BagModuleSection({
                 aria-label={moduleDeleteUnlocked ? '锁定模块删除' : '解锁模块删除'}
                 aria-pressed={moduleDeleteUnlocked}
               >
-                {moduleDeleteUnlocked ? <Unlock className="w-4 h-4" aria-hidden /> : <Lock className="w-4 h-4" aria-hidden />}
+                {moduleDeleteUnlocked ? <Unlock size={14} aria-hidden /> : <Lock size={14} aria-hidden />}
               </button>
               <button
                 type="button"
@@ -492,202 +909,7 @@ function BagModuleSection({
         </div>
       </div>
 
-      {expanded && (
-        <>
-          {totalBags <= 0 ? (
-            <p className="text-dnd-text-muted text-[11px] px-2 pb-2 pt-1">将「次元袋个数」调到至少 1 后出现袋内拖放区。</p>
-          ) : (
-            <div
-              onDragOver={canEdit ? handleDragOver : undefined}
-              onDrop={canEdit ? handleDropZone : undefined}
-              className={`mx-2 mb-2 rounded-md border-2 border-dashed border-dnd-gold/30 bg-[#151c28]/50 flex flex-col min-h-[88px] max-h-[min(32vh,18rem)] overflow-hidden ${canEdit ? 'hover:border-dnd-gold/50' : ''}`}
-              title={canEdit ? '从相邻背包拖入身上物品；从个人持有拖货币（⋮ 柄）入袋' : ''}
-            >
-              <div className="overflow-x-auto overflow-y-auto flex-1 min-h-0">
-                <table className="inventory-table w-full text-sm" style={{ tableLayout: 'fixed', minWidth: '480px' }}>
-                  <colgroup>
-                    {canEdit && <col style={{ width: '1.9%' }} />}
-                    <col style={{ width: canEdit ? '12.38%' : '14.29%' }} />
-                    <col style={{ width: '9.52%' }} />
-                    <col style={{ width: canEdit ? '59.52%' : '61.9%' }} />
-                    <col style={{ width: '9.52%' }} />
-                    {canEdit && <col style={{ width: '7.14%' }} />}
-                  </colgroup>
-                  <thead>
-                    <tr className="bg-gray-800/80 text-dnd-text-muted text-[10px] uppercase tracking-wider" style={{ height: 40, minHeight: 40 }}>
-                      {canEdit && (
-                        <th className="py-0 px-2 align-middle text-center whitespace-nowrap" style={{ height: 40 }}>
-                          —
-                        </th>
-                      )}
-                      <th className="py-0 px-2 font-semibold min-w-0 align-middle text-left whitespace-nowrap" style={{ height: 40 }}>
-                        名称
-                      </th>
-                      <th className="py-0 px-2 border-l border-gray-600 align-middle text-center whitespace-nowrap" style={{ height: 40 }}>
-                        充能
-                      </th>
-                      <th className="py-0 px-2 font-semibold min-w-0 border-l border-gray-600 align-middle text-left whitespace-nowrap" style={{ height: 40 }}>
-                        简要介绍
-                      </th>
-                      <th className="py-0 px-2 border-l border-gray-600 align-middle text-center whitespace-nowrap" style={{ height: 40 }}>
-                        数量
-                      </th>
-                      {canEdit && (
-                        <th className="py-0 px-2 border-l border-gray-600 align-middle text-center whitespace-nowrap" style={{ height: 40 }} />
-                      )}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {bagRows.length === 0 ? (
-                      <tr className="border-t border-gray-700/80">
-                        <td
-                          colSpan={tableColSpan}
-                          className="py-4 px-3 text-center text-gray-500 text-[11px] align-middle"
-                          style={{ minHeight: 72 }}
-                        >
-                          {canEdit ? '暂无。可拖入背包内物品，或将个人持有中货币的 ⋮ 柄拖入此处。' : '—'}
-                        </td>
-                      </tr>
-                    ) : (
-                      bagRows.map(({ entry, i }) => {
-                        const qty = Math.max(1, Number(entry?.qty) ?? 1)
-                        const brief = getEntryBriefFull ? getEntryBriefFull(entry) : ''
-
-                        if (entry?.walletCurrencyId) {
-                          const cfg = getCurrencyById(entry.walletCurrencyId)
-                          const label = cfg ? getCurrencyDisplayName(cfg) : entry?.name ?? '—'
-                          return (
-                            <tr
-                              key={entry.id ?? `bag-${mod.id}-wc-${i}`}
-                              className={`border-t border-gray-700/80 bg-[#1e2a3d]/50 ${canEdit ? 'cursor-grab active:cursor-grabbing' : ''}`}
-                              style={{ height: 48, minHeight: 48, maxHeight: 48 }}
-                              draggable={!!canEdit}
-                              onDragStart={canEdit ? (e) => handleDragStart(e, i) : undefined}
-                              onDragEnd={canEdit ? handleDragEnd : undefined}
-                            >
-                              {canEdit && (
-                                <td className="py-1 px-2 align-middle text-center text-dnd-text-muted text-[10px]" style={{ height: 48 }}>
-                                  <DragHandleIcon className="w-3.5 h-3.5 inline opacity-50" />
-                                </td>
-                              )}
-                              <td className="py-1 px-2 text-dnd-gold-light/95 font-medium align-middle text-left overflow-hidden" style={{ height: 48 }}>
-                                <span className="block text-[10px] text-dnd-text-muted font-normal leading-tight">钱币</span>
-                                <span className="truncate block max-w-full">{label}</span>
-                              </td>
-                              <td className="py-1 px-2 border-l border-gray-600 align-middle text-center text-dnd-text-muted text-xs" style={{ height: 48 }}>
-                                —
-                              </td>
-                              <td className="inventory-table-cell-brief py-1 px-2 text-dnd-text-muted text-[11px] border-l border-gray-600 align-middle text-left" style={{ height: 48 }}>
-                                袋内钱币堆；拖回背包表合并至钱包。
-                              </td>
-                              <td className="py-1 px-2 border-l border-gray-600 align-middle text-center text-dnd-text-body text-xs tabular-nums overflow-hidden" style={{ height: 48 }}>
-                                {patchBag && canEdit ? (
-                                  <div className="flex justify-center max-w-[5.5rem] mx-auto" onMouseDown={(e) => e.stopPropagation()} role="presentation">
-                                    <NumberStepper
-                                      value={entry.walletCurrencyId === 'gem_lb' ? Math.max(0, Number(qty) || 0) : Math.max(0, Math.floor(qty))}
-                                      onChange={(v) => {
-                                        const raw =
-                                          entry.walletCurrencyId === 'gem_lb'
-                                            ? Math.max(0, Number(v) || 0)
-                                            : Math.max(0, Math.floor(Number(v) || 0))
-                                        patchBag(i, { qty: raw })
-                                      }}
-                                      min={0}
-                                      max={999999999}
-                                      compact
-                                      pill
-                                    />
-                                  </div>
-                                ) : (
-                                  qty
-                                )}
-                              </td>
-                              {canEdit && (
-                                <td className="py-1 px-0.5 border-l border-gray-600 align-middle text-center overflow-hidden" style={{ height: 48 }}>
-                                  {renderBagActionCell(entry, i)}
-                                </td>
-                              )}
-                            </tr>
-                          )
-                        }
-
-                        return (
-                          <tr
-                            key={entry.id ?? `bag-${mod.id}-${i}`}
-                            draggable={!!canEdit}
-                            onDragStart={canEdit ? (e) => handleDragStart(e, i) : undefined}
-                            onDragEnd={canEdit ? handleDragEnd : undefined}
-                            className={`border-t border-gray-700/80 hover:bg-gray-800/40 ${canEdit ? 'cursor-grab active:cursor-grabbing' : ''}`}
-                            style={{ height: 48, minHeight: 48, maxHeight: 48 }}
-                            title={brief || undefined}
-                          >
-                            {canEdit && (
-                              <td className="py-1 px-2 align-middle text-center overflow-hidden" style={{ height: 48 }} title="拖回左侧背包">
-                                <DragHandleIcon className="w-3.5 h-3.5 inline text-dnd-text-muted" />
-                              </td>
-                            )}
-                            <td className="py-1 px-2 text-white font-medium align-middle text-left overflow-hidden" style={{ height: 48 }}>
-                              <span className="inline-flex items-center gap-0.5 truncate max-w-full">
-                                {invDisplayName(entry)}
-                                {renderNameExtras(entry)}
-                              </span>
-                            </td>
-                            <td className="py-1 px-2 border-l border-gray-600 align-middle text-center text-dnd-text-body text-xs tabular-nums overflow-hidden" style={{ height: 48 }}>
-                              {canEdit && patchBag ? (
-                                <div className="flex justify-center" onMouseDown={(e) => e.stopPropagation()} role="presentation">
-                                  <NumberStepper
-                                    value={Number(entry.charge) || 0}
-                                    onChange={(v) => patchBag(i, { charge: v })}
-                                    min={0}
-                                    compact
-                                    pill
-                                  />
-                                </div>
-                              ) : (Number(entry.charge) || 0) > 0 ? (
-                                entry.charge
-                              ) : (
-                                '—'
-                              )}
-                            </td>
-                            <td className="inventory-table-cell-brief py-1 px-2 text-dnd-text-body text-[11px] min-w-0 overflow-hidden border-l border-gray-600 align-middle text-left" style={{ height: 48, maxHeight: 48 }}>
-                              <div className="min-h-0 overflow-hidden" style={{ maxHeight: 40 }}>
-                                <span className="line-clamp-2 text-left inline-block w-full break-words">{brief || '—'}</span>
-                              </div>
-                            </td>
-                            <td className="py-1 px-2 border-l border-gray-600 align-middle text-center text-dnd-text-body text-xs tabular-nums overflow-hidden" style={{ height: 48 }}>
-                              {canEdit && patchBag ? (
-                                <div className="flex justify-center" onMouseDown={(e) => e.stopPropagation()} role="presentation">
-                                  <NumberStepper
-                                    value={qty}
-                                    onChange={(v) => patchBag(i, { qty: v })}
-                                    min={1}
-                                    compact
-                                    pill
-                                  />
-                                </div>
-                              ) : (
-                                qty
-                              )}
-                            </td>
-                            {canEdit && (
-                              <td className="py-1 px-0.5 border-l border-gray-600 align-middle text-center overflow-hidden" style={{ height: 48 }}>
-                                {renderBagActionCell(entry, i)}
-                              </td>
-                            )}
-                          </tr>
-                        )
-                      })
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-          <p className="text-dnd-text-muted text-[10px] px-2 pb-2 leading-snug">
-            本模块次元袋自重约 <span className="text-dnd-gold-light tabular-nums">{selfLb}</span> lb（计入负重说明见上）。
-          </p>
-        </>
-      )}
+      {expanded && expandedContent}
     </div>
   )
 }

@@ -14,6 +14,9 @@ export default {
     'border-l-[#38BDF8]',
     'border-l-gray-500',
     'drop-shadow-[0_0_5px_rgba(199,154,66,0.45)]',
+    'shadow-dnd-card',
+    'shadow-dnd-card-hover',
+    'shadow-dnd-card-highlight',
   ],
   content: [
     "./index.html",
@@ -70,8 +73,14 @@ export default {
         'label': '0.12em',
       },
       boxShadow: {
-        'dnd-card': '0 4px 6px -1px rgb(0 0 0 / 0.3), 0 2px 4px -2px rgb(0 0 0 / 0.2)',
-        'dnd-card-hover': '0 10px 15px -3px rgb(0 0 0 / 0.35), 0 4px 6px -4px rgb(0 0 0 / 0.25)',
+        /** 与法术卡 SPELL_ENTRY_CARD 一致：外投影 + 顶/底内高光 */
+        'dnd-card':
+          '0 6px 22px rgba(0,0,0,0.48), 0 2px 6px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.085), inset 0 -1px 0 rgba(0,0,0,0.22)',
+        'dnd-card-hover':
+          '0 10px 28px rgba(0,0,0,0.42), 0 4px 10px rgba(0,0,0,0.32), inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -1px 0 rgba(0,0,0,0.24)',
+        /** 高显：金色轮廓光 + 同系外投影（当前 Tab、重点卡片等） */
+        'dnd-card-highlight':
+          '0 6px 22px rgba(0,0,0,0.45), 0 2px 6px rgba(0,0,0,0.26), 0 0 0 1px rgba(199,154,66,0.28), 0 0 18px rgba(199,154,66,0.14), inset 0 1px 0 rgba(255,255,255,0.09), inset 0 -1px 0 rgba(0,0,0,0.2)',
         'dnd-glow': '0 0 12px rgba(224, 28, 47, 0.4)',
         'dnd-gold-glow': '0 0 8px rgba(199, 154, 66, 0.45)',
       },

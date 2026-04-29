@@ -47,23 +47,21 @@ html {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   font-family: var(--font-siyuan);
-  background: linear-gradient(180deg, var(--page-bg) 0%, var(--page-bg-end) 100%);
+  /* 与 Layout 版心一致纯色，避免与 1180 列或滚动区域叠出色差带 */
   background-color: var(--page-bg);
 }
 body {
   font-family: var(--font-siyuan);
   color: var(--text-main);
-  background: linear-gradient(180deg, var(--page-bg) 0%, var(--page-bg-end) 100%);
   background-color: var(--page-bg);
   min-height: 100vh;
   font-size: 16px;
   line-height: 1.6;
 }
-/* 主体固定宽度时，窄视口可横向滚动 */
+/* 勿在 #root 设 overflow-x：会成为滚动容器并导致子元素 position:sticky 相对错误、法术侧栏等无法贴顶 */
 #root {
   width: 100%;
   min-width: 0;
-  overflow-x: auto;
 }
 h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-siyuan);
@@ -292,6 +290,48 @@ input, textarea, select, button, [class*="font-mono"], [class*="font-sans"], [cl
   }
 }
 
+/* 角色法术页（固定顶栏）：侧栏贴顶栏下；≥1180px 用 fixed 对齐 1180 版心（避免任意祖先 overflow 导致 sticky 失效） */
+.character-spells-pinned-sidebar {
+  position: sticky;
+  align-self: flex-start;
+  z-index: 5;
+  top: var(--character-sheet-topbar-h, calc(env(safe-area-inset-top, 0px) + 4.5rem));
+  max-height: calc(
+    100dvh - var(--character-sheet-topbar-h, calc(env(safe-area-inset-top, 0px) + 4.5rem)) - env(safe-area-inset-bottom, 0px) - 3.5rem - 0.5rem
+  );
+  background-color: var(--page-bg);
+}
+
+@media (min-width: 1180px) {
+  .character-spells-pinned-sidebar {
+    position: fixed;
+    left: calc((100vw - 1180px) / 2 + 1rem);
+    width: 11rem;
+    max-width: 11rem;
+    box-sizing: border-box;
+  }
+}
+
+@media (min-width: 1280px) {
+  .character-spells-pinned-sidebar {
+    width: 12rem;
+    max-width: 12rem;
+  }
+}
+
+/* fixed 侧栏不占文档流时，为主栏留出宽度 + 与原 flex gap-2 一致的间距 */
+@media (min-width: 1180px) {
+  .character-spells-pinned-main {
+    padding-left: calc(11rem + 0.5rem);
+  }
+}
+
+@media (min-width: 1280px) {
+  .character-spells-pinned-main {
+    padding-left: calc(12rem + 0.5rem);
+  }
+}
+
 /* 深色主题输入框聚焦：橙色描边（与标题强调色一致） */
 .input-dnd:focus,
 input:focus, textarea:focus, select:focus {
@@ -423,7 +463,7 @@ select option {
   border-radius: 0.75rem;
 }
 
-/* 模块面板：参考图层次 — 深蓝灰底 + 细边框 + 轻微内高光 */
+/* 模块面板：与法术卡同系外投影 + 内高光（与 tailwind shadow-dnd-card 一致） */
 .module-panel {
   /* 背景加深约 10%，叠加轻微纹理与高光，提升“轻质感” */
   background:
@@ -434,8 +474,10 @@ select option {
   border-radius: var(--panel-radius);
   padding: 16px;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.05),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.18);
+    0 6px 22px rgba(0, 0, 0, 0.48),
+    0 2px 6px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.085),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.22);
 }
 
 /* 面板内子卡片：同色系略深、轻分隔 */
@@ -447,6 +489,8 @@ select option {
   border-radius: var(--panel-radius);
   padding: 12px 16px;
   box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.38),
+    0 1px 4px rgba(0, 0, 0, 0.22),
     inset 0 1px 0 rgba(255, 255, 255, 0.035),
     inset 0 -1px 0 rgba(0, 0, 0, 0.14);
 }
@@ -458,6 +502,8 @@ select option {
   border-radius: var(--panel-radius);
   padding: 8px 12px;
   box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.38),
+    0 1px 4px rgba(0, 0, 0, 0.22),
     inset 0 1px 0 rgba(255, 255, 255, 0.035),
     inset 0 -1px 0 rgba(0, 0, 0, 0.14);
 }
@@ -509,7 +555,7 @@ select option {
   box-shadow: 0 0 0 2px rgba(90, 109, 138, 0.25);
 }
 
-/* 加入按钮：鲜红 + 圆角 + 内发光 */
+/* 加入按钮：鲜红 + 法术卡系外抬升 + 红辉 */
 .btn-panel-add {
   background: var(--btn-primary);
   color: #fff;
@@ -518,12 +564,20 @@ select option {
   padding: 8px 16px;
   font-size: 0.875rem;
   font-weight: 600;
-  box-shadow: 0 0 12px rgba(230, 57, 70, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  box-shadow:
+    0 6px 18px rgba(0, 0, 0, 0.42),
+    0 2px 6px rgba(0, 0, 0, 0.28),
+    0 0 14px rgba(230, 57, 70, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
   transition: background 0.2s, box-shadow 0.2s;
 }
 .btn-panel-add:hover {
   background: var(--btn-primary-hover);
-  box-shadow: 0 0 16px rgba(230, 57, 70, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  box-shadow:
+    0 8px 22px rgba(0, 0, 0, 0.45),
+    0 3px 8px rgba(0, 0, 0, 0.3),
+    0 0 18px rgba(230, 57, 70, 0.48),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14);
 }
 
 /* 清空按钮：深灰 + 边框 */
@@ -553,6 +607,20 @@ select.panel-class-control-h {
   padding-left: 12px;
   padding-right: 12px;
   line-height: 38px;
+  box-sizing: border-box;
+}
+
+/* 角色法术顶栏等：与工具行 h-8（32px）一致（勿与 panel-class-control-h 同用） */
+.panel-select.panel-class-control-h-compact,
+select.panel-class-control-h-compact {
+  height: 2rem;
+  min-height: 2rem;
+  max-height: 2rem;
+  padding-top: 0;
+  padding-bottom: 0;
+  padding-left: 12px;
+  padding-right: 12px;
+  line-height: 30px;
   box-sizing: border-box;
 }
 

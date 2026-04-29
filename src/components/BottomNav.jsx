@@ -921,19 +921,16 @@ export default function BottomNav() {
               to={to}
               end={to === '/'}
               className={({ isActive }) =>
-                `relative flex flex-col items-center justify-center flex-1 py-1.5 text-xs transition-all duration-200 ${
-                  isActive ? 'text-dnd-red' : 'text-dnd-text-muted'
+                `relative flex flex-col items-center justify-center flex-1 rounded-xl py-1.5 text-xs transition-all duration-200 ${
+                  isActive ? 'text-dnd-gold-light' : 'text-dnd-text-muted'
                 }`
               }
             >
               {({ isActive }) => (
                 <>
-                  {isActive && (
-                    <span className="absolute top-0 left-1/2 h-0.5 w-10 -translate-x-1/2 rounded-b bg-dnd-red" />
-                  )}
                   <Icon
                     className={`mb-0.5 transition-all duration-200 ${
-                      isActive ? 'h-7 w-7 drop-shadow-[0_0_6px_rgba(224,28,47,0.5)]' : 'h-6 w-6'
+                      isActive ? 'h-7 w-7 text-dnd-gold-light' : 'h-6 w-6'
                     }`}
                     strokeWidth={isActive ? 2.2 : 1.8}
                   />

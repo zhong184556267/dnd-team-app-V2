@@ -5,6 +5,9 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { Plus, Minus, Trash2, Pencil, Circle, CircleDot, CheckCircle2, Dices } from 'lucide-react'
 import { useRoll } from '../contexts/RollContext'
+import { useModule } from '../contexts/ModuleContext'
+import { useRuleTextOverridesMap } from '../hooks/useRuleTextOverridesMap'
+import { buildMartialKey, resolveRuleText } from '../lib/ruleTextOverrides'
 import {
   abilityModifier,
   proficiencyBonus,
@@ -51,11 +54,24 @@ import { NumberStepper } from './BuffForm'
 const COMBAT_MEAN_ROW_GRID =
   'grid grid-cols-[repeat(24,minmax(0,1fr))] items-center gap-x-1 w-full min-w-0 overflow-hidden'
 
+/** 战斗状态根容器：同 Buff 最外框，仅黑系外投影 + 底内收边，无 shadow-dnd-card 顶白 inset（圆角易像外发光） */
+const COMBAT_ROOT_OUTER_SHADOW =
+  'shadow-[0_6px_22px_rgba(0,0,0,0.48),0_2px_6px_rgba(0,0,0,0.28),inset_0_-1px_0_rgba(0,0,0,0.22)]'
+/** 内层分区：仅顶边内高光，无外扩散 */
+const COMBAT_INNER_RIM_ONLY = 'shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]'
+/** 战斗手段行 / 武技招式卡：浅黑外投影，无顶白 inset */
+const COMBAT_LIST_ROW_SHADOW = 'shadow-[0_2px_10px_rgba(0,0,0,0.42)]'
+
 /** 战斗手段：非高显（灰标签、区标题、添加行）统一 text-xs；高显（名称、射程/命中/伤害数值与骰串）用 text-sm */
 const CM_MEAN_LABEL = 'text-xs'
 const CM_MEAN_HI = 'text-sm'
 /** 武技右侧分组排序：攻击技 / 强化技 / 应对技 … */
 const MARTIAL_OTHER_TYPE_ORDER = ['攻击技', '强化技', '应对技', '架势技', '其它']
+/** 与装备/背包物品卡同系：每招独立成卡 */
+const MARTIAL_MOVE_CARD_CLASS =
+  `rounded-md border border-gray-600/50 bg-[#1a2430]/90 px-3 py-2.5 min-w-0 ${COMBAT_LIST_ROW_SHADOW}`
+const MARTIAL_SECTION_HEAD_CLASS =
+  'text-center text-[11px] font-bold uppercase tracking-wider text-dnd-gold-light/95'
 const CM_BTN_GOLD =
   'w-6 h-6 shrink-0 flex items-center justify-center rounded-md border border-transparent bg-transparent text-dnd-gold-light transition-colors hover:text-dnd-gold'
 const CM_BTN_RED =
@@ -447,9 +463,19 @@ function spellUsesAttack(desc) {
 
 export default function CombatStatus({ char, hp, abilities, level, canEdit, onSave }) {
   const { openForCheck } = useRoll()
+  const { currentModuleId } = useModule()
+  const ruleOverridesMap = useRuleTextOverridesMap(currentModuleId || 'default')
+  const combatModuleId = currentModuleId || 'default'
   const mergedBuffs = useMemo(
-    () => getMergedBuffsForCalculator(char),
-    [char?.buffs, char?.selectedFeats, char?.inventory, char?.equippedHeld, char?.equippedWorn],
+    () => getMergedBuffsForCalculator(char, combatModuleId),
+    [
+      char?.buffs,
+      char?.selectedFeats,
+      char?.inventory,
+      char?.equippedHeld,
+      char?.equippedWorn,
+      combatModuleId,
+    ],
   )
   const buffStats = useBuffCalculator(char, mergedBuffs)
   const acResult = getAC(char)
@@ -790,74 +816,76 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     const tagAction = tech ? shortMartialAction(tech.action) : '—'
     const tagStyle = tech?.style ?? '—'
     const tagRange = tech?.range ?? tech?.target ?? '—'
-    const descText = tech?.description != null && String(tech.description).trim() ? String(tech.description).trim() : ''
+    const descRaw = tech?.description != null && String(tech.description).trim() ? String(tech.description).trim() : ''
+    const descText = tech?.id
+      ? String(resolveRuleText(ruleOverridesMap, buildMartialKey(tech.id), descRaw) || '').trim()
+      : descRaw
     const styleGraphemes = tagStyle !== '—' ? Array.from(tagStyle) : []
     const styleSubTracking = styleGraphemes.length === 2 ? 'tracking-[0.62em]' : ''
-    /** 内容区 13 份：按钮 1 + 名字 2 + 附赠/距离等 1 + 描述 9 */
     return (
-      <div
-        key={slot.id}
-        className="grid min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,2fr)_minmax(0,1fr)_minmax(0,9fr)] items-center divide-x divide-gray-600/45 py-2 text-[11px] leading-snug"
-      >
-        <div className="flex min-w-0 w-full shrink-0 items-center justify-center px-2">
-          {isStanceCol ? (
-            <button
-              type="button"
-              onClick={() => pickMartialActiveStance(slot.id)}
-              title={activeStance ? '正在使用' : '设为正在使用'}
-              aria-label={activeStance ? '正在使用' : '设为正在使用'}
-              className={`rounded-md border p-1.5 transition-colors ${
-                activeStance
-                  ? 'border-dnd-gold/60 bg-dnd-gold/15 text-dnd-gold-light'
-                  : 'border-gray-600 text-gray-400 hover:border-dnd-gold/40 hover:text-gray-200'
-              }`}
+      <div key={slot.id} className={MARTIAL_MOVE_CARD_CLASS}>
+        <div className="flex gap-2.5">
+          <div className="flex shrink-0 flex-col items-center pt-0.5">
+            {isStanceCol ? (
+              <button
+                type="button"
+                onClick={() => pickMartialActiveStance(slot.id)}
+                title={activeStance ? '正在使用' : '设为正在使用'}
+                aria-label={activeStance ? '正在使用' : '设为正在使用'}
+                className={`rounded-md border p-1 transition-colors ${
+                  activeStance
+                    ? 'border-dnd-gold/50 bg-dnd-gold/10 text-dnd-gold-light'
+                    : 'border-gray-600/55 bg-gray-900/30 text-gray-400 hover:border-gray-500 hover:text-gray-200'
+                }`}
+              >
+                {activeStance ? <CircleDot className="h-4 w-4" strokeWidth={2.25} /> : <Circle className="h-4 w-4" strokeWidth={2} />}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => toggleMartialOtherUsed(slot.id)}
+                title={usedOther ? '已使用' : '标记已使用'}
+                aria-label={usedOther ? '已使用' : '标记已使用'}
+                className={`rounded-md border p-1 transition-colors ${
+                  usedOther
+                    ? 'border-amber-600/55 bg-amber-950/20 text-amber-200/90'
+                    : 'border-gray-600/55 bg-gray-900/30 text-gray-400 hover:border-gray-500 hover:text-gray-200'
+                }`}
+              >
+                {usedOther ? <CheckCircle2 className="h-4 w-4" strokeWidth={2.25} /> : <Circle className="h-4 w-4" strokeWidth={2} />}
+              </button>
+            )}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
+              <div className="min-w-0 flex-1">
+                <span
+                  className={`block break-words font-semibold leading-tight ${tech ? 'text-sm text-white' : 'text-xs text-gray-500'}`}
+                  title={tech?.name}
+                >
+                  {tech?.name ?? '未知武技（库中无此条目）'}
+                </span>
+                {tech && tagStyle !== '—' ? (
+                  <span className="mt-0.5 block text-[10px] leading-tight text-dnd-text-muted">
+                    <span className={['inline-block', 'break-words', styleSubTracking].filter(Boolean).join(' ')}>{tagStyle}</span>
+                  </span>
+                ) : null}
+                {tech?.tag ? (
+                  <span className="mt-0.5 block text-[10px] leading-tight text-violet-300/85">{tech.tag}</span>
+                ) : null}
+              </div>
+              <div className="shrink-0 text-right text-[10px] leading-tight">
+                <div className={isStanceCol ? 'text-dnd-gold-light/80' : 'text-dnd-text-muted'}>{tagAction}</div>
+                <div className={isStanceCol ? 'text-dnd-gold-light/80' : 'text-dnd-text-muted'}>{tagRange}</div>
+              </div>
+            </div>
+            <p
+              className={`mt-2 border-t border-gray-700/35 pt-2 text-[11px] leading-snug break-words ${descText ? 'text-dnd-text-body' : 'text-dnd-text-muted'}`}
             >
-              {activeStance ? <CircleDot className="h-4 w-4 sm:h-[1.125rem] sm:w-[1.125rem]" strokeWidth={2.25} /> : <Circle className="h-4 w-4 sm:h-[1.125rem] sm:w-[1.125rem]" strokeWidth={2} />}
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => toggleMartialOtherUsed(slot.id)}
-              title={usedOther ? '已使用' : '标记已使用'}
-              aria-label={usedOther ? '已使用' : '标记已使用'}
-              className={`rounded-md border p-1.5 transition-colors ${
-                usedOther
-                  ? 'border-amber-600/70 bg-amber-900/25 text-amber-200/95'
-                  : 'border-gray-600 text-gray-400 hover:border-amber-700/50 hover:text-gray-200'
-              }`}
-            >
-              {usedOther ? (
-                <CheckCircle2 className="h-4 w-4 sm:h-[1.125rem] sm:w-[1.125rem]" strokeWidth={2.25} />
-              ) : (
-                <Circle className="h-4 w-4 sm:h-[1.125rem] sm:w-[1.125rem]" strokeWidth={2} />
-              )}
-            </button>
-          )}
-        </div>
-        <div className="flex min-w-0 flex-col items-center justify-center self-center px-2">
-          <span
-            className={`block w-full text-center break-words font-semibold leading-tight ${tech ? 'text-sm text-white' : 'text-xs text-gray-500'}`}
-            title={tech?.name}
-          >
-            {tech?.name ?? '未知武技（库中无此条目）'}
-          </span>
-          {tech && tagStyle !== '—' ? (
-            <span className="mt-0.5 block w-full text-center text-[10px] leading-tight text-dnd-text-muted">
-              <span className={['inline-block', 'break-words', styleSubTracking].filter(Boolean).join(' ')}>{tagStyle}</span>
-            </span>
-          ) : null}
-          {tech?.tag ? (
-            <span className="mt-0.5 block w-full text-center text-[10px] leading-tight text-violet-300/90">{tech.tag}</span>
-          ) : null}
-        </div>
-        <div className="flex min-w-0 flex-col items-center justify-center self-center px-2">
-          <div className="flex w-full flex-col items-center gap-0.5 text-center text-[10px] leading-tight">
-            {/** 类型已在右侧分组竖栏展示，此处不再重复 tagType */}
-            <span className={`break-words ${isStanceCol ? 'text-dnd-gold-light/85' : 'text-dnd-text-muted'}`}>{tagAction}</span>
-            <span className={`break-words ${isStanceCol ? 'text-dnd-gold-light/85' : 'text-dnd-text-muted'}`}>{tagRange}</span>
+              {descText || '—'}
+            </p>
           </div>
         </div>
-        <div className="min-w-0 self-center break-words px-2 text-left text-dnd-text-body">{descText || '—'}</div>
       </div>
     )
   }
@@ -1548,8 +1576,12 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     '（D&D 2024）d20≥10 成功；投出 1 计两次失败；投出 20 恢复 1 HP、清醒并重置死亡豁免。累计 3 次成功伤势稳定；累计 3 次失败死亡。'
 
   return (
-    <div className="rounded-xl border border-white/10 bg-gradient-to-b from-[#243147]/35 to-[#1f2a3d]/30 p-3 space-y-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
-      <div className="rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/28 to-[#222f45]/22 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
+    <div
+      className={`rounded-xl border border-white/10 bg-gradient-to-b from-[#243147]/35 to-[#1f2a3d]/30 p-3 space-y-3 ${COMBAT_ROOT_OUTER_SHADOW}`}
+    >
+      <div
+        className={`rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/28 to-[#222f45]/22 p-3 ${COMBAT_INNER_RIM_ONLY}`}
+      >
         <h3 className="text-dnd-gold-light text-xs font-bold uppercase tracking-wider mb-1.5">生命值</h3>
         <div className="flex items-center gap-2 mb-1.5">
           <span className="text-white font-bold text-xl font-mono">
@@ -1698,7 +1730,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <div
-          className="rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 p-2 sm:p-3 min-h-[4rem] flex flex-row flex-nowrap items-center justify-center gap-1.5 sm:gap-2 min-w-0"
+          className={`rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 p-2 sm:p-3 min-h-[4rem] flex flex-row flex-nowrap items-center justify-center gap-1.5 sm:gap-2 min-w-0 ${COMBAT_INNER_RIM_ONLY}`}
           title={[
             buffStats?.ac != null ? `由 Buff 计算器得出: ${acTotal}` : null,
             acResult.acFormulaNote ? `职业特性：${acResult.acFormulaNote}` : null,
@@ -1737,7 +1769,9 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
             <span className="text-white font-bold text-3xl sm:text-4xl font-mono tabular-nums">{acTotal}</span>
           </div>
         </div>
-        <div className="rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 p-3 min-h-[4rem] flex items-center justify-center gap-2">
+        <div
+          className={`rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 p-3 min-h-[4rem] flex items-center justify-center gap-2 ${COMBAT_INNER_RIM_ONLY}`}
+        >
           <span className="text-gray-400 text-2xl font-medium">先攻</span>
           <span className="text-gray-600 text-2xl">|</span>
           <span className="text-white font-bold text-4xl font-mono">{init}</span>
@@ -1745,18 +1779,24 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
             <QuickRollIcon kind="d20" className={CM_DICE_IC} />
           </button>
         </div>
-        <div className="rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 p-3 min-h-[4rem] flex items-center justify-center gap-2">
+        <div
+          className={`rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 p-3 min-h-[4rem] flex items-center justify-center gap-2 ${COMBAT_INNER_RIM_ONLY}`}
+        >
           <span className="text-gray-400 text-2xl font-medium">被动察觉</span>
           <span className="text-gray-600 text-2xl">|</span>
           <span className="text-white font-bold text-4xl font-mono">{perception}</span>
         </div>
-        <div className="rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 p-3 min-h-[4rem] flex items-center justify-center gap-2">
+        <div
+          className={`rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 p-3 min-h-[4rem] flex items-center justify-center gap-2 ${COMBAT_INNER_RIM_ONLY}`}
+        >
           <span className="text-gray-400 text-2xl font-medium">速度</span>
           <span className="text-gray-600 text-2xl">|</span>
           <span className="text-white font-bold text-4xl font-mono">{speed} 尺</span>
         </div>
         <div className="col-span-2 sm:col-span-4 flex gap-2 min-w-0">
-          <div className="flex-[3] min-w-0 rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 px-2 py-2 flex flex-col gap-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+          <div
+            className={`flex-[3] min-w-0 rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 px-2 py-2 flex flex-col gap-2 ${COMBAT_INNER_RIM_ONLY}`}
+          >
             <h3 className="text-dnd-gold-light text-xs font-bold uppercase tracking-wider leading-tight shrink-0">状态效果</h3>
             <div className="flex flex-col gap-2 min-h-8 overflow-hidden min-w-0">
               <div className="flex items-center gap-1 shrink-0">
@@ -1811,7 +1851,9 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
             </div>
           </div>
 
-          <div className="flex-[2] min-w-0 rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 px-2 py-2 flex flex-col gap-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+          <div
+            className={`flex-[2] min-w-0 rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 px-2 py-2 flex flex-col gap-2 ${COMBAT_INNER_RIM_ONLY}`}
+          >
             <h3 className="text-dnd-gold-light text-xs font-bold uppercase tracking-wider leading-tight shrink-0">死亡豁免</h3>
             <div className="flex flex-col gap-2 min-h-8 overflow-hidden min-w-0">
               <div className="flex items-center gap-2 flex-wrap shrink-0">
@@ -1873,7 +1915,9 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       </div>
 
       {showSpellModule ? (
-        <div className="w-full mt-2 rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 p-2 flex flex-col gap-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+        <div
+          className={`w-full mt-2 rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/26 to-[#222f45]/22 p-2 flex flex-col gap-2 ${COMBAT_INNER_RIM_ONLY}`}
+        >
           {/* 第一行：施法能力整行均分平铺，保持一行内，字号统一 */}
           <div className="flex flex-nowrap items-center justify-evenly gap-x-2 gap-y-1 min-w-0 overflow-x-auto text-sm [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
             <span className="text-dnd-gold-light font-bold uppercase tracking-wider shrink-0">施法能力</span>
@@ -2228,7 +2272,10 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
             if (!isPhysical && !isItem && !isSpellAttack && !spellOpt) return null
 
             return (
-              <div key={cm.id} className="rounded-lg border border-gray-600 bg-gray-800/80 p-2">
+              <div
+                key={cm.id}
+                className={`rounded-lg border border-gray-600 bg-gray-800/80 p-2 ${COMBAT_LIST_ROW_SHADOW}`}
+              >
                 {isItem && itemMeanOpt ? (
                   <div className={COMBAT_MEAN_ROW_GRID}>
                     <span className={`col-span-4 text-white font-medium ${CM_MEAN_HI} truncate pr-2 min-w-0`}>{itemMeanOpt.name}</span>
@@ -3142,7 +3189,9 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
           )}
         </div>
         <div className="min-w-0 flex-[1]">
-          <div className="rounded-lg border border-gray-600 bg-gray-800/50 px-1.5 py-1 min-w-0 flex flex-col min-h-0">
+          <div
+            className={`rounded-lg border border-gray-600 bg-gray-800/50 px-1.5 py-1 min-w-0 flex flex-col min-h-0 ${COMBAT_INNER_RIM_ONLY}`}
+          >
             <div className="flex items-center justify-between gap-1 mb-0.5 shrink-0">
               <h3 className="text-dnd-gold-light text-sm font-bold uppercase tracking-wider leading-tight">其它职业资源</h3>
               {canEdit && (
@@ -3257,7 +3306,9 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       </div>
 
       {showMartialModule ? (
-        <div className="mt-2 w-full min-w-0 rounded-lg border border-gray-600 bg-gray-800/50 p-2">
+        <div
+          className={`mt-2 w-full min-w-0 rounded-lg border border-gray-600 bg-gray-800/50 p-2 ${COMBAT_INNER_RIM_ONLY}`}
+        >
           <div className="mb-1 flex items-center justify-between gap-2">
             <h3 className={`text-dnd-gold-light ${CM_MEAN_LABEL} font-semibold uppercase tracking-wider`}>武技</h3>
             {canEdit ? (
@@ -3290,53 +3341,29 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
             {martialSlots.length === 0 ? (
               <p className="text-dnd-text-muted text-xs">暂无武技，点击右上角「编辑」在弹窗中设置可学数量并分配招式</p>
             ) : (
-              <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-stretch sm:gap-3">
-                  <div className="min-h-0 min-w-0 flex-1 basis-0 overflow-hidden rounded-lg border border-gray-600/50 bg-gray-800/50">
-                    <div className="grid min-h-0 h-full min-w-0 grid-cols-[minmax(0,0.5fr)_minmax(0,9.5fr)] items-stretch">
-                      <div className="flex min-h-0 min-w-0 flex-col items-center justify-center border-r border-gray-600/40 bg-gray-950/25 py-2 px-0.5">
-                        <span className="select-none text-[11px] font-bold leading-none tracking-[0.28em] text-dnd-gold-light sm:text-xs sm:tracking-[0.38em] [writing-mode:vertical-lr] [text-orientation:upright]">
-                          架势
-                        </span>
+              <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
+                <div className="flex min-h-0 min-w-0 flex-1 basis-0 flex-col gap-2">
+                  <p className={MARTIAL_SECTION_HEAD_CLASS}>架势</p>
+                  {martialStanceSlots.length === 0 ? (
+                    <p className="py-2 text-center text-dnd-text-muted text-[11px]">暂无</p>
+                  ) : (
+                    martialStanceSlots.map((slot) => renderMartialCombatRow(slot, 'stance'))
+                  )}
+                </div>
+                <div className="flex min-h-0 min-w-0 flex-1 basis-0 flex-col gap-3">
+                  {martialOtherSlots.length === 0 ? (
+                    <p className="py-2 text-center text-dnd-text-muted text-[11px]">暂无在弹窗中勾选「已准备」的其他招式</p>
+                  ) : martialOtherGroupedSections.length === 0 ? (
+                    <p className="py-2 text-center text-dnd-text-muted text-[11px]">暂无</p>
+                  ) : (
+                    martialOtherGroupedSections.map(({ key, slots }) => (
+                      <div key={key} className="flex min-w-0 flex-col gap-2">
+                        <p className={MARTIAL_SECTION_HEAD_CLASS}>{key}</p>
+                        {slots.map((slot) => renderMartialCombatRow(slot, 'other'))}
                       </div>
-                      <div className="min-h-0 min-w-0 divide-y divide-gray-600/30">
-                        {martialStanceSlots.length === 0 ? (
-                          <p className="px-1 py-2 text-dnd-text-muted text-[11px] sm:px-2">暂无</p>
-                        ) : (
-                          martialStanceSlots.map((slot) => renderMartialCombatRow(slot, 'stance'))
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="min-h-0 min-w-0 flex-1 basis-0 overflow-hidden rounded-lg border border-gray-600/50 bg-gray-800/50">
-                    <div className="flex min-h-0 min-w-0 flex-col divide-y divide-gray-600/40">
-                      {martialOtherSlots.length === 0 ? (
-                        <p className="px-1 py-2 text-dnd-text-muted text-[11px] sm:px-2">暂无在弹窗中勾选「已准备」的其他招式</p>
-                      ) : martialOtherGroupedSections.length === 0 ? (
-                        <p className="px-1 py-2 text-dnd-text-muted text-[11px] sm:px-2">暂无</p>
-                      ) : (
-                        martialOtherGroupedSections.map(({ key, slots }) => (
-                          <div
-                            key={key}
-                            className="grid min-h-0 grid-cols-[minmax(0,0.5fr)_minmax(0,9.5fr)] items-stretch"
-                          >
-                            <div className="flex min-h-0 min-w-0 flex-col items-center justify-center gap-0 border-r border-gray-600/40 bg-gray-950/25 py-2 px-0.5">
-                              {Array.from(key).map((ch, i) => (
-                                <span
-                                  key={`${key}-${i}`}
-                                  className="select-none text-[10px] font-bold leading-tight text-dnd-gold-light sm:text-[11px]"
-                                >
-                                  {ch}
-                                </span>
-                              ))}
-                            </div>
-                            <div className="min-h-0 min-w-0 divide-y divide-gray-600/30">
-                              {slots.map((slot) => renderMartialCombatRow(slot, 'other'))}
-                            </div>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </div>
+                    ))
+                  )}
+                </div>
               </div>
             )}
           </div>

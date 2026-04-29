@@ -1,0 +1,291 @@
+          <div className={WAREHOUSE_PUBLIC_BAG_OUTER_SHELL_CLASS}>
+            <div className="p-2 md:p-2.5">
+              <div className={WAREHOUSE_PUBLIC_BAG_HEAD_CLASS}>
+                <span className="text-dnd-gold-light text-[11px] font-semibold truncate min-w-0">
+                  秘法箱 · 与角色背包相同布局（散装 + 次元袋 + 货币）
+                </span>
+              </div>
+              <p className="text-dnd-text-muted text-[10px] leading-snug px-0.5 pt-2 pb-2">
+                <strong className="text-dnd-text-body">左</strong>侧「物品栏」为散装：次元袋实体行、未入袋的钱币与物品；将行拖到<strong className="text-dnd-text-body">中间</strong>次元袋模块的虚线区即可入袋。
+点次元袋标题栏右侧 <strong className="text-dnd-text-body">+</strong> 可在秘法箱内新建次元袋（无需先去别处添加）。
+                <strong className="text-dnd-text-body">右</strong>侧为团队金库<strong className="text-dnd-text-body">合计</strong>（只读）；具体调整、秘法箱散装与袋内钱币实物请用页首「货币与金库」。
+                释放在<strong className="text-dnd-text-body">三栏下方空白条</strong>仍可移至列表末尾并合并。
+              </p>
+              <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.35fr)_minmax(280px,360px)_minmax(220px,260px)] gap-3 min-w-0">
+                <div className="min-w-0 flex flex-col gap-2">
+                  <h3 className="text-dnd-gold-light text-[10px] font-bold uppercase tracking-wider mb-0">物品栏（散装）</h3>
+                  <div className="rounded-lg border border-gray-600 overflow-x-auto">
+                    <table className="inventory-table w-full text-sm" style={{ tableLayout: 'fixed', minWidth: '520px' }}>
+                      <colgroup>
+                        <col style={{ width: '1.9%' }} />
+                        <col style={{ width: '12.38%' }} />
+                        <col style={{ width: '9.52%' }} />
+                        <col style={{ width: '54.76%' }} />
+                        <col style={{ width: '9.52%' }} />
+                        <col style={{ width: '4.76%' }} />
+                        <col style={{ width: '7.14%' }} />
+                      </colgroup>
+                      <thead>
+                        <tr className="bg-gray-800/80 text-dnd-text-muted text-xs uppercase tracking-wider" style={{ height: 48 }}>
+                          <th className="py-0 px-4 align-middle text-center whitespace-nowrap" title="拖拽至次元袋" />
+                          <th className="py-0 px-4 font-semibold min-w-0 align-middle text-left whitespace-nowrap">名称</th>
+                          <th className="py-0 px-4 border-l border-gray-600 align-middle text-center whitespace-nowrap">充能</th>
+                          <th className="py-0 px-4 font-semibold min-w-0 border-l border-gray-600 align-middle text-left whitespace-nowrap">简要介绍</th>
+                          <th className="py-0 px-4 border-l border-gray-600 align-middle text-center whitespace-nowrap">数量</th>
+                          <th className="py-0 px-4 border-l border-gray-600 align-middle text-center whitespace-nowrap">总重</th>
+                          <th className="py-0 px-4 border-l border-gray-600 align-middle text-center whitespace-nowrap" />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {chestListStructure.topLevel.length === 0 ? (
+                          <tr className="border-t border-gray-700/80">
+                            <td colSpan={7} className="py-8 px-4 text-dnd-text-muted text-xs text-center align-middle">
+                              散装暂无条目。可点上方「添加物品」或使用中间「次元袋」的 + 添加袋；也可从公家次元袋拖入。
+                            </td>
+                          </tr>
+                        ) : (
+                          chestListStructure.topLevel.map(({ entry, i }) => {
+                            const qty = Math.max(1, Number(entry?.qty) ?? 1)
+                            const walletQty =
+                              entry?.walletCurrencyId === 'gem_lb'
+                                ? Math.max(0, Number(entry?.qty) || 0)
+                                : entry?.walletCurrencyId
+                                  ? Math.max(0, Math.floor(Number(entry?.qty) || 0))
+                                  : qty
+                            const totalLb = getInventoryEntryStackWeightLb(entry)
+                            const PID = WAREHOUSE_CHEST_BAG_PARENT_ID
+                            if (entry?.walletCurrencyId) {
+                              const cfg = getCurrencyById(entry.walletCurrencyId)
+                              const label = cfg ? getCurrencyDisplayName(cfg) : entry?.name ?? '—'
+                              const orphanWallet =
+                                !!entry[PID] &&
+                                !list.some((b) => b?.id === entry[PID] && b.itemId === 'bag_of_holding')
+                              const walletBrief = orphanWallet
+                                ? '父袋已不在列表；请拖到中间模块虚线区挂袋。数量请在「货币与金库」调整。'
+                                : '散装钱币实物；拖到中间次元袋虚线区入袋。数量请在「货币与金库」调整。'
+                              return (
+                                <Fragment key={entry.id ?? `wh-wallet-${i}`}>
+                                  <tr
+                                    className="border-t border-gray-700/80 hover:bg-gray-800/40 cursor-grab active:cursor-grabbing"
+                                    style={{ height: 48 }}
+                                    draggable
+                                    onDragStart={(e) => handleLeomundTopRowDragStart(e, i)}
+                                    onDragEnd={handleLeomundTopRowDragEnd}
+                                    onDragOver={handleDragOver}
+                                    onDrop={(e) => handleWarehouseRowDrop(e, entry, i)}
+                                  >
+                                    <td className="py-1 px-4 align-middle text-center">
+                                      <span className="inline-flex justify-center">
+                                        <DragHandleIcon className="w-4 h-4 text-dnd-text-muted" />
+                                      </span>
+                                    </td>
+                                    <td className="py-1 px-4 text-white font-medium align-middle text-left overflow-hidden">
+                                      <span className="block text-[9px] text-dnd-text-muted leading-tight">
+                                        {!entry[PID] ? '钱币 · 散装' : '钱币 · 散装（父袋缺失）'}
+                                      </span>
+                                      <span className="text-dnd-gold-light/95 truncate block max-w-full">{label}</span>
+                                    </td>
+                                    <td className="py-1 px-2 align-middle border-l border-gray-600 text-center">—</td>
+                                    <td
+                                      className="inventory-table-cell-brief py-1 px-4 text-dnd-text-body text-xs min-w-0 border-l border-gray-600 align-middle text-left line-clamp-2"
+                                      title={walletBrief}
+                                    >
+                                      {walletBrief}
+                                    </td>
+                                    <td className="py-1 px-2 border-l border-gray-600 align-middle text-center tabular-nums text-xs">
+                                      {entry?.walletCurrencyId === 'gem_lb' ? formatDisplayGemLbQty(walletQty) : walletQty}
+                                    </td>
+                                    <td className="py-1 px-2 tabular-nums text-dnd-text-body border-l border-gray-600 align-middle text-center text-xs">
+                                      {totalLb > 0 ? `${formatDisplayWeightLb(totalLb)} lb` : ''}
+                                    </td>
+                                    <td
+                                      className="py-1 px-1 border-l border-gray-600 align-middle text-center"
+                                      onMouseDown={(e) => e.stopPropagation()}
+                                      role="presentation"
+                                    >
+                                      <button
+                                        type="button"
+                                        onClick={() => openDeposit(i)}
+                                        title="存入角色"
+                                        className="p-1 rounded text-emerald-400 hover:bg-emerald-400/20"
+                                      >
+                                        <Package size={14} />
+                                      </button>
+                                    </td>
+                                  </tr>
+                                </Fragment>
+                              )
+                            }
+                            return (
+                              <Fragment key={entry.id ?? `wh-${i}`}>
+                                <tr
+                                  className="border-t border-gray-700/80 hover:bg-gray-800/40 cursor-grab active:cursor-grabbing"
+                                  style={{ height: 48 }}
+                                  draggable
+                                  onDragStart={(e) => handleLeomundTopRowDragStart(e, i)}
+                                  onDragEnd={handleLeomundTopRowDragEnd}
+                                  onDragOver={handleDragOver}
+                                  onDrop={(e) => handleWarehouseRowDrop(e, entry, i)}
+                                >
+                                  <td className="py-1 px-4 align-middle text-center">
+                                    <span className="inline-flex justify-center">
+                                      <DragHandleIcon className="w-4 h-4 text-dnd-text-muted" />
+                                    </span>
+                                  </td>
+                                  <td className="py-1 px-4 text-white font-medium align-middle text-left overflow-hidden">
+                                    <span className="inline-flex items-center gap-0.5 truncate max-w-full">
+                                      {displayName(entry)}
+                                      {(() => {
+                                        const se = Array.isArray(entry?.effects)
+                                          ? entry.effects.find((e) => e.effectType === 'ac_cap_stone_layer')
+                                          : null
+                                        const sv = se != null && se.value != null ? Number(se.value) : null
+                                        if (sv != null && !Number.isNaN(sv) && sv > 0) {
+                                          return (
+                                            <span className="text-dnd-gold-light/90 text-xs font-mono tabular-nums shrink-0" title="瓦石层">
+                                              {sv}层
+                                            </span>
+                                          )
+                                        }
+                                        if ((Number(entry.magicBonus) || 0) > 0) {
+                                          return (
+                                            <span className="text-dnd-gold-light/90 text-xs font-mono tabular-nums shrink-0">
+                                              +{entry.magicBonus}
+                                            </span>
+                                          )
+                                        }
+                                        return null
+                                      })()}
+                                    </span>
+                                  </td>
+                                  <td
+                                    className="py-1 px-2 align-middle border-l border-gray-600 text-center"
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                    role="presentation"
+                                  >
+                                    <div className="flex justify-center">
+                                      <NumberStepper
+                                        value={Number(entry.charge) || 0}
+                                        onChange={(v) => setCharge(i, v)}
+                                        min={0}
+                                        compact
+                                        pill
+                                      />
+                                    </div>
+                                  </td>
+                                  <td className="inventory-table-cell-brief py-1 px-4 text-dnd-text-body text-xs min-w-0 border-l border-gray-600 align-middle text-left line-clamp-2">
+                                    {getEntryBriefFull(entry) || '—'}
+                                  </td>
+                                  <td
+                                    className="py-1 px-2 align-middle border-l border-gray-600"
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                    role="presentation"
+                                  >
+                                    <div className="flex justify-center flex-col items-center gap-0.5">
+                                      {entry?.itemId === 'bag_of_holding' ? (
+                                        <span className="text-[8px] text-dnd-text-muted whitespace-nowrap">袋个数</span>
+                                      ) : null}
+                                      <NumberStepper
+                                        value={qty}
+                                        onChange={(v) => setQty(i, v)}
+                                        min={1}
+                                        max={entry?.itemId === 'bag_of_holding' ? 99 : 999999}
+                                        compact
+                                        pill
+                                      />
+                                    </div>
+                                  </td>
+                                  <td className="py-1 px-2 tabular-nums text-dnd-text-body border-l border-gray-600 align-middle text-center text-xs">
+                                    {totalLb > 0 ? `${formatDisplayWeightLb(totalLb)} lb` : ''}
+                                  </td>
+                                  <td
+                                    className="py-1 px-1 border-l border-gray-600 align-middle text-center"
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                    role="presentation"
+                                  >
+                                    <div className="flex items-center justify-center gap-0.5">
+                                      <button
+                                        type="button"
+                                        onClick={() => openDeposit(i)}
+                                        title="存入角色"
+                                        className="p-1 rounded text-emerald-400 hover:bg-emerald-400/20 shrink-0"
+                                      >
+                                        <Package size={14} />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => startEdit(i)}
+                                        title="编辑"
+                                        className="p-1 rounded text-dnd-gold-light hover:bg-dnd-gold/20 shrink-0"
+                                      >
+                                        <Pencil size={14} />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleRemove(i)}
+                                        title="移除"
+                                        className="p-1 rounded text-dnd-red hover:text-dnd-red/20 shrink-0"
+                                      >
+                                        <Trash2 size={14} />
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              </Fragment>
+                            )
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div
+                    className="rounded-lg border border-dashed border-dnd-gold/25 bg-[#1a2430]/35 py-2 px-3 text-center text-dnd-text-muted text-[10px] leading-snug"
+                    onDragOverCapture={handleDragOver}
+                    onDrop={handleWarehouseTableDrop}
+                  >
+                    散装区下方空白：释放在此 → 移至列表末尾（末尾同袋钱币或同父袋同名实体可合并）
+                  </div>
+                </div>
+                <div className="min-w-0 xl:border-l border-white/10 xl:pl-3 flex flex-col min-h-[12rem]">
+                  <BagOfHoldingPanel
+                    bagModules={leomundBagModules}
+                    onAddModule={leomundAddBagModule}
+                    onRemoveModule={leomundRemoveModule}
+                    onSetModuleBagCount={leomundSetModuleBagCount}
+                    onSetModuleVisibility={() => {}}
+                    getBagCapacityLimits={leomundGetBagCapacityLimits}
+                    footerNote={
+                      <p className="text-dnd-text-muted leading-snug text-[11px] border-t border-white/10 pt-2">
+                        与角色卡「次元袋」面板相同；袋内为秘法箱中挂在该袋 id 下的钱币与物品。团队入金仍优先按列表顺序装袋。
+                      </p>
+                    }
+                    inventory={leomundSyntheticInventory}
+                    onMoveToBag={leomundMoveToBag}
+                    canEdit={!!user}
+                    invDisplayName={displayName}
+                    getEntryBriefFull={getEntryBriefFull}
+                    onPatchBagItem={leomundPatchBagItem}
+                    onBagRowEdit={startEdit}
+                    onBagRowStore={openDeposit}
+                    onBagRowRemove={leomundRemoveBagItem}
+                    characterId={`leomund-chest-${currentModuleId || 'default'}`}
+                  />
+                </div>
+                <div className="min-w-0 xl:border-l border-white/10 xl:pl-3">
+                  <CurrencyGrid
+                    balances={leomundVaultSnap}
+                    title="团队金库（合计）"
+                    subtitle={
+                      <p className="leading-tight">
+                        与页首「货币与金库」<strong className="text-dnd-text-body">账面 + 公家袋 + 秘法箱实物</strong>的合计一致，只读展示。
+                        拖动物品请用<strong className="text-dnd-text-body">左侧散装表</strong>与<strong className="text-dnd-text-body">中间次元袋</strong>。
+                      </p>
+                    }
+                    editable={false}
+                    dragCurrencyToBag={false}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>

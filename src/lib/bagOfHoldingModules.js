@@ -58,6 +58,81 @@ export const MAX_BAG_OF_HOLDING_TOTAL = 99
 export const MAX_BAG_OF_HOLDING_MODULES = 12
 
 /**
+ * 背包表「次元袋实体行」与 bagOfHoldingModules 中某一模块绑定；自重由模块个数统一计入负重，此行在 getCarriedInventoryWeightLb 中排除，避免与 getBagOfHoldingSelfWeightLb 重复。
+ */
+export const BAG_MODULE_ANCHOR_ID = 'bagModuleAnchorId'
+
+export function isBagModuleAnchorEntry(entry) {
+  return !!entry?.[BAG_MODULE_ANCHOR_ID] && entry?.itemId === 'bag_of_holding' && !entry?.inBagOfHolding
+}
+
+/**
+ * 保证每个 bagCount>0 的模块有一条锚点 inventory 行，且 qty 与 bagCount 同步；去除无效/重复锚点。
+ * @returns {{ inventory: object[], changed: boolean }}
+ */
+export function reconcileBagModuleAnchors(character) {
+  const rawInv = character?.inventory ?? []
+  const modules = getNormalizedBagModules(character)
+  const B = BAG_MODULE_ANCHOR_ID
+  const modIdSet = new Set(modules.map((m) => m.id))
+
+  const isAnchor = (e) => e?.itemId === 'bag_of_holding' && e?.[B] && !e?.inBagOfHolding
+
+  const nextInv = []
+  const seenAnchorMods = new Set()
+  let changed = false
+
+  for (const e of rawInv) {
+    if (!isAnchor(e)) {
+      nextInv.push(e)
+      continue
+    }
+    const mid = e[B]
+    if (!modIdSet.has(mid)) {
+      changed = true
+      continue
+    }
+    if (seenAnchorMods.has(mid)) {
+      changed = true
+      continue
+    }
+    seenAnchorMods.add(mid)
+    const mod = modules.find((m) => m.id === mid)
+    const bc = mod?.bagCount ?? 0
+    if (bc <= 0) {
+      changed = true
+      continue
+    }
+    const q = Math.max(1, Math.floor(Number(e.qty) || 1))
+    if (q !== bc) {
+      nextInv.push({ ...e, qty: bc })
+      changed = true
+    } else {
+      nextInv.push(e)
+    }
+  }
+
+  for (const mod of modules) {
+    if (mod.bagCount <= 0) continue
+    if (seenAnchorMods.has(mod.id)) continue
+    nextInv.push({
+      id: `inv_${crypto.randomUUID()}`,
+      itemId: 'bag_of_holding',
+      qty: mod.bagCount,
+      name: '',
+      [B]: mod.id,
+    })
+    seenAnchorMods.add(mod.id)
+    changed = true
+  }
+
+  if (!changed) {
+    return { inventory: rawInv, changed: false }
+  }
+  return { inventory: nextInv, changed: true }
+}
+
+/**
  * 次元袋模块：一个模块内可包含多个次元袋（只计数量），一个拖放区、统一私人/公家。
  * @typedef {{ id: string, bagCount: number, visibility: 'private'|'public' }} BagOfHoldingModule
  */
@@ -148,6 +223,7 @@ export function removeBagModuleAt(modules, moduleIndex, inventory) {
   const rid = removed.id
   const walletDelta = {}
   const nextInv = inventory.flatMap((e) => {
+    if (isBagModuleAnchorEntry(e) && e[BAG_MODULE_ANCHOR_ID] === rid) return []
     if (!e?.inBagOfHolding) return [e]
     const belongs =
       e.bagModuleId === rid ||
@@ -176,6 +252,7 @@ export function updateModuleBagCount(modules, moduleIndex, bagCount, inventory) 
     const nextMods = modules.filter((_, i) => i !== moduleIndex)
     const walletDelta = {}
     const nextInv = inventory.flatMap((e) => {
+      if (isBagModuleAnchorEntry(e) && e[BAG_MODULE_ANCHOR_ID] === rid) return []
       if (!e?.inBagOfHolding) return [e]
       if (e.bagModuleId === rid || e.bagSlotId === rid || (modules.length === 1 && !e.bagModuleId && !e.bagSlotId)) {
         if (e.walletCurrencyId) {

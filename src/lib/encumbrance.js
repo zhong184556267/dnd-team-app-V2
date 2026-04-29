@@ -47,20 +47,14 @@ export function getItemWeightLb(item) {
   return parseWeightString(w)
 }
 
-/** 背包物品总重(磅)：inventory = [{ itemId?, name?, qty }]（含袋内物品） */
+/** 背包物品总重(磅)：含钱币实物堆、自定义重量行、itemId 物品（含袋内，若需仅背负请筛掉 inBagOfHolding） */
 export function getInventoryWeightLb(inventory) {
   if (!Array.isArray(inventory)) return 0
   let total = 0
   for (const entry of inventory) {
-    const qty = Math.max(0, Number(entry?.qty) ?? 1)
-    if (entry?.itemId) {
-      const item = getItemById(entry.itemId)
-      total += getItemWeightLb(item) * qty
-    } else {
-      total += 0
-    }
+    total += getInventoryEntryStackWeightLb(entry)
   }
-  return Math.round(total * 100) / 100
+  return Math.round(total * 10) / 10
 }
 
 /**
@@ -71,15 +65,11 @@ export function getCarriedInventoryWeightLb(inventory) {
   let total = 0
   for (const entry of inventory) {
     if (entry?.inBagOfHolding) continue
-    const qty = Math.max(0, Number(entry?.qty) ?? 1)
-    if (entry?.walletCurrencyId) {
-      total += getWalletCurrencyStackWeightLb(entry.walletCurrencyId, qty)
-    } else if (entry?.itemId) {
-      const item = getItemById(entry.itemId)
-      total += getItemWeightLb(item) * qty
-    }
+    /** 与 bagOfHoldingModules 绑定的「次元袋实体行」：自重已由 getBagOfHoldingSelfWeightLb 按模块个数计入，此处不再加 */
+    if (entry?.bagModuleAnchorId) continue
+    total += getInventoryEntryStackWeightLb(entry)
   }
-  return Math.round(total * 100) / 100
+  return Math.round(total * 10) / 10
 }
 
 /** 所持次元袋的自重总和（按「持有数量」× 数据库次元袋单件重量） */
@@ -88,7 +78,7 @@ export function getBagOfHoldingSelfWeightLb(bagOfHoldingCount) {
   if (n <= 0) return 0
   const proto = getItemById('bag_of_holding')
   const unit = getItemWeightLb(proto)
-  return Math.round(n * unit * 100) / 100
+  return Math.round(n * unit * 10) / 10
 }
 
 /** 货币总重(磅)：50 枚标准硬币 = 1 磅；奥拉 50 = 1 磅；晶石(磅) 直接加 */
@@ -104,7 +94,7 @@ export function getCoinWeightLb(wallet) {
   const standardCoins = cp + sp + gp + pp + kr
   const standardLb = standardCoins / 50
   const aurumLb = au / 50
-  return Math.round((standardLb + aurumLb + gemLb) * 100) / 100
+  return Math.round((standardLb + aurumLb + gemLb) * 10) / 10
 }
 
 /**
@@ -115,11 +105,27 @@ export function getCoinWeightLb(wallet) {
 export function getWalletCurrencyStackWeightLb(currencyId, qty) {
   const n = Math.max(0, Number(qty) || 0)
   if (n <= 0) return 0
-  if (currencyId === 'gem_lb') return Math.round(n * 100) / 100
+  if (currencyId === 'gem_lb') return Math.round(n * 10) / 10
   if (['cp', 'sp', 'gp', 'pp', 'au', 'kr'].includes(currencyId)) {
-    return Math.round((n / 50) * 100) / 100
+    return Math.round((n / 50) * 10) / 10
   }
   return 0
+}
+
+/**
+ * 单条 inventory 行总重(磅)：钱币实物堆 / 行内自定义重量 / 数据库物品（袋内与背包共用）
+ */
+export function getInventoryEntryStackWeightLb(entry) {
+  if (!entry) return 0
+  if (entry.walletCurrencyId) {
+    const cid = entry.walletCurrencyId
+    const q = cid === 'gem_lb' ? Math.max(0, Number(entry.qty) || 0) : Math.max(0, Math.floor(Number(entry.qty) || 0))
+    return getWalletCurrencyStackWeightLb(cid, q)
+  }
+  const qty = Math.max(1, Math.floor(Number(entry?.qty) || 1))
+  if (entry.重量 != null && entry.重量 !== '') return Math.round(parseWeightString(entry.重量) * qty * 10) / 10
+  if (!entry.itemId) return 0
+  return Math.round(getItemWeightLb(getItemById(entry.itemId)) * qty * 10) / 10
 }
 
 /**
@@ -140,7 +146,7 @@ export function getTotalWeightLb(inventory, wallet, bagOfHoldingCount = 0) {
 export function getMaxCapacityLb(strength, multiplier = ENCUMBRANCE_MULTIPLIER) {
   const str = normalizeStrength(strength, 10)
   const mult = normalizePositiveNumber(multiplier, ENCUMBRANCE_MULTIPLIER)
-  return Math.round(str * mult * 100) / 100
+  return Math.round(str * mult * 10) / 10
 }
 
 /**
@@ -154,6 +160,27 @@ export function getMaxCapacityLb(strength, multiplier = ENCUMBRANCE_MULTIPLIER) 
  * @param {number} [strength=10] - 力量值（用于重载/超载阈值，与负重条「最大」同为力量×系数体系）
  * @returns {{ status: string, label: string, color: string, percent: number }}
  */
+/**
+ * 界面展示：四舍五入到 0.1，消除浮点串；值为整数时不带 .0
+ */
+export function formatDisplayOneDecimal(n) {
+  const x = Number(n)
+  if (!Number.isFinite(x)) return '0'
+  const r = Math.round(x * 10) / 10
+  if (Math.abs(r - Math.round(r)) < 1e-9) return Math.round(r).toLocaleString()
+  return r.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+}
+
+/** 界面展示用磅数（与晶石磅等单位统一为一位小数） */
+export function formatDisplayWeightLb(lb) {
+  return formatDisplayOneDecimal(lb)
+}
+
+/** 晶石「磅」等可带小数的数量：与 formatDisplayOneDecimal 一致 */
+export function formatDisplayGemLbQty(qty) {
+  return formatDisplayOneDecimal(qty)
+}
+
 export function getEncumbranceState(totalLb, maxLb, multiplier = ENCUMBRANCE_MULTIPLIER, strength = 10) {
   const str = normalizeStrength(strength, 10)
   const mult = normalizePositiveNumber(multiplier, ENCUMBRANCE_MULTIPLIER)

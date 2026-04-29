@@ -154,7 +154,7 @@ export default function BuffColumnBoard({
 
   return (
     <div
-      className={`flex flex-col gap-1.5 w-full min-h-0 max-h-[min(62vh,42rem)] overflow-y-auto overflow-x-hidden ${dragOverStash ? 'ring-2 ring-dnd-gold/40 ring-offset-2 ring-offset-[#1f2a3d] rounded-lg p-0.5' : ''}`}
+      className={`flex flex-col gap-1.5 w-full min-h-0 max-h-[min(62vh,42rem)] overflow-y-auto overflow-x-hidden ${dragOverStash ? 'ring-2 ring-dnd-gold/40 ring-offset-2 ring-offset-[#141c28] rounded-lg p-0.5' : ''}`}
       onDragOver={onDragOverStash}
       onDrop={onDropStash}
     >
@@ -174,7 +174,7 @@ export default function BuffColumnBoard({
         return (
           <div
             key={colKey}
-            className="flex min-h-0 min-w-0 rounded-lg border border-white/10 bg-gradient-to-b from-[#243147]/40 to-[#1f2a3d]/35 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] overflow-hidden"
+            className="flex min-h-0 min-w-0 rounded-lg border border-gray-500/50 bg-[#141c28]/90 overflow-hidden shadow-sm shadow-black/25"
           >
             <div
               draggable={!!canEdit}
@@ -182,8 +182,8 @@ export default function BuffColumnBoard({
               onDragOver={onColumnStripDragOver}
               onDrop={(e) => onRowHeaderDrop(e, colKey)}
               className={
-                'buff-dnd-draggable-source shrink-0 w-[3.35rem] sm:w-14 flex flex-row items-center justify-center border-r border-white/10 bg-[#1a2333]/85 py-1 px-0.5 sm:px-1 select-none ' +
-                (canEdit ? 'cursor-grab active:cursor-grabbing hover:bg-[#1f2a3d]/90' : '')
+                'buff-dnd-draggable-source shrink-0 w-[3.35rem] sm:w-14 flex flex-row items-center justify-center border-r border-gray-600/50 bg-gray-800/45 py-1 px-0.5 sm:px-1 select-none ' +
+                (canEdit ? 'cursor-grab active:cursor-grabbing hover:bg-gray-800/65' : '')
               }
               title={canEdit ? '拖动调整分类顺序（释放在另一行左侧标题上）' : label}
             >
@@ -198,15 +198,14 @@ export default function BuffColumnBoard({
             </div>
             <div
               className={
-                'flex-1 min-w-0 p-1.5 grid grid-cols-2 gap-1.5 content-start auto-rows-min ' +
-                (canEdit && MOVABLE_TARGET_KEYS.has(colKey) ? 'bg-[#202838]/25' : 'bg-[#1a2333]/20')
+                'flex-1 min-w-0 p-1.5 grid grid-cols-2 gap-1.5 content-start auto-rows-min bg-[#1a2430]/35'
               }
               onDragOver={(e) => onRowBodyDragOver(e, colKey)}
               onDrop={(e) => onRowBodyDrop(e, colKey)}
               title={columnBodyHoverTitle}
             >
               {items.length === 0 ? (
-                <div className="col-span-2 min-h-[2.5rem] flex items-center justify-center rounded border border-dashed border-white/10 bg-black/15">
+                <div className="col-span-2 min-h-[2.5rem] flex items-center justify-center rounded border border-dashed border-gray-600/40 bg-[#1a2430]/25">
                   <span className="text-[10px] text-gray-600 px-1 text-center leading-snug">空</span>
                 </div>
               ) : (
@@ -218,7 +217,7 @@ export default function BuffColumnBoard({
                       draggable={movable}
                       onDragStart={movable ? (e) => setBuffEntryDragData(e, buff.id) : undefined}
                       className={
-                        'buff-dnd-draggable-source min-w-0 rounded-md overflow-hidden border border-white/10 bg-[#2a3952]/20 ' +
+                        'buff-dnd-draggable-source min-w-0 rounded-md overflow-hidden border border-gray-600/50 bg-[#1a2430]/50 ' +
                         (movable ? 'cursor-grab active:cursor-grabbing' : '')
                       }
                     >

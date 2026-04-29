@@ -1,5 +1,5 @@
 import { useEncumbrance } from '../hooks/useEncumbrance'
-import { ENCUMBRANCE_MULTIPLIER } from '../lib/encumbrance'
+import { ENCUMBRANCE_MULTIPLIER, formatDisplayOneDecimal } from '../lib/encumbrance'
 
 /**
  * 负重条：当前重量 / 最大重量 (lbs)，按百分比变色（绿/黄/红）
@@ -16,7 +16,8 @@ export default function EncumbranceBar({ character, multiplier = ENCUMBRANCE_MUL
         ? 'var(--accent-gold, #c79a42)'
         : '#22c55e'
   const pct = Number.isFinite(Number(percent)) ? Math.min(100, Math.max(0, Number(percent))) : 0
-  const displayMax = Number.isFinite(Number(max)) ? max : '—'
+  const displayMax = Number.isFinite(Number(max)) ? formatDisplayOneDecimal(max) : '—'
+  const displayTotal = formatDisplayOneDecimal(Number(total) || 0)
 
   return (
     <div className="flex items-center gap-2">
@@ -32,7 +33,7 @@ export default function EncumbranceBar({ character, multiplier = ENCUMBRANCE_MUL
         />
       </div>
       <span className="text-xs font-mono text-dnd-text-body shrink-0 tabular-nums whitespace-nowrap">
-        {total} / {displayMax} lbs
+        {displayTotal} / {displayMax} lbs
       </span>
       <span
         className={`shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded ${

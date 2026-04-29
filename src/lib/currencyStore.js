@@ -55,12 +55,27 @@ function saveVaultLocal(moduleId, data) {
   } catch (_) {}
 }
 
+/** 解析 team_vault 里单币种数值（兼容 JSON 字符串、带千分位；晶石磅保留一位小数） */
+function parseVaultEntryValue(currencyId, rawVal) {
+  if (rawVal == null || rawVal === '') return 0
+  if (typeof rawVal === 'number') {
+    if (Number.isNaN(rawVal)) return 0
+    if (currencyId === 'gem_lb') return Math.max(0, Math.round(rawVal * 10) / 10)
+    return Math.max(0, Math.floor(rawVal))
+  }
+  const s = String(rawVal).trim().replace(/,/g, '').replace(/，/g, '')
+  if (s === '') return 0
+  const p = Number(s)
+  if (Number.isNaN(p)) return 0
+  if (currencyId === 'gem_lb') return Math.max(0, Math.round(p * 10) / 10)
+  return Math.max(0, Math.floor(p))
+}
+
 function normalizeVault(raw) {
   const out = getEmptyBalances()
+  const src = raw && typeof raw === 'object' ? raw : {}
   CURRENCY_IDS.forEach((id) => {
-    const v = raw[id]
-    const n = typeof v === 'number' && !Number.isNaN(v) ? v : 0
-    out[id] = n < 0 ? 0 : n
+    out[id] = parseVaultEntryValue(id, src[id])
   })
   return out
 }
@@ -88,7 +103,9 @@ export function setTeamVault(moduleId, balances) {
 
 export function adjustVault(moduleId, currencyId, delta) {
   const n = Number(delta)
-  if (Number.isNaN(n) || n === 0) return Promise.resolve({ success: false, error: '请输入有效数量' })
+  if (Number.isNaN(n)) return Promise.resolve({ success: false, error: '无效调整量' })
+  // 0：合法无操作（例如托管合并时路由成功但本轮未能装入任何实物，账面本就不变）
+  if (n === 0) return Promise.resolve({ success: true })
   if (!CURRENCY_IDS.includes(currencyId)) return Promise.resolve({ success: false, error: '无效货币类型' })
 
   if (!isSupabaseEnabled()) {
@@ -155,8 +172,8 @@ function gpToAmount(gpValue, currencyId) {
   const cfg = getCurrencyById(currencyId)
   if (!cfg || cfg.baseRate <= 0) return 0
   const raw = gpValue / cfg.baseRate
-  const isIntegerCurrency = currencyId === 'gem_lb'
-  return isIntegerCurrency ? Math.round(raw) : Math.round(raw * 100) / 100
+  if (currencyId === 'gem_lb') return Math.round(raw * 10) / 10
+  return Math.round(raw * 100) / 100
 }
 
 export function convertCurrency(amount, fromType, toType) {
@@ -242,59 +259,14 @@ export async function deductFromCharacterWalletAndBag(characterId, currencyId, a
 export function transferCurrency(moduleId, direction, characterId, currencyId, amount) {
   return (async () => {
     if (isSupabaseEnabled()) await loadTeamVaultIntoCache(moduleId)
-    const wallet = getCharacterWallet(characterId)
-    const vault = getTeamVault(moduleId)
-
-    let amt = amount
-    if (amt === 'all' || amt === undefined) {
-      if (direction === 'toVault') {
-        const merged = getCharacterWalletIncludingBag(characterId)
-        amt = merged[currencyId] ?? 0
-      } else {
-        amt = vault[currencyId] ?? 0
-      }
-    } else {
-      amt = Number(amt)
-      if (Number.isNaN(amt) || amt <= 0) {
-        return { success: false, error: '请输入有效数量' }
-      }
-    }
-
     if (direction === 'toVault') {
-      const merged = getCharacterWalletIncludingBag(characterId)
-      const have = merged[currencyId] ?? 0
-      if (currencyId === 'gem_lb') {
-        if (amt > have + 1e-9) return { success: false, error: '个人余额不足' }
-      } else if (amt > have) {
-        return { success: false, error: '个人余额不足' }
-      }
-      const d = await deductFromCharacterWalletAndBag(characterId, currencyId, amt)
-      if (!d.success) return d
-      const newVault = { ...vault, [currencyId]: (vault[currencyId] ?? 0) + amt }
-      if (isSupabaseEnabled()) {
-        vaultCache[moduleId ?? 'default'] = newVault
-        await td.saveTeamVaultRow(moduleId, newVault)
-      } else {
-        saveVaultLocal(moduleId, newVault)
-      }
-      return { success: true }
+      const { transferPersonalCurrencyToTeamWithRouting } = await import('./teamCurrencyPublicBags')
+      return transferPersonalCurrencyToTeamWithRouting(moduleId, characterId, currencyId, amount)
     }
-
     if (direction === 'fromVault') {
-      const inVault = vault[currencyId] ?? 0
-      if (amt > inVault) return { success: false, error: '金库余额不足' }
-      const newVault = { ...vault, [currencyId]: inVault - amt }
-      const newWallet = { ...wallet, [currencyId]: (wallet[currencyId] ?? 0) + amt }
-      if (isSupabaseEnabled()) {
-        vaultCache[moduleId ?? 'default'] = newVault
-        await td.saveTeamVaultRow(moduleId, newVault)
-      } else {
-        saveVaultLocal(moduleId, newVault)
-      }
-      await Promise.resolve(updateCharacter(characterId, { wallet: newWallet }))
-      return { success: true }
+      const { transferFromTeamToWallet } = await import('./teamCurrencyPublicBags')
+      return transferFromTeamToWallet(moduleId, characterId, currencyId, amount)
     }
-
     return { success: false, error: '无效操作' }
   })()
 }

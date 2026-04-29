@@ -90,7 +90,7 @@ export default function CharacterNew() {
   }
 
   return (
-    <div className="p-4 pb-24 min-h-screen bg-dnd-bg">
+    <div className="p-4 pb-24 min-h-screen" style={{ backgroundColor: 'var(--page-bg)' }}>
       <h1 className="font-display text-xl font-semibold text-white mb-4">
         新建角色
       </h1>

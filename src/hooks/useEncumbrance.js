@@ -21,16 +21,20 @@ export function useEncumbrance(character, multiplier = ENCUMBRANCE_MULTIPLIER) {
     const wallet = character?.wallet ?? {}
     const str = normalizeStrength(character?.abilities?.str, 10)
     const bagCount = getTotalBagCountForCharacter(character)
-    const total = getTotalWeightLb(inventory, wallet, bagCount)
-    const max = getMaxCapacityLb(str, multiplier)
-    const itemWeight = getCarriedInventoryWeightLb(inventory)
-    const coinWeight = getCoinWeightLb(wallet)
+    const totalRaw = getTotalWeightLb(inventory, wallet, bagCount)
+    const total = Math.round(totalRaw * 10) / 10
+    const maxRaw = getMaxCapacityLb(str, multiplier)
+    const max = Math.round(maxRaw * 10) / 10
+    const itemWeightRaw = getCarriedInventoryWeightLb(inventory)
+    const coinWeightRaw = getCoinWeightLb(wallet)
+    const itemWeight = Math.round(itemWeightRaw * 10) / 10
+    const coinWeight = Math.round(coinWeightRaw * 10) / 10
     const state = getEncumbranceState(total, max, multiplier, str)
     return {
-      total: Math.round(total * 100) / 100,
+      total,
       max,
-      itemWeight: Math.round(itemWeight * 100) / 100,
-      coinWeight: Math.round(coinWeight * 100) / 100,
+      itemWeight,
+      coinWeight,
       bagCount,
       percent: state.percent,
       status: state.status,

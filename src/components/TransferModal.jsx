@@ -3,6 +3,7 @@ import { X } from 'lucide-react'
 import { useModule } from '../contexts/ModuleContext'
 import { CURRENCY_CONFIG, getCurrencyDisplayName } from '../data/currencyConfig'
 import { getCharacterWallet, getCharacterWalletIncludingBag, transferCurrency, loadTeamVaultIntoCache } from '../lib/currencyStore'
+import { loadWarehouseIntoCache } from '../lib/warehouseStore'
 import { getEffectiveTeamVaultBalances, transferFromTeamToWallet } from '../lib/teamCurrencyPublicBags'
 
 export default function TransferModal({ open, onClose, direction, characterId, characterName, onSuccess }) {
@@ -15,7 +16,9 @@ export default function TransferModal({ open, onClose, direction, characterId, c
 
   useEffect(() => {
     if (!open || !currentModuleId) return
-    loadTeamVaultIntoCache(currentModuleId).then(() => setVaultTick((t) => t + 1))
+    Promise.all([loadTeamVaultIntoCache(currentModuleId), loadWarehouseIntoCache(currentModuleId)]).then(() =>
+      setVaultTick((t) => t + 1),
+    )
   }, [open, currentModuleId])
 
   const vault = open ? getEffectiveTeamVaultBalances(currentModuleId) : {}
@@ -86,7 +89,7 @@ export default function TransferModal({ open, onClose, direction, characterId, c
           )}
           {isWithdraw && (
             <p className="text-dnd-text-muted text-[10px] leading-relaxed">
-              「金库」余额已含各角色<strong className="text-dnd-text-body">公家次元袋</strong>内钱币堆；取出时优先扣账面，再扣袋内。
+              「金库」余额已含<strong className="text-dnd-text-body">秘法箱</strong>实物、（若有）旧账面与各角色<strong className="text-dnd-text-body">公家次元袋</strong>内钱币堆；取出时按秘法箱 → 账面 → 公家袋顺序扣除。
             </p>
           )}
           {characterName && (

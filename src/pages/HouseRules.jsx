@@ -1,10 +1,33 @@
 import { Link } from 'react-router-dom'
 import { useState } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
-import { CLASS_LIST, getClassData, isFanxingClass, ELDRITCH_INVOCATIONS, MULTICLASS_SPELL_SLOT_ROWS } from '../data/classDatabase'
+import { useAuth } from '../contexts/AuthContext'
+import { useModule } from '../contexts/ModuleContext'
+import { useRuleTextOverridesMap } from '../hooks/useRuleTextOverridesMap'
+import {
+  CLASS_LIST,
+  getClassData,
+  isFanxingClass,
+  ELDRITCH_INVOCATIONS,
+  MULTICLASS_SPELL_SLOT_ROWS,
+} from '../data/classDatabase'
 import { FEATS_BY_CATEGORY, formatFeatDescriptionForDisplay } from '../data/feats'
 import { MARTIAL_TECHNIQUES } from '../data/martialTechniques'
 import MartialStyleIntroBlock from '../components/MartialStyleIntroBlock'
+import RuleTextOverrideControl from '../components/RuleTextOverrideControl'
+import RuleTextPairOverrideControl from '../components/RuleTextPairOverrideControl'
+import {
+  buildClassFeatureKey,
+  buildClassFeatureNameKey,
+  buildSubclassFeatureKey,
+  buildSubclassFeatureNameKey,
+  buildFeatDescriptionKey,
+  buildFeatNameKey,
+  buildInvocationKey,
+  buildMartialKey,
+  buildFocusAbilityKey,
+  resolveRuleText,
+} from '../lib/ruleTextOverrides'
 import { ABILITY_NAMES_ZH } from '../data/buffTypes'
 
 const SPELL_TYPE_LABELS = {
@@ -61,6 +84,11 @@ function MulticlassSpellSlotTable() {
 }
 
 export default function HouseRules() {
+  const { isAdmin } = useAuth()
+  const { currentModuleId } = useModule()
+  const moduleId = currentModuleId || 'default'
+  const overridesMap = useRuleTextOverridesMap(moduleId)
+
   const [expanded, setExpanded] = useState(null)
   const [expandedMartial, setExpandedMartial] = useState(null)
   const [expandedFeatIds, setExpandedFeatIds] = useState(() => new Set())
@@ -112,9 +140,12 @@ export default function HouseRules() {
       <Link to="/more" className="text-dnd-red text-sm mb-4 inline-block font-medium">
         ← 返回更多
       </Link>
-      <h1 className="font-display text-xl font-semibold text-white mb-4 section-title">
+      <h1 className="font-display text-xl font-semibold text-white mb-1 section-title">
         规则收录
       </h1>
+      <p className="text-dnd-text-muted text-xs mb-4 leading-relaxed">
+        规则大全：职业库、专长表、武技库等与角色卡共用数据。{isAdmin ? 'DM 可在各条旁使用铅笔图标编辑展示名称与正文（视条目而定），即时生效并写入本机当前战役。' : null}
+      </p>
 
       {/* 房规与模组说明 */}
       <div className="rounded-xl bg-gradient-to-b from-[#2a3952]/24 to-[#222f45]/20 border border-white/10 overflow-hidden mb-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
@@ -128,7 +159,7 @@ export default function HouseRules() {
           ) : (
             <ChevronRight className="w-5 h-5 shrink-0" />
           )}
-          <h2 className="text-dnd-gold-light text-sm font-bold uppercase tracking-wider">房规与模组</h2>
+          <h2 className="text-dnd-gold-light text-base font-bold uppercase tracking-wider">房规与模组</h2>
         </button>
         {expandedSections.has('房规与模组') && (
           <div className="px-4 pb-4 pt-0 border-t border-white/10 space-y-4">
@@ -186,8 +217,8 @@ export default function HouseRules() {
           ) : (
             <ChevronRight className="w-5 h-5 shrink-0" />
           )}
-          <h2 className="text-dnd-gold-light text-sm font-bold uppercase tracking-wider">职业库</h2>
-          <span className="text-dnd-text-muted text-sm">{CLASS_LIST.length} 个职业</span>
+          <h2 className="text-dnd-gold-light text-base font-bold uppercase tracking-wider">职业库</h2>
+          <span className="text-dnd-text-muted text-xs">{CLASS_LIST.length} 个职业</span>
         </button>
         {expandedSections.has('职业库') && (
           <div className="px-4 pb-4 pt-0 border-t border-white/10">
@@ -214,7 +245,7 @@ export default function HouseRules() {
                   className="w-full flex items-center gap-2 py-3 px-4 text-left text-white hover:bg-white/5 transition-colors"
                 >
                   {isOpen ? <ChevronDown className="w-5 h-5 shrink-0" /> : <ChevronRight className="w-5 h-5 shrink-0" />}
-                  <span className="font-semibold">{className}</span>
+                  <span className="text-sm font-semibold text-white">{className}</span>
                   {isFanxingClass(className) && (
                     <span
                       className="shrink-0 px-2 py-0.5 rounded-md text-[11px] font-semibold tracking-wide whitespace-nowrap border border-dnd-gold/35 bg-[#141210]/90 text-[#d4b878] shadow-none"
@@ -223,7 +254,7 @@ export default function HouseRules() {
                       繁星特色
                     </span>
                   )}
-                  <span className="text-dnd-text-muted text-sm">
+                  <span className="text-dnd-text-muted text-xs">
                     d{data.hitDice} 生命骰
                     {spellLabel && ` · ${spellLabel}${abilityLabel ? `（${abilityLabel}）` : ''}`}
                     {data.features?.length ? ` · ${data.features.length} 项特性` : ''}
@@ -262,9 +293,28 @@ export default function HouseRules() {
                         <ul className="space-y-2">
                           {data.features.map((f) => (
                             <li key={f.id} className="text-sm">
-                              <span className="font-medium text-white">{f.name}</span>
-                              <span className="text-dnd-text-muted text-xs ml-2">（{f.level} 级）</span>
-                              <p className="text-dnd-text-muted text-xs mt-0.5">{f.description}</p>
+                              <div className="flex items-start gap-1">
+                                <div className="min-w-0 flex-1">
+                                  <span className="font-medium text-white">
+                                    {resolveRuleText(overridesMap, buildClassFeatureNameKey(className, f.id), f.name)}
+                                  </span>
+                                  <span className="text-dnd-text-muted text-xs ml-2">（{f.level} 级）</span>
+                                  <p className="text-dnd-text-muted text-xs mt-0.5 whitespace-pre-line">
+                                    {resolveRuleText(overridesMap, buildClassFeatureKey(className, f.id), f.description)}
+                                  </p>
+                                </div>
+                                <div className="shrink-0 self-start pt-0.5">
+                                  <RuleTextPairOverrideControl
+                                    moduleId={moduleId}
+                                    nameKey={buildClassFeatureNameKey(className, f.id)}
+                                    originalName={f.name}
+                                    descKey={buildClassFeatureKey(className, f.id)}
+                                    originalDescription={f.description}
+                                    isAdmin={isAdmin}
+                                    title={`编辑职业特性「${f.name}」`}
+                                  />
+                                </div>
+                              </div>
                             </li>
                           ))}
                         </ul>
@@ -341,7 +391,20 @@ export default function HouseRules() {
                                   <td className="py-2 px-2 text-white tabular-nums font-medium whitespace-nowrap">{row.cost} 点</td>
                                   <td className="py-2 px-2 text-dnd-gold-light/95 font-medium whitespace-nowrap">{row.name}</td>
                                   <td className="py-2 px-2 text-dnd-text-muted tabular-nums whitespace-nowrap">{row.minLevel}</td>
-                                  <td className="py-2 px-2 text-dnd-text-muted leading-relaxed">{row.effect}</td>
+                                  <td className="py-2 px-2 text-dnd-text-muted leading-relaxed">
+                                    <div className="flex items-start gap-1">
+                                      <span className="min-w-0 flex-1 whitespace-pre-line">
+                                        {resolveRuleText(overridesMap, buildFocusAbilityKey(className, row.id), row.effect)}
+                                      </span>
+                                      <RuleTextOverrideControl
+                                        moduleId={moduleId}
+                                        ruleKey={buildFocusAbilityKey(className, row.id)}
+                                        originalText={row.effect}
+                                        isAdmin={isAdmin}
+                                        label={`编辑「${row.name}」效果`}
+                                      />
+                                    </div>
+                                  </td>
                                   <td className="py-2 px-2 text-dnd-text-muted whitespace-nowrap">{row.exclusiveSubclass ?? '—'}</td>
                                 </tr>
                               ))}
@@ -378,12 +441,32 @@ export default function HouseRules() {
                                     )}
                                   </div>
                                   {inv.prerequisite && (
-                                    <p className="text-dnd-text-muted text-xs mb-1">
-                                      <span className="text-dnd-gold-light font-medium">先决：</span>
-                                      {inv.prerequisite}
-                                    </p>
+                                    <div className="flex items-start gap-1 mb-1">
+                                      <p className="text-dnd-text-muted text-xs min-w-0 flex-1">
+                                        <span className="text-dnd-gold-light font-medium">先决：</span>
+                                        {resolveRuleText(overridesMap, buildInvocationKey(inv.id, 'p'), inv.prerequisite)}
+                                      </p>
+                                      <RuleTextOverrideControl
+                                        moduleId={moduleId}
+                                        ruleKey={buildInvocationKey(inv.id, 'p')}
+                                        originalText={inv.prerequisite}
+                                        isAdmin={isAdmin}
+                                        label={`编辑「${inv.name}」先决`}
+                                      />
+                                    </div>
                                   )}
-                                  <p className="text-dnd-text-muted text-xs mt-0.5">{inv.description}</p>
+                                  <div className="flex items-start gap-1 mt-0.5">
+                                    <p className="text-dnd-text-muted text-xs min-w-0 flex-1 whitespace-pre-line">
+                                      {resolveRuleText(overridesMap, buildInvocationKey(inv.id, 'd'), inv.description)}
+                                    </p>
+                                    <RuleTextOverrideControl
+                                      moduleId={moduleId}
+                                      ruleKey={buildInvocationKey(inv.id, 'd')}
+                                      originalText={inv.description}
+                                      isAdmin={isAdmin}
+                                      label={`编辑「${inv.name}」正文`}
+                                    />
+                                  </div>
                                 </li>
                               ))}
                             </ul>
@@ -423,9 +506,36 @@ export default function HouseRules() {
                                       <ul className="space-y-2">
                                         {sub.features.map((f) => (
                                           <li key={f.id} className="text-sm">
-                                            <span className="font-medium text-white">{f.name}</span>
-                                            <span className="text-dnd-text-muted text-xs ml-2">（{f.level} 级）</span>
-                                            <p className="text-dnd-text-muted text-xs mt-0.5">{f.description}</p>
+                                            <div className="flex items-start gap-1">
+                                              <div className="min-w-0 flex-1">
+                                                <span className="font-medium text-white">
+                                                  {resolveRuleText(
+                                                    overridesMap,
+                                                    buildSubclassFeatureNameKey(className, subName, f.id),
+                                                    f.name,
+                                                  )}
+                                                </span>
+                                                <span className="text-dnd-text-muted text-xs ml-2">（{f.level} 级）</span>
+                                                <p className="text-dnd-text-muted text-xs mt-0.5 whitespace-pre-line">
+                                                  {resolveRuleText(
+                                                    overridesMap,
+                                                    buildSubclassFeatureKey(className, subName, f.id),
+                                                    f.description,
+                                                  )}
+                                                </p>
+                                              </div>
+                                              <div className="shrink-0 self-start pt-0.5">
+                                                <RuleTextPairOverrideControl
+                                                  moduleId={moduleId}
+                                                  nameKey={buildSubclassFeatureNameKey(className, subName, f.id)}
+                                                  originalName={f.name}
+                                                  descKey={buildSubclassFeatureKey(className, subName, f.id)}
+                                                  originalDescription={f.description}
+                                                  isAdmin={isAdmin}
+                                                  title={`编辑子职「${subName}」·「${f.name}」`}
+                                                />
+                                              </div>
+                                            </div>
                                           </li>
                                         ))}
                                       </ul>
@@ -462,8 +572,8 @@ export default function HouseRules() {
           ) : (
             <ChevronRight className="w-5 h-5 shrink-0" />
           )}
-          <h2 className="text-dnd-gold-light text-sm font-bold uppercase tracking-wider">专长表</h2>
-          <span className="text-dnd-text-muted text-sm">
+          <h2 className="text-dnd-gold-light text-base font-bold uppercase tracking-wider">专长表</h2>
+          <span className="text-dnd-text-muted text-xs">
             {Object.values(FEATS_BY_CATEGORY).flat().length} 项专长
           </span>
         </button>
@@ -492,8 +602,8 @@ export default function HouseRules() {
                     ) : (
                       <ChevronRight className="w-5 h-5 shrink-0" />
                     )}
-                    <span className="font-semibold text-dnd-gold-light/90">{category}</span>
-                    <span className="text-dnd-text-muted text-sm">{list.length} 项专长</span>
+                    <span className="text-sm font-semibold text-dnd-gold-light/90">{category}</span>
+                    <span className="text-dnd-text-muted text-xs">{list.length} 项专长</span>
                   </button>
                   {isCategoryOpen && (
                     <div className="px-4 pb-4 pt-0 border-t border-white/10">
@@ -502,36 +612,55 @@ export default function HouseRules() {
                           const isOpen = expandedFeatIds.has(f.id)
                     return (
                       <div key={f.id} className="rounded-xl bg-dnd-card border border-white/10 overflow-hidden">
-                        <button
-                          type="button"
-                          onClick={() => toggleFeat(f.id)}
-                          className="w-full flex items-center gap-2 py-3 px-4 text-left text-white hover:bg-white/5 transition-colors"
-                        >
-                          {isOpen ? (
-                            <ChevronDown className="w-5 h-5 shrink-0" />
-                          ) : (
-                            <ChevronRight className="w-5 h-5 shrink-0" />
-                          )}
-                          <span className="font-semibold">{f.name}</span>
-                          {f.nameEn && (
-                            <span className="text-dnd-text-muted text-xs font-normal">{f.nameEn}</span>
-                          )}
-                          {f.source && (
-                            <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium bg-white/10 text-dnd-text-muted border border-white/20">
-                              {f.source}
+                        <div className="flex items-stretch min-w-0 border-b border-white/10">
+                          <button
+                            type="button"
+                            onClick={() => toggleFeat(f.id)}
+                            className="flex-1 min-w-0 flex items-center gap-2 py-3 px-4 text-left text-white hover:bg-white/5 transition-colors"
+                          >
+                            {isOpen ? (
+                              <ChevronDown className="w-5 h-5 shrink-0" />
+                            ) : (
+                              <ChevronRight className="w-5 h-5 shrink-0" />
+                            )}
+                            <span className="text-sm font-medium text-white">
+                              {resolveRuleText(overridesMap, buildFeatNameKey(f.id), f.name)}
                             </span>
+                            {f.nameEn && (
+                              <span className="text-dnd-text-muted text-xs font-normal">{f.nameEn}</span>
+                            )}
+                            {f.source && (
+                              <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium bg-white/10 text-dnd-text-muted border border-white/20">
+                                {f.source}
+                              </span>
+                            )}
+                          </button>
+                          {isAdmin && (
+                            <div className="shrink-0 flex items-center px-2 border-l border-white/10">
+                              <RuleTextPairOverrideControl
+                                moduleId={moduleId}
+                                nameKey={buildFeatNameKey(f.id)}
+                                originalName={f.name}
+                                descKey={buildFeatDescriptionKey(f.id)}
+                                originalDescription={f.description}
+                                isAdmin={isAdmin}
+                                title={`编辑专长「${f.name}」`}
+                              />
+                            </div>
                           )}
-                        </button>
+                        </div>
                         {isOpen && (
-                          <div className="px-4 pb-4 pt-0 border-t border-white/10">
+                          <div className="px-4 pb-4 pt-0">
                             {f.prerequisite && (
                               <p className="text-dnd-text-muted text-xs mt-3 mb-2">
                                 <span className="text-dnd-gold-light font-medium">前提：</span>
                                 {f.prerequisite}
                               </p>
                             )}
-                            <p className="text-dnd-text-muted text-sm whitespace-pre-line mt-3">
-                              {formatFeatDescriptionForDisplay(f.description)}
+                            <p className="text-dnd-text-muted text-sm whitespace-pre-line min-w-0 mt-3">
+                              {formatFeatDescriptionForDisplay(
+                                resolveRuleText(overridesMap, buildFeatDescriptionKey(f.id), f.description),
+                              )}
                             </p>
                             {f.table && (
                               <div className="mt-3 overflow-x-auto">
@@ -589,8 +718,8 @@ export default function HouseRules() {
           ) : (
             <ChevronRight className="w-5 h-5 shrink-0" />
           )}
-          <h2 className="text-dnd-gold-light text-sm font-bold uppercase tracking-wider">武技库 · 繁星特色</h2>
-          <span className="text-dnd-text-muted text-sm">{MARTIAL_TECHNIQUES.length} 项武技</span>
+          <h2 className="text-dnd-gold-light text-base font-bold uppercase tracking-wider">武技库 · 繁星特色</h2>
+          <span className="text-dnd-text-muted text-xs">{MARTIAL_TECHNIQUES.length} 项武技</span>
         </button>
         {expandedSections.has('武技库') && (
           <div className="px-4 pb-4 pt-0 border-t border-white/10">
@@ -614,8 +743,8 @@ export default function HouseRules() {
                     className="w-full flex items-center gap-2 py-3 px-4 text-left text-white hover:bg-white/5 transition-colors"
                   >
                     {isOpen ? <ChevronDown className="w-5 h-5 shrink-0" /> : <ChevronRight className="w-5 h-5 shrink-0" />}
-                    <span className="font-semibold">{style}</span>
-                    <span className="text-dnd-text-muted text-sm">{count} 项武技</span>
+                    <span className="text-sm font-semibold text-white">{style}</span>
+                    <span className="text-dnd-text-muted text-xs">{count} 项武技</span>
                   </button>
                   {isOpen && (
                     <div className="px-4 pb-4 pt-0 border-t border-white/10">
@@ -626,7 +755,7 @@ export default function HouseRules() {
                         {MARTIAL_TECHNIQUES.filter((t) => t.style === style).map((t) => (
                           <li key={t.id} className="py-3 first:pt-0">
                             <div className="flex flex-wrap items-center gap-2 mb-1">
-                              <span className="font-medium text-white">{t.name}</span>
+                              <span className="text-sm font-medium text-white">{t.name}</span>
                               <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/20 text-amber-300 border border-amber-500/40">{t.type}</span>
                               {t.tag ? (
                                 <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-violet-500/15 text-violet-200/95 border border-violet-400/35">
@@ -642,7 +771,18 @@ export default function HouseRules() {
                               <span>目标：{t.target}</span>
                               {t.duration && <span>持续：{t.duration}</span>}
                             </div>
-                            <p className="text-dnd-text-muted text-sm">{t.description}</p>
+                            <div className="flex items-start gap-1">
+                              <p className="text-dnd-text-muted text-sm min-w-0 flex-1 whitespace-pre-line">
+                                {resolveRuleText(overridesMap, buildMartialKey(t.id), t.description)}
+                              </p>
+                              <RuleTextOverrideControl
+                                moduleId={moduleId}
+                                ruleKey={buildMartialKey(t.id)}
+                                originalText={t.description}
+                                isAdmin={isAdmin}
+                                label={`编辑武技「${t.name}」正文`}
+                              />
+                            </div>
                           </li>
                         ))}
                       </ul>

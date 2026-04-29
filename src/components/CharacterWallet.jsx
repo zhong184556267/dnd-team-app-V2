@@ -46,13 +46,15 @@ export default function CharacterWallet({ characterId, characterName, canEdit, o
 
   return (
     <div className="space-y-3">
-      <p className="text-[10px] text-dnd-text-muted leading-tight">
-        含身上钱包与<strong className="text-dnd-text-body">次元袋内钱币</strong>合计（只读展示）。
-      </p>
       <CurrencyGrid
         key={`wallet-${flashKey}`}
         balances={wallet}
-        title="个人持有"
+        title="钱包"
+        subtitle={
+          <p className="leading-tight">
+            含身上钱包与<strong className="text-dnd-text-body">次元袋内钱币</strong>合计（只读展示）。
+          </p>
+        }
         extraClass={flashKey > 0 ? 'animate-flash' : ''}
       />
       {canEdit && (

@@ -7,7 +7,6 @@ import { useAuth } from '../contexts/AuthContext'
 import { useModule } from '../contexts/ModuleContext'
 import { getCharacters, getCharacter, updateCharacter } from '../lib/characterStore'
 import CharacterSpells from './CharacterSpells'
-import { inputClass } from '../lib/inputStyles'
 
 export default function CharacterSpellsFAB() {
   const { user, isAdmin } = useAuth()
@@ -46,28 +45,20 @@ export default function CharacterSpellsFAB() {
       >
         {open && (
           <div
-            className="bg-[#2D3748] rounded-xl shadow-dnd-card border-l-4 border-dnd-gold p-4 w-[min(22rem,calc(100vw-2rem))] mb-3 border border-white/10 max-h-[85vh] overflow-auto"
+            className="module-panel w-[min(22rem,calc(100vw-2rem))] mb-3 max-h-[85vh] overflow-auto border-l-[3px] border-l-[var(--accent)] !p-3 shadow-dnd-card"
             onClick={(e) => e.stopPropagation()}
           >
-            <p className="text-white text-sm font-medium mb-3 uppercase tracking-label">角色法术</p>
-            <div className="mb-3">
-              <label className="block text-dnd-text-muted text-[10px] mb-1.5">选择角色</label>
-              <select
-                value={selectedCharId}
-                onChange={(e) => setSelectedCharId(e.target.value)}
-                className={inputClass + ' w-full'}
-              >
-                <option value="">— 选择角色 —</option>
-                {list.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name || '未命名'}</option>
-                ))}
-              </select>
-            </div>
-            {selectedChar ? (
-              <CharacterSpells char={selectedChar} canEdit={canEditChar} onSave={persistSpells} />
-            ) : (
-              <p className="text-dnd-text-muted text-sm py-4 text-center">请先选择一个角色。</p>
-            )}
+            <p className="section-title mb-3 !mt-0">角色法术</p>
+            <CharacterSpells
+              char={selectedChar}
+              canEdit={!!canEditChar}
+              onSave={persistSpells}
+              characterPicker={{
+                options: list,
+                value: selectedCharId,
+                onChange: setSelectedCharId,
+              }}
+            />
           </div>
         )}
 

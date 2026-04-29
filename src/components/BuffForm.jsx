@@ -17,6 +17,7 @@ import { WEAPON_BUFF_CATEGORY_SELECT_OPTIONS } from '../data/itemDatabase'
 import { SAVE_NAMES, SKILLS } from '../data/dndSkills'
 import { SPELLS, getWandScrollSpellPower } from '../data/spellDatabase'
 import { inputClass, inputClassInline, textareaClass } from '../lib/inputStyles'
+import { formatDisplayOneDecimal } from '../lib/encumbrance'
 import DragHandleIcon from './DragHandleIcon'
 import {
   BUFF_SOURCE_KIND_OPTIONS_EDITABLE,
@@ -360,16 +361,31 @@ function DamageDiceInlineRow({ value, onChange, module, compact, minusStepper, t
   )
 }
 
-/** 数字输入：统一使用「中间数字 + 上下箭头」设计。narrow 时容器仅够数字与箭头；unifiedColor 时与行内标签同色；pill 为胶囊样式（左减右加） */
-function NumberStepper({ value, onChange, min = -999, max = 999, step = 1, compact, narrow, unifiedColor, pill, disabled }) {
-  const rowH = pill ? 'h-7' : 'h-7'
+/** 步进器显示用：消除浮点串；整数不显示小数，否则一位小数（与 encumbrance 展示一致） */
+function formatStepperFieldString(num) {
+  if (typeof num !== 'number' || !Number.isFinite(num)) return '0'
+  if (Math.abs(num - Math.round(num)) < 1e-8) return String(Math.round(num))
+  return formatDisplayOneDecimal(num)
+}
+
+/** 数字输入：统一使用「中间数字 + 上下箭头」设计。narrow 时容器仅够数字与箭头；unifiedColor 时与行内标签同色；pill 为行内胶囊（无底色，用于背包/袋内表）；subtle 时文字更淡 */
+function NumberStepper({ value, onChange, min = -999, max = 999, step = 1, compact, narrow, unifiedColor, pill, subtle, disabled }) {
+  const rowH = pill ? 'h-6' : 'h-7'
   const textSize = compact || pill ? 'text-xs' : 'text-sm'
   const colorCls = disabled
     ? 'text-gray-600 cursor-not-allowed'
     : unifiedColor
       ? 'text-gray-200 hover:text-gray-100'
-      : 'text-gray-400 hover:text-white'
-  const inputColorCls = disabled ? 'text-gray-500' : unifiedColor ? 'text-gray-200' : 'text-white'
+      : subtle
+        ? 'text-gray-500 hover:text-gray-300'
+        : 'text-gray-400 hover:text-white'
+  const inputColorCls = disabled
+    ? 'text-gray-500'
+    : unifiedColor
+      ? 'text-gray-200'
+      : subtle
+        ? 'text-gray-300'
+        : 'text-white'
   const num = typeof value === 'number' ? value : (parseInt(value, 10) || 0)
   const clamp = (v) => Math.min(max, Math.max(min, v))
   const handleInputChange = (e) => {
@@ -378,8 +394,8 @@ function NumberStepper({ value, onChange, min = -999, max = 999, step = 1, compa
     if (s === '' || s === '-') onChange(clamp(0))
     else { const v = parseInt(s, 10); if (!Number.isNaN(v)) onChange(clamp(v)) }
   }
-  const padX = pill ? 'pl-1.5 pr-1.5' : (narrow ? 'px-5' : 'px-7')
-  const inputWidth = pill ? 'min-w-[1.5rem] w-8 flex-1' : (narrow ? 'min-w-[2rem] w-11' : compact ? 'min-w-[2rem] flex-1' : 'min-w-[3.5rem] w-20')
+  const padX = pill ? 'pl-0.5 pr-0.5' : narrow ? 'px-5' : 'px-7'
+  const inputWidth = pill ? 'min-w-[1.25rem] w-7 flex-1' : narrow ? 'min-w-[2rem] w-11' : compact ? 'min-w-[2rem] flex-1' : 'min-w-[3.5rem] w-20'
   /** compact 默认拉满父级；若同时 narrow（如属性卡、伤害骰行），用固定最小宽度，避免三列网格把步进器压扁导致箭头与数字重叠 */
   const compactWidthCls =
     compact && narrow
@@ -387,8 +403,15 @@ function NumberStepper({ value, onChange, min = -999, max = 999, step = 1, compa
       : compact && !narrow
         ? 'w-full min-w-0 max-w-full'
         : ''
+  const pillBtn = subtle
+    ? 'w-5 h-5 rounded-full hover:bg-white/[0.06]'
+    : 'w-5 h-5 rounded-full hover:bg-white/10'
+  const chev = 'w-3 h-3'
+  /** pill 仅用于表格式背包/仓库行：不要灰底胶囊，避免与行背景叠成「歪歪扭扭」的块 */
+  const pillShell = 'rounded-full bg-transparent border-0 shadow-none'
+  const pillFocusRing = pill ? 'focus-within:ring-2 focus-within:ring-amber-500/35' : ''
   const wrapperCls = pill
-    ? `relative flex items-center border border-gray-600 rounded-full bg-gray-700 shadow-sm ${padX} ${rowH} max-w-full ${disabled ? 'opacity-60' : ''}`
+    ? `relative flex items-center ${pillShell} ${padX} ${rowH} max-w-full ${pillFocusRing} ${disabled ? 'opacity-60' : ''}`
     : `relative flex items-center border border-gray-500/60 rounded-md bg-gray-800/90 shadow-sm ${padX} ${rowH} ${compactWidthCls} ${disabled ? 'opacity-60' : ''}`
   return (
     <div className={wrapperCls}>
@@ -396,15 +419,15 @@ function NumberStepper({ value, onChange, min = -999, max = 999, step = 1, compa
         type="button"
         disabled={disabled}
         onClick={() => !disabled && onChange(clamp(num - step))}
-        className={`shrink-0 flex items-center justify-center ${colorCls} ${textSize} ${pill ? 'w-6 h-6 rounded-full hover:bg-gray-600/50' : 'absolute left-1'} disabled:pointer-events-none`}
+        className={`shrink-0 flex items-center justify-center ${colorCls} ${textSize} ${pill ? pillBtn : 'absolute left-1'} disabled:pointer-events-none`}
         aria-label="减少"
       >
-        <ChevronDown className={`w-3.5 h-3.5 ${compact && !pill ? '' : 'w-3.5 h-3.5'}`} />
+        <ChevronDown className={`${chev} ${compact && !pill ? '' : ''}`} />
       </button>
       <input
         type="text"
         inputMode="numeric"
-        value={num}
+        value={formatStepperFieldString(num)}
         disabled={disabled}
         onChange={handleInputChange}
         className={`flex-1 min-w-0 ${inputWidth} text-center ${inputColorCls} bg-transparent border-0 focus:outline-none focus:ring-0 ${rowH} ${textSize} tabular-nums ${pill ? 'px-0' : ''} disabled:cursor-not-allowed`}
@@ -413,10 +436,10 @@ function NumberStepper({ value, onChange, min = -999, max = 999, step = 1, compa
         type="button"
         disabled={disabled}
         onClick={() => !disabled && onChange(clamp(num + step))}
-        className={`shrink-0 flex items-center justify-center ${colorCls} ${textSize} ${pill ? 'w-6 h-6 rounded-full hover:bg-gray-600/50' : 'absolute right-1'} disabled:pointer-events-none`}
+        className={`shrink-0 flex items-center justify-center ${colorCls} ${textSize} ${pill ? pillBtn : 'absolute right-1'} disabled:pointer-events-none`}
         aria-label="增加"
       >
-        <ChevronDown className={`w-3.5 h-3.5 rotate-180 ${compact && !pill ? '' : 'w-3.5 h-3.5'}`} />
+        <ChevronDown className={`${chev} rotate-180 ${compact && !pill ? '' : ''}`} />
       </button>
     </div>
   )

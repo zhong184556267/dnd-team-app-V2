@@ -7,7 +7,7 @@ import { getCharacterWallet, transferCurrency } from '../lib/currencyStore'
 import { getCharacter } from '../lib/characterStore'
 import { addToWarehouse } from '../lib/warehouseStore'
 import { CurrencyGrid } from './CurrencyDisplay'
-import { getItemWeightLb, parseWeightString, getWalletCurrencyStackWeightLb } from '../lib/encumbrance'
+import { getInventoryEntryStackWeightLb, formatDisplayWeightLb, formatDisplayGemLbQty } from '../lib/encumbrance'
 import { getMaxAttunementSlots, getAttunedCountFromInventory } from '../lib/combatState'
 import ItemAddForm from './ItemAddForm'
 import EncumbranceBar from './EncumbranceBar'
@@ -196,13 +196,58 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
 
   const moveEntryToBag = (fromIndex, moduleId) => {
     const entry = inv[fromIndex]
-    if (!entry || entry.inBagOfHolding) return
+    if (!entry) return
+    if (entry.itemId === 'bag_of_holding' || entry.bagModuleAnchorId) {
+      alert('次元袋里不能放入次元袋')
+      return
+    }
+    if (!moduleId || !bagModules.some((m) => m.id === moduleId)) return
+
+    const targetMatchesModule = (e) => e?.bagModuleId === moduleId || e?.bagSlotId === moduleId
+    if (entry.inBagOfHolding) {
+      if (targetMatchesModule(entry)) return
+      if (entry.walletCurrencyId) {
+        const cid = entry.walletCurrencyId
+        const isGem = cid === 'gem_lb'
+        const add = isGem ? Math.max(0, Number(entry.qty) || 0) : Math.max(0, Math.floor(Number(entry.qty) || 0))
+        if (add <= 0) return
+        const mergeIdx = inv.findIndex(
+          (e, idx) =>
+            idx !== fromIndex && e?.inBagOfHolding && e?.walletCurrencyId === cid && targetMatchesModule(e),
+        )
+        if (mergeIdx >= 0) {
+          const row = inv[mergeIdx]
+          const prev = isGem ? Math.max(0, Number(row.qty) || 0) : Math.max(0, Math.floor(Number(row.qty) || 0))
+          const nextQty = isGem ? Math.round((prev + add) * 10) / 10 : prev + add
+          const cfg = getCurrencyById(cid)
+          const label = cfg ? getCurrencyDisplayName(cfg) : entry.name || row.name
+          const nextInv = []
+          for (let idx = 0; idx < inv.length; idx++) {
+            if (idx === fromIndex) continue
+            if (idx === mergeIdx) {
+              nextInv.push({ ...row, qty: nextQty, name: label || row.name })
+            } else {
+              nextInv.push(inv[idx])
+            }
+          }
+          setEditingIndex(null)
+          onSave({ inventory: nextInv })
+          return
+        }
+      }
+      setEditingIndex(null)
+      onSave({
+        inventory: inv.map((e, idx) =>
+          idx === fromIndex ? { ...e, bagModuleId: moduleId, bagSlotId: undefined } : e,
+        ),
+      })
+      return
+    }
+
     if (entry.walletCurrencyId) {
       moveWalletCurrencyToBag(entry.walletCurrencyId, moduleId)
       return
     }
-    if (entry.itemId === 'bag_of_holding') return
-    if (!moduleId || !bagModules.some((m) => m.id === moduleId)) return
     setEditingIndex(null)
     onSave({
       inventory: inv.map((e, idx) =>
@@ -426,10 +471,21 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
     if (storeToVaultIndex == null) return
     const e = inv[storeToVaultIndex]
     if (!e) { setStoreToVaultIndex(null); return }
-    const q = Math.max(1, Number(e.qty) ?? 1)
-    const toStore = Math.min(Math.max(1, storeToVaultQty), q)
+    const qWallet =
+      e.walletCurrencyId === 'gem_lb'
+        ? Math.max(0, Number(e.qty) || 0)
+        : e.walletCurrencyId
+          ? Math.max(0, Math.floor(Number(e.qty) || 0))
+          : null
+    const q = qWallet != null ? qWallet : Math.max(1, Number(e.qty) ?? 1)
+    const toStore = qWallet != null ? qWallet : Math.min(Math.max(1, storeToVaultQty), q)
     const moduleId = character?.moduleId ?? 'default'
     if (e.walletCurrencyId && character?.id) {
+      if (toStore <= 0) {
+        setStoreToVaultIndex(null)
+        setStoreToVaultQty(1)
+        return
+      }
       Promise.resolve(
         transferCurrency(moduleId, 'toVault', character.id, e.walletCurrencyId, toStore),
       )
@@ -492,12 +548,16 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
   }
 
   const setQty = (index, value) => {
-    const n = Math.max(1, parseInt(value, 10) || 1)
     const entry = inv[index]
     if (entry?.walletCurrencyId) {
+      const n =
+        entry.walletCurrencyId === 'gem_lb'
+          ? Math.max(0, Number(value) || 0)
+          : Math.max(0, Math.floor(Number(value) || 0))
       patchWalletCurrency(entry.walletCurrencyId, n)
       return
     }
+    const n = Math.max(1, parseInt(value, 10) || 1)
     const next = inv.map((e, i) => (i === index ? { ...e, qty: n } : e))
     onSave({ inventory: next })
   }
@@ -514,7 +574,7 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
     onSave({ inventory: next })
   }
 
-  /** 次元袋面板行内编辑（下标为背包 inventory 全局下标）；钱币 qty 可改为 0 以移除堆叠 */
+  /** 次元袋面板行内编辑（下标为背包 inventory 全局下标）；钱币堆数量不在此修改 */
   const patchBagItem = (globalIndex, patch) => {
     const prev = inv[globalIndex]
     onSave({ inventory: inventoryWithBagPatch(inv, globalIndex, patch) })
@@ -600,18 +660,6 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
     return entry?.name ?? '—'
   }
 
-  const getEntryWeight = (entry) => {
-    if (entry?.walletCurrencyId) {
-      const q = Math.max(1, Number(entry.qty) || 1)
-      const tw = getWalletCurrencyStackWeightLb(entry.walletCurrencyId, q)
-      return q > 0 ? tw / q : 0
-    }
-    if (entry?.重量 != null && entry?.重量 !== '') return parseWeightString(entry.重量)
-    if (!entry?.itemId) return 0
-    const item = getItemById(entry.itemId)
-    return getItemWeightLb(item)
-  }
-
   const getEntryBriefFull = (entry) => {
     const brief = entry?.详细介绍?.trim()
     const proto = entry?.itemId ? getItemById(entry.itemId) : null
@@ -637,7 +685,7 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
   }
 
   return (
-    <div className="rounded-xl bg-dnd-card border border-white/10 overflow-hidden">
+    <div className="rounded-xl border border-white/[0.11] bg-gradient-to-b from-[#2c384c] via-[#242f42] to-[#1b2433] overflow-hidden shadow-[0_6px_22px_rgba(0,0,0,0.48),0_2px_6px_rgba(0,0,0,0.28),inset_0_-1px_0_rgba(0,0,0,0.22)]">
       {/* 中部：双栏 */}
       <div className="p-4 grid grid-cols-1 lg:grid-cols-[1fr_minmax(200px,240px)_280px] gap-4">
         {/* 左侧：物品栏（仅身上背负，不含袋内） */}
@@ -712,9 +760,12 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
                   if (i < 0) return null
                   const entry = inv[i]
                   if (entry?.inBagOfHolding) return null
-                  const qty = Math.max(1, Number(entry?.qty) ?? 1)
-                  const unitLb = getEntryWeight(entry)
-                  const totalLb = Math.round(unitLb * qty * 100) / 100
+                  const totalLb = getInventoryEntryStackWeightLb(entry)
+                  const qty = entry?.walletCurrencyId
+                    ? entry.walletCurrencyId === 'gem_lb'
+                      ? Math.max(0, Number(entry.qty) || 0)
+                      : Math.max(0, Math.floor(Number(entry.qty) || 0))
+                    : Math.max(1, Math.floor(Number(entry?.qty) || 1))
                   const isEditing = canEdit && editingIndex === i
                   return (
                     <Fragment key={entry.id ?? `inv-${i}`}>
@@ -808,7 +859,7 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
                           </div>
                         </td>
                         <td className="py-1 px-2 align-middle border-l border-gray-600 text-center overflow-hidden" style={{ height: 48, maxHeight: 48 }}>
-                          {canEdit ? (
+                          {canEdit && !entry?.walletCurrencyId ? (
                             <div className="flex justify-center">
                               <NumberStepper
                                 value={qty}
@@ -819,17 +870,25 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
                               />
                             </div>
                           ) : (
-                            <span className="tabular-nums text-dnd-text-body text-xs">{qty}</span>
+                            <span className="tabular-nums text-dnd-text-body text-xs font-semibold">
+                              {entry?.walletCurrencyId === 'gem_lb' ? formatDisplayGemLbQty(qty) : qty}
+                            </span>
                           )}
                         </td>
-                        <td className="py-1 px-2 tabular-nums text-dnd-text-body border-l border-gray-600 align-middle text-center overflow-hidden whitespace-nowrap" style={{ height: 48, maxHeight: 48 }}>{totalLb ? `${totalLb} lb` : ''}</td>
+                        <td className="py-1 px-2 tabular-nums text-dnd-text-body border-l border-gray-600 align-middle text-center overflow-hidden whitespace-nowrap" style={{ height: 48, maxHeight: 48 }}>{totalLb > 0 ? `${formatDisplayWeightLb(totalLb)} lb` : ''}</td>
                         {canEdit && (
                           <td className="py-1 px-1 border-l border-gray-600 align-middle text-center overflow-hidden" style={{ height: 48, maxHeight: 48 }}>
                             <div className="flex items-center justify-center gap-0.5 min-w-0 max-w-full">
                               <button type="button" onClick={() => openStoreToVault(i)} title="存到团队仓库" className="p-1 rounded text-emerald-400 hover:bg-emerald-400/20 shrink-0">
                                 <Package size={14} />
                               </button>
-                              <button type="button" onClick={() => openRowEdit(i)} title="编辑" className="p-1 rounded text-dnd-gold-light hover:bg-dnd-gold/20 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => openRowEdit(i)}
+                                disabled={!!entry?.walletCurrencyId}
+                                title={entry?.walletCurrencyId ? '钱币请在个人持有中调整' : '编辑'}
+                                className="p-1 rounded text-dnd-gold-light hover:bg-dnd-gold/20 shrink-0 disabled:opacity-35 disabled:pointer-events-none"
+                              >
                                 <Pencil size={14} />
                               </button>
                               <button type="button" onClick={() => removeItem(i)} title="移除" className="p-1 rounded text-dnd-red hover:bg-dnd-red/20 shrink-0">
@@ -1095,7 +1154,6 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
             onMoveCurrencyToBag={moveWalletCurrencyToBag}
             canEdit={canEdit}
             invDisplayName={invDisplayName}
-            getEntryWeight={getEntryWeight}
             getEntryBriefFull={getEntryBriefFull}
             onPatchBagItem={patchBagItem}
             onBagRowEdit={openRowEdit}
@@ -1105,14 +1163,16 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
           />
         </div>
 
-        {/* 右侧：个人持有（完整钱包设计：核心资产 + 零钱 + 存入/取出） */}
+        {/* 右侧：钱包（外层一张卡，内七种货币各一张卡） */}
         <div className="lg:border-l lg:border-white/10 lg:pl-4 space-y-1">
-          <p className="text-[10px] text-dnd-text-muted leading-tight pr-1">
-            数额含身上钱包与<strong className="text-dnd-text-body">次元袋内钱币</strong>；改数字时仅调整身上钱包，袋内条不变。钱币不在背包表列出，仅在次元袋分列展示；将各币种旁<strong className="text-dnd-text-body">⋮</strong>拖入中间次元袋可将身上该币种移入袋内。
-          </p>
           <CurrencyGrid
             balances={displayWallet}
-            title="个人持有"
+            title="钱包"
+            subtitle={
+              <p className="leading-tight">
+                数额含身上钱包与<strong className="text-dnd-text-body">次元袋内钱币</strong>；改数字时仅调整身上钱包，袋内条不变。钱币不在背包表列出，仅在次元袋分列展示；将各币种旁<strong className="text-dnd-text-body">⋮</strong>拖入中间次元袋可将身上该币种移入袋内。
+              </p>
+            }
             editable={!!canEdit}
             dragCurrencyToBag={!!canEdit}
             onCurrencyChange={(currencyId, value) => patchWalletCurrency(currencyId, value)}
@@ -1158,34 +1218,60 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setStoreToVaultIndex(null)}>
           <div className="rounded-xl bg-dnd-card border border-white/10 shadow-dnd-card p-4 w-full max-w-sm mx-4" onClick={(e) => e.stopPropagation()}>
             <p className="text-dnd-gold-light text-sm font-bold mb-2">存到团队仓库</p>
-            <p className="text-dnd-text-muted text-xs mb-2">当前：{invDisplayName(inv[storeToVaultIndex])} × {inv[storeToVaultIndex].qty}</p>
-            {(() => {
-              const maxStoreQty = Math.max(1, Number(inv[storeToVaultIndex].qty) ?? 1)
-              return (
-                <div className="mb-4">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="w-10 shrink-0 text-dnd-text-muted text-xs">数量</span>
-                    <div className="flex min-w-0 flex-1 items-center gap-2">
-                      <div className="max-w-[min(100%,11rem)] w-full shrink-0 min-w-0">
-                        <NumberStepper
-                          value={storeToVaultQty}
-                          min={1}
-                          max={maxStoreQty}
-                          onChange={(v) => setStoreToVaultQty(v)}
-                          compact
-                        />
+            <p className="text-dnd-text-muted text-xs mb-2">
+              当前：{invDisplayName(inv[storeToVaultIndex])} ×{' '}
+              {inv[storeToVaultIndex].walletCurrencyId === 'gem_lb'
+                ? formatDisplayGemLbQty(Math.max(0, Number(inv[storeToVaultIndex].qty) || 0))
+                : inv[storeToVaultIndex].walletCurrencyId
+                  ? Math.max(0, Math.floor(Number(inv[storeToVaultIndex].qty) || 0))
+                  : inv[storeToVaultIndex].qty}
+            </p>
+            {inv[storeToVaultIndex].walletCurrencyId ? (
+              <p className="text-dnd-text-muted text-[10px] mb-4 leading-snug">
+                实体钱币将<strong className="text-dnd-text-body">整堆</strong>存入团队秘法箱（不可拆分数量）。
+              </p>
+            ) : (
+              (() => {
+                const maxStoreQty = Math.max(1, Number(inv[storeToVaultIndex].qty) ?? 1)
+                return (
+                  <div className="mb-4">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="w-10 shrink-0 text-dnd-text-muted text-xs">数量</span>
+                      <div className="flex min-w-0 flex-1 items-center gap-2">
+                        <div className="max-w-[min(100%,11rem)] w-full shrink-0 min-w-0">
+                          <NumberStepper
+                            value={storeToVaultQty}
+                            min={1}
+                            max={maxStoreQty}
+                            onChange={(v) => setStoreToVaultQty(v)}
+                            compact
+                          />
+                        </div>
+                        <span className="shrink-0 self-center font-mono text-sm tabular-nums leading-none text-dnd-text-muted whitespace-nowrap">
+                          / {maxStoreQty}
+                        </span>
                       </div>
-                      <span className="shrink-0 self-center font-mono text-sm tabular-nums leading-none text-dnd-text-muted whitespace-nowrap">
-                        / {maxStoreQty}
-                      </span>
                     </div>
                   </div>
-                </div>
-              )
-            })()}
+                )
+              })()
+            )}
             <div className="flex gap-2 justify-end">
               <button type="button" onClick={() => setStoreToVaultIndex(null)} className="h-10 px-4 rounded-lg bg-gray-600 hover:bg-gray-500 text-white font-bold text-sm">取消</button>
-              <button type="button" onClick={confirmStoreToVault} className="h-10 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm">确认存入</button>
+              <button
+                type="button"
+                onClick={confirmStoreToVault}
+                disabled={(() => {
+                  const ev = inv[storeToVaultIndex]
+                  if (!ev?.walletCurrencyId) return false
+                  return ev.walletCurrencyId === 'gem_lb'
+                    ? (Number(ev.qty) || 0) <= 0
+                    : Math.floor(Number(ev.qty) || 0) <= 0
+                })()}
+                className="h-10 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                确认存入
+              </button>
             </div>
           </div>
         </div>

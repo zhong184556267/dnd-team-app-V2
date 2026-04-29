@@ -1,18 +1,25 @@
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useContext, useState } from 'react'
 import { getStoredUser, setStoredUser, clearStoredUser, isUserAdmin } from '../lib/auth'
+import { clearSpellsPageViewState } from '../lib/spellsPageViewState'
 
 const AuthContext = createContext(null)
 
-export function AuthProvider({ children }) {
-  const [user, setUser] = useState(undefined)
+function readUserFromStorage() {
+  try {
+    return getStoredUser() ?? null
+  } catch {
+    return null
+  }
+}
 
-  useEffect(() => {
-    setUser(getStoredUser() ?? null)
-  }, [])
+export function AuthProvider({ children }) {
+  /** 首帧即同步读 localStorage，避免仅靠 useEffect 时在某些环境下长期停在 undefined → 一直「加载中」 */
+  const [user, setUser] = useState(() => readUserFromStorage())
 
   const login = (name) => {
     const n = String(name).trim()
     if (!n) return
+    clearSpellsPageViewState()
     setStoredUser(n)
     setUser({
       name: n,
@@ -21,6 +28,7 @@ export function AuthProvider({ children }) {
   }
 
   const logout = () => {
+    clearSpellsPageViewState()
     clearStoredUser()
     setUser(null)
   }

@@ -1,20 +1,43 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import DragHandleIcon from './DragHandleIcon'
-import { CURRENCY_CONFIG, getCurrencyById, getCurrencyDisplayName } from '../data/currencyConfig'
+import { getCurrencyById, getCurrencyDisplayName } from '../data/currencyConfig'
 import { inputClass } from '../lib/inputStyles'
+import { formatDisplayOneDecimal } from '../lib/encumbrance'
 
-/** 核心资产：奥拉 | 金币(居中最大) | 晶石 */
-const CORE_IDS = ['au', 'gp', 'gem_lb']
-/** 零钱：铜币、银币、克朗、铂金币 */
-const PETTY_IDS = ['cp', 'sp', 'kr', 'pp']
+/** 核心三币 + 零钱四币（四币不常用：统一样式、更紧凑、固定一行四列） */
+const CORE_WALLET_IDS = ['au', 'gp', 'gem_lb']
+const PETTY_WALLET_IDS = ['cp', 'sp', 'kr', 'pp']
+
+/** 零钱四币共用：细灰边，避免克朗/铂金币 standard 样式过亮、与铜银不一致 */
+const PETTY_TILE_UNIFIED = {
+  card: 'bg-[#151b24]/90 border border-gray-600/40',
+  value: 'text-gray-200',
+}
+
+function walletTileClasses(style) {
+  switch (style) {
+    case 'gold':
+      return { card: 'border border-dnd-gold/55 bg-[#2b1f17]/60', value: 'text-dnd-gold-light' }
+    case 'aurum':
+      return { card: 'border border-dnd-gold/45 bg-[#1b2230]/60', value: 'text-dnd-gold-light' }
+    case 'crystal':
+      return { card: 'border border-cyan-400/45 bg-[#0d2a3a]/60', value: 'text-cyan-200' }
+    case 'muted':
+      return { card: 'border border-gray-600/45 bg-[#1a1f26]/75', value: 'text-gray-200' }
+    case 'standard':
+    default:
+      return { card: 'border border-amber-600/35 bg-[#252018]/55', value: 'text-amber-100/95' }
+  }
+}
 
 function formatAmount(amount) {
   if (typeof amount !== 'number' || Number.isNaN(amount)) return '0'
-  return Number.isInteger(amount) ? amount.toLocaleString() : amount.toFixed(2)
+  if (Number.isInteger(amount)) return amount.toLocaleString()
+  return formatDisplayOneDecimal(amount)
 }
 
 /** 拖入次元袋：与个人持有格子配合，替代原背包内货币行的拖拽 */
-function WalletCurrencyDragHandle({ currencyId }) {
+function WalletCurrencyDragHandle({ currencyId, small }) {
   return (
     <span
       draggable
@@ -30,46 +53,60 @@ function WalletCurrencyDragHandle({ currencyId }) {
       aria-label="拖入次元袋"
       role="presentation"
     >
-      <DragHandleIcon className="w-3.5 h-3.5 opacity-70 text-dnd-text-muted" />
+      <DragHandleIcon className={`${small ? 'w-3 h-3' : 'w-3.5 h-3.5'} opacity-70 text-dnd-text-muted`} />
     </span>
   )
 }
 
 /** 可输入金额：支持光标编辑，失焦/回车提交（背包表格 / 个人持有共用） */
-export function CurrencyAmountField({ currencyId, amount, compact, valueClass, onCommit }) {
+export function CurrencyAmountField({ currencyId, amount, compact, micro, valueClass, onCommit }) {
   const isGem = currencyId === 'gem_lb'
   const [text, setText] = useState('')
+  const committedRef = useRef(false)
   useEffect(() => {
     const n = typeof amount === 'number' && !Number.isNaN(amount) ? amount : 0
-    setText(isGem ? String(n) : String(Math.floor(n)))
+    setText(isGem ? formatDisplayOneDecimal(n) : Math.floor(n).toLocaleString())
+    committedRef.current = false
   }, [amount, isGem])
 
   const commit = () => {
-    const raw = text.trim()
+    if (committedRef.current) return
+    committedRef.current = true
+    const raw = text.trim().replace(/,/g, '')
     if (raw === '') {
       onCommit?.(currencyId, 0)
+      setText(isGem ? '0' : '0')
       return
     }
     const n = isGem ? parseFloat(raw) : parseInt(raw, 10)
     if (Number.isNaN(n)) return
-    onCommit?.(currencyId, Math.max(0, n))
+    const v = isGem ? Math.round(Math.max(0, n) * 10) / 10 : Math.max(0, n)
+    onCommit?.(currencyId, v)
+    setText(isGem ? formatDisplayOneDecimal(v) : Math.floor(v).toLocaleString())
   }
+
+  const sizeCls = micro
+    ? '!h-6 !py-0 !px-0.5 text-[11px] !bg-transparent !border-gray-600/45'
+    : compact
+      ? '!h-7 text-sm border-white/15 bg-black/25'
+      : '!h-8 text-sm sm:text-base border-white/15 bg-black/25'
 
   return (
     <input
       type="text"
       inputMode={isGem ? 'decimal' : 'numeric'}
       autoComplete="off"
-      className={`${inputClass} w-full min-w-0 text-center tabular-nums !py-0.5 !px-1 ${compact ? '!h-7 text-sm' : '!h-8 text-sm sm:text-base'} border-white/15 bg-black/25 ${valueClass}`}
+      className={`${inputClass} w-full min-w-0 text-center tabular-nums ${sizeCls} ${valueClass}`}
       value={text}
       onChange={(e) => {
         const v = e.target.value
         if (isGem) {
-          if (v === '' || /^\d*\.?\d*$/.test(v)) setText(v)
-        } else if (v === '' || /^\d*$/.test(v)) {
-          setText(v)
+          if (v === '' || /^\d*\.?\d*$/.test(v.replace(/,/g, ''))) setText(v.replace(/,/g, ''))
+        } else if (v === '' || /^\d*$/.test(v.replace(/,/g, ''))) {
+          setText(v.replace(/,/g, ''))
         }
       }}
+      onFocus={() => setText((t) => t.replace(/,/g, ''))}
       onBlur={commit}
       onKeyDown={(e) => {
         if (e.key === 'Enter') {
@@ -82,152 +119,146 @@ export function CurrencyAmountField({ currencyId, amount, compact, valueClass, o
   )
 }
 
-/** 核心资产区单卡：金币 / 奥拉 / 晶石；compact 时仅略大于零钱区 */
-function CoreCurrencyCard({ currencyId, amount, compact, editable, onCurrencyChange, dragCurrencyToBag }) {
+/** 单币种小卡。variant=petty：铜银克朗铂统一灰系、更扁、一行四列用 */
+function WalletCurrencyCard({
+  currencyId,
+  amount,
+  compact,
+  variant = 'core',
+  editable,
+  onCurrencyChange,
+  dragCurrencyToBag,
+}) {
   const cfg = getCurrencyById(currencyId)
   if (!cfg) return null
-  const isGold = cfg.style === 'gold'
-  const isAurum = cfg.style === 'aurum'
-  const isCrystal = cfg.style === 'crystal'
+  const isPetty = variant === 'petty'
+  const { card, value } = isPetty ? PETTY_TILE_UNIFIED : walletTileClasses(cfg.style)
   const unitLabel = getCurrencyDisplayName(cfg)
 
-  let cardClass = 'rounded border flex flex-col justify-center items-center gap-0 min-h-0 '
-  cardClass += compact ? 'px-1.5 py-1 ' : 'rounded-lg px-2.5 py-2 gap-0.5 '
-  let valueClass = 'font-bold tabular-nums '
-  valueClass += compact ? 'text-sm ' : 'text-base sm:text-lg '
-  if (isGold) {
-    cardClass += 'bg-[#2b1f17]/60 border-dnd-gold/55'
-    valueClass += 'text-dnd-gold-light'
-  } else if (isAurum) {
-    cardClass += 'bg-[#1b2230]/60 border-dnd-gold/45'
-    valueClass += 'text-dnd-gold-light'
-  } else if (isCrystal) {
-    cardClass += 'bg-[#0d2a3a]/60 border-cyan-400/45'
-    valueClass += 'text-cyan-200'
+  const sizePad = isPetty
+    ? 'px-1 py-1 rounded-md'
+    : compact
+      ? 'px-1.5 py-1.5 rounded-md'
+      : 'px-2.5 py-2 rounded-lg gap-0.5'
+
+  let valueClass = `font-bold tabular-nums w-full min-w-0 ${value} `
+  if (isPetty) {
+    valueClass += 'text-xs '
   } else {
-    cardClass += 'bg-gray-800/60 border-white/10'
-    valueClass += 'text-dnd-text-body'
+    valueClass += compact ? 'text-sm ' : 'text-base sm:text-lg '
   }
 
+  const rowAlign = !dragCurrencyToBag ? 'flex-col items-center' : isPetty ? 'flex-row items-center' : 'flex-row items-start'
+
   return (
-    <div className={cardClass + (dragCurrencyToBag ? ' relative' : '')}>
-      <div className={`flex items-start gap-0.5 w-full min-w-0 ${dragCurrencyToBag ? '' : 'flex-col items-center'}`}>
-        {dragCurrencyToBag ? <WalletCurrencyDragHandle currencyId={currencyId} /> : null}
-        <div className={`flex flex-col justify-center items-center gap-0 min-h-0 flex-1 min-w-0 ${dragCurrencyToBag ? 'pt-0.5' : ''}`}>
+    <div className={`flex flex-col justify-center items-center min-h-0 min-w-0 ${sizePad} ${card}`}>
+      <div className={`flex w-full min-w-0 gap-0.5 ${rowAlign}`}>
+        {dragCurrencyToBag ? <WalletCurrencyDragHandle currencyId={currencyId} small={isPetty} /> : null}
+        <div
+          className={`flex flex-col justify-center items-center min-h-0 flex-1 min-w-0 ${dragCurrencyToBag && !isPetty ? 'pt-0.5' : ''} ${isPetty ? 'gap-px' : 'gap-0'}`}
+        >
           {editable && onCurrencyChange ? (
             <CurrencyAmountField
               currencyId={currencyId}
               amount={amount}
-              compact={compact}
+              compact={compact && !isPetty}
+              micro={isPetty}
               valueClass={valueClass}
               onCommit={onCurrencyChange}
             />
           ) : (
-            <span className={valueClass}>{formatAmount(amount)}</span>
+            <span className={valueClass + ' text-center'}>{formatAmount(amount)}</span>
           )}
-          <span className={compact ? 'text-[9px] opacity-90 text-current font-medium leading-tight' : 'text-[10px] opacity-90 text-current font-medium leading-tight'}>{unitLabel}</span>
+          <span
+            className={
+              isPetty
+                ? 'text-[8px] text-gray-400 font-medium leading-tight text-center mt-0.5 pb-px'
+                : compact
+                  ? 'text-[9px] opacity-90 text-current font-medium leading-tight text-center'
+                  : 'text-[10px] opacity-90 text-current font-medium leading-tight text-center'
+            }
+          >
+            {unitLabel}
+          </span>
         </div>
       </div>
-    </div>
-  )
-}
-
-/** 零钱区单条：铜/银/铂；compact 时更小 */
-function PettyCurrencyItem({ currencyId, amount, compact, editable, onCurrencyChange, dragCurrencyToBag }) {
-  const cfg = getCurrencyById(currencyId)
-  if (!cfg) return null
-  const unitLabel = getCurrencyDisplayName(cfg)
-  const wrapClass = compact
-    ? 'flex items-center justify-between gap-1.5 rounded bg-gray-800/50 border border-white/5 px-2 py-1'
-    : 'flex items-center justify-between gap-3 rounded-lg bg-gray-800/50 border border-white/5 px-3 py-2'
-  return (
-    <div className={wrapClass}>
-      <div className="flex items-center gap-1 min-w-0 shrink-0">
-        {dragCurrencyToBag ? <WalletCurrencyDragHandle currencyId={currencyId} /> : null}
-        <span className="text-dnd-text-muted text-xs font-medium min-w-0">{unitLabel}</span>
-      </div>
-      {editable && onCurrencyChange ? (
-        <div className="min-w-0 flex-1 max-w-[5.5rem]">
-          <CurrencyAmountField
-            currencyId={currencyId}
-            amount={amount}
-            compact={compact}
-            valueClass="text-gray-200"
-            onCommit={onCurrencyChange}
-          />
-        </div>
-      ) : (
-        <span className={compact ? 'text-xs font-semibold text-gray-300 tabular-nums' : 'text-sm font-semibold text-gray-300 tabular-nums'}>
-          {formatAmount(amount)}
-        </span>
-      )}
     </div>
   )
 }
 
 /**
- * 分层货币仪表盘：核心资产区（金币/奥拉/晶石）+ 零钱区（铜/银/铂）
- * 统一深色容器，内部有明确分区与层级
+ * 钱包 / 团队金库等：外层一张卡；内为 7 种货币各一张小卡（同布局）
+ * @param embedded 为真时不渲染外层卡壳（由父级「钱包」等分区包住）
  */
 export function CurrencyGrid({
   balances,
   title,
+  subtitle,
   extraClass = '',
   titleClass,
   fillHeight,
+  embedded = false,
   editable = false,
   onCurrencyChange,
-  /** 为真时各币种旁显示拖柄，可拖入次元袋（钱币不再出现在背包表） */
   dragCurrencyToBag = false,
 }) {
-  const compact = fillHeight
-  const innerClass = fillHeight
-    ? 'px-1.5 pt-0 pb-0 h-full flex flex-col min-h-0'
-    : 'p-2 pt-0 space-y-2'
-  const coreWrapClass = fillHeight
-    ? 'rounded border border-white/10 bg-gray-900/15 p-1 flex-1 min-h-0 flex flex-col justify-center'
-    : 'rounded-lg border border-white/10 bg-gray-900/15 p-1.5'
-  const coreGridGap = fillHeight ? 'gap-1' : 'gap-1.5'
-  const pettyGap = fillHeight ? 'gap-1' : 'gap-2'
+  const compact = !!fillHeight
+  const wrapPad = compact ? 'p-1.5 space-y-1.5' : 'p-2 space-y-2'
+  const coreGrid = compact ? 'grid grid-cols-3 gap-1.5' : 'grid grid-cols-3 gap-2'
+  const pettyGrid = compact ? 'grid grid-cols-4 gap-1' : 'grid grid-cols-4 gap-1.5'
+
+  const grid = (
+    <div className={wrapPad}>
+      <div className={coreGrid}>
+        {CORE_WALLET_IDS.map((id) => (
+          <WalletCurrencyCard
+            key={id}
+            currencyId={id}
+            amount={balances?.[id] ?? 0}
+            compact={compact}
+            variant="core"
+            editable={editable}
+            onCurrencyChange={onCurrencyChange}
+            dragCurrencyToBag={dragCurrencyToBag}
+          />
+        ))}
+      </div>
+      <div className={pettyGrid}>
+        {PETTY_WALLET_IDS.map((id) => (
+          <WalletCurrencyCard
+            key={id}
+            currencyId={id}
+            amount={balances?.[id] ?? 0}
+            compact={compact}
+            variant="petty"
+            editable={editable}
+            onCurrencyChange={onCurrencyChange}
+            dragCurrencyToBag={dragCurrencyToBag}
+          />
+        ))}
+      </div>
+    </div>
+  )
+
+  if (embedded) {
+    return (
+      <div className={`min-w-0 flex flex-col ${fillHeight ? 'flex-1 min-h-0' : ''} ${extraClass}`}>
+        <div className={fillHeight ? 'flex-1 min-h-0 overflow-y-auto min-w-0' : 'min-w-0'}>{grid}</div>
+      </div>
+    )
+  }
+
   return (
     <div className={`rounded-xl bg-dnd-card border border-white/10 overflow-hidden ${fillHeight ? 'h-full' : ''} ${extraClass}`}>
-      {title && (
-        <h3 className={titleClass ?? 'text-dnd-text-muted text-xs font-bold uppercase tracking-wider px-3 pt-3 pb-1.5'}>
-          {title}
-        </h3>
-      )}
-      <div className={innerClass}>
-        {/* 核心资产区：三货币紧凑横排 */}
-        <div className={coreWrapClass}>
-          <div className={`grid grid-cols-3 ${coreGridGap}`}>
-            {CORE_IDS.map((id) => (
-              <CoreCurrencyCard
-                key={id}
-                currencyId={id}
-                amount={balances?.[id] ?? 0}
-                compact={compact}
-                editable={editable}
-                onCurrencyChange={onCurrencyChange}
-                dragCurrencyToBag={dragCurrencyToBag}
-              />
-            ))}
-          </div>
+      {title || subtitle ? (
+        <div className="border-b border-white/10 px-3 pt-3 pb-2.5 space-y-1.5">
+          {title ? (
+            <h3 className={titleClass ?? 'text-dnd-text-muted text-xs font-bold uppercase tracking-wider mb-0'}>{title}</h3>
+          ) : null}
+          {subtitle ? <div className="text-[10px] text-dnd-text-muted leading-snug">{subtitle}</div> : null}
         </div>
-        {/* 零钱区：平铺对齐核心区宽度，四项等分 */}
-        <div className={`grid grid-cols-4 shrink-0 ${pettyGap}`}>
-          {PETTY_IDS.map((id) => (
-            <PettyCurrencyItem
-              key={id}
-              currencyId={id}
-              amount={balances?.[id] ?? 0}
-              compact={compact}
-              editable={editable}
-              onCurrencyChange={onCurrencyChange}
-              dragCurrencyToBag={dragCurrencyToBag}
-            />
-          ))}
-        </div>
-      </div>
+      ) : null}
+      {grid}
     </div>
   )
 }

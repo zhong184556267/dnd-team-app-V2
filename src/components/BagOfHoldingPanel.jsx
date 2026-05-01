@@ -613,7 +613,7 @@ export function BagModuleSection({
                               role="presentation"
                             >
                               <span className="shrink-0 leading-none">数量</span>
-                              <div className="w-[5.125rem] shrink-0 max-w-full">
+                              <div className="w-[5.125rem] shrink-0 max-w-full h-6 flex items-center justify-end">
                                 <span className="text-dnd-text-body text-xs font-semibold tabular-nums inline-block text-right w-full pr-0.5">
                                   {entry.walletCurrencyId === 'gem_lb'
                                     ? formatDisplayGemLbQty(walletQtyDisplay)
@@ -621,7 +621,7 @@ export function BagModuleSection({
                                 </span>
                               </div>
                             </div>
-                            <div className="flex shrink-0 min-h-7 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
+                            <div className="flex shrink-0 min-h-7 w-16 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
                               {stackLb > 0 ? (
                                 <span className="text-dnd-text-body">{formatDisplayWeightLb(stackLb)} lb</span>
                               ) : (
@@ -720,7 +720,7 @@ export function BagModuleSection({
                             role="presentation"
                           >
                             <span className="shrink-0 leading-none">数量</span>
-                            <div className="w-[5.125rem] shrink-0 max-w-full">
+                            <div className="w-[5.125rem] shrink-0 max-w-full h-6 flex items-center justify-end">
                               {canEdit && patchBag ? (
                                 <NumberStepper
                                   value={qty}
@@ -735,7 +735,7 @@ export function BagModuleSection({
                               )}
                             </div>
                           </div>
-                          <div className="flex shrink-0 min-h-7 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
+                          <div className="flex shrink-0 min-h-7 w-16 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
                             {stackLb > 0 ? (
                               <span className="text-dnd-text-body">{formatDisplayWeightLb(stackLb)} lb</span>
                             ) : (

@@ -1644,7 +1644,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                                     role="presentation"
                                   >
                                     <span className="shrink-0 leading-none">袋</span>
-                                    <div className="w-[5.125rem] shrink-0 max-w-full">
+                                    <div className="w-[5.125rem] shrink-0 max-w-full h-6 flex items-center justify-end">
                                       {canEdit ? (
                                         <NumberStepper
                                           value={qty}
@@ -1660,7 +1660,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                                       )}
                                     </div>
                                   </div>
-                                  <div className="flex shrink-0 min-h-7 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
+                                  <div className="flex shrink-0 min-h-7 w-16 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
                                     {totalLb > 0 ? (
                                       <span className="text-dnd-text-body" title="仅自重；与负重条一致">
                                         {formatDisplayWeightLb(totalLb)} lb
@@ -1682,7 +1682,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                                   <div className="flex shrink-0 min-h-7 items-center justify-end text-[10px] text-dnd-text-muted" aria-hidden="true">
                                     <span>—</span>
                                   </div>
-                                  <div className="flex shrink-0 min-h-7 items-center justify-end text-[10px] text-dnd-text-muted" aria-hidden="true">
+                                  <div className="flex shrink-0 min-h-7 w-16 items-center justify-end text-[10px] text-dnd-text-muted" aria-hidden="true">
                                     <span>—</span>
                                   </div>
                                 </div>
@@ -1720,7 +1720,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                                   role="presentation"
                                 >
                                   <span className="shrink-0 leading-none">数量</span>
-                                  <div className="w-[5.125rem] shrink-0 max-w-full">
+                                  <div className="w-[5.125rem] shrink-0 max-w-full h-6 flex items-center justify-end">
                                     {canEdit && !entry?.walletCurrencyId ? (
                                       <NumberStepper
                                         value={qty}
@@ -1738,7 +1738,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                                     )}
                                   </div>
                                 </div>
-                                <div className="flex shrink-0 min-h-7 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
+                                <div className="flex shrink-0 min-h-7 w-16 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
                                   {totalLb > 0 ? (
                                     <span className="text-dnd-text-body">{formatDisplayWeightLb(totalLb)} lb</span>
                                   ) : (

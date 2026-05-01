@@ -91,11 +91,27 @@ export default function CharacterSpells({
 }) {
   const { currentModuleId } = useModule()
   const spellsModuleId = currentModuleId || 'default'
-  const raw = char?.spells ?? []
-  const spells = raw.map((s) => ({
-    spellId: s.spellId ?? s.id ?? '',
-    prepared: !!s.prepared,
-  }))
+
+  /** 乐观更新：本地维护 spells 状态，点击后立即反映到 UI，再异步持久化 */
+  const [optimisticSpells, setOptimisticSpells] = useState(() => {
+    const raw = char?.spells ?? []
+    return raw.map((s) => ({
+      spellId: s.spellId ?? s.id ?? '',
+      prepared: !!s.prepared,
+    }))
+  })
+
+  useEffect(() => {
+    const raw = char?.spells ?? []
+    setOptimisticSpells(
+      raw.map((s) => ({
+        spellId: s.spellId ?? s.id ?? '',
+        prepared: !!s.prepared,
+      }))
+    )
+  }, [char?.id])
+
+  const spells = optimisticSpells
   const spellIds = new Set(spells.map((s) => s.spellId).filter(Boolean))
 
   /** 按环阶分组（0→9），同环内按名称排序 */
@@ -136,6 +152,7 @@ export default function CharacterSpells({
     const spell = getSpellById(spellId)
     const isCantrip = spell && (spell.level ?? 0) === 0
     const next = [...spells, { spellId, prepared: isCantrip }]
+    setOptimisticSpells(next)
     onSave({ spells: next })
   }
 
@@ -143,11 +160,13 @@ export default function CharacterSpells({
     const next = spells.map((item) =>
       item.spellId === spellId ? { ...item, prepared: !item.prepared } : item
     )
+    setOptimisticSpells(next)
     onSave({ spells: next })
   }
 
   const removeSpell = (spellId) => {
     const next = spells.filter((item) => item.spellId !== spellId)
+    setOptimisticSpells(next)
     onSave({ spells: next })
   }
 

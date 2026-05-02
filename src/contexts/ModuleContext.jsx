@@ -11,11 +11,12 @@ import {
 import { clearLegacyTeamLocalStorage } from '../lib/clearLegacyTeamLocalStorage'
 import { loadCustomItemsFromSupabase } from '../data/itemDatabase'
 import { loadCustomSpellsFromSupabase } from '../data/spellDatabase'
+import { startAutoBackupScheduler, stopAutoBackupScheduler } from '../lib/moduleSnapshotStore'
 
 const ModuleContext = createContext(null)
 
 export function ModuleProvider({ children }) {
-  const { user } = useAuth()
+  const { user, isAdmin } = useAuth()
   const [modules, setModules] = useState(() => (isSupabaseEnabled() ? [] : getModulesSnapshot()))
   const [currentModuleId, setCurrentModuleIdState] = useState(() =>
     isSupabaseEnabled() ? 'default' : getCurrentModuleId()
@@ -78,6 +79,14 @@ export function ModuleProvider({ children }) {
       cancelled = true
     }
   }, [user?.name])
+
+  // 自动备份调度器：仅 DM 登录时启动，卸载或非DM时停止
+  useEffect(() => {
+    if (isAdmin) {
+      startAutoBackupScheduler()
+    }
+    return () => stopAutoBackupScheduler()
+  }, [isAdmin])
 
   const setCurrentModuleId = (id) => {
     persistModuleId(id, user?.name)

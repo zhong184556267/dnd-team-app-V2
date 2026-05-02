@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { BookOpen, ChevronDown, ChevronRight, Plus, Pencil, Star, Trash2 } from 'lucide-react'
+import { BookOpen, ChevronDown, ChevronRight, Plus, Pencil, Star, Trash2, Save } from 'lucide-react'
 import DragHandleIcon from '../components/DragHandleIcon'
 import { useAuth } from '../contexts/AuthContext'
 import { useModule } from '../contexts/ModuleContext'
@@ -8,11 +8,12 @@ import { getAllCharacters, getDefaultCharacterId } from '../lib/characterStore'
 import { getModules, addModule, updateModule, reorderModules, deleteModule } from '../lib/moduleStore'
 import { loadTeamActivities } from '../lib/activityLog'
 import { isSupabaseEnabled } from '../lib/supabase'
+import { saveManualSnapshot } from '../lib/moduleSnapshotStore'
 import { inputClass } from '../lib/inputStyles'
 import Characters from './Characters'
 
 export default function Dashboard() {
-  const { user } = useAuth()
+  const { user, isAdmin } = useAuth()
   const { setCurrentModuleId, modules, refreshModules } = useModule()
   const location = useLocation()
   const [, setRealtimeTick] = useState(0)
@@ -22,6 +23,7 @@ export default function Dashboard() {
   const [editingModuleId, setEditingModuleId] = useState(null)
   const [editingName, setEditingName] = useState('')
   const [expandedModuleIds, setExpandedModuleIds] = useState(() => new Set())
+  const [snapshottingId, setSnapshottingId] = useState(null)
   const moduleNameInputRef = useRef(null)
   const editingModuleIdRef = useRef(null)
   const savingModuleRef = useRef(false)
@@ -180,6 +182,20 @@ export default function Dashboard() {
     return d.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' }) + ' ' + d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
   }
 
+  const handleSnapshot = async (e, m) => {
+    e.stopPropagation()
+    if (snapshottingId) return
+    setSnapshottingId(m.id)
+    try {
+      await saveManualSnapshot(m.id)
+    } catch (err) {
+      console.warn('快照保存失败', err)
+      alert('快照保存失败：' + (err?.message || String(err)))
+    } finally {
+      setSnapshottingId(null)
+    }
+  }
+
   useEffect(() => {
     if (location.pathname !== '/characters') return
     const t = window.setTimeout(() => {
@@ -319,6 +335,17 @@ export default function Dashboard() {
                 <div className="flex items-center gap-0.5 shrink-0">
                   {!isEditing && (
                     <>
+                      {isAdmin && (
+                        <button
+                        type="button"
+                        onClick={(e) => handleSnapshot(e, m)}
+                        title={snapshottingId === m.id ? '正在保存快照...' : '保存数据快照'}
+                        disabled={snapshottingId === m.id}
+                        className="p-1.5 rounded-lg text-dnd-text-muted hover:text-emerald-400 hover:bg-emerald-500/15 transition-colors disabled:opacity-50"
+                      >
+                        <Save className="w-4 h-4" />
+                      </button>
+                      )}
                       <button
                         type="button"
                         onClick={(e) => startEditModule(e, m)}

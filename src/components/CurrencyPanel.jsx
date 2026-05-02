@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react'
 import { Plus, Minus, ArrowRightLeft } from 'lucide-react'
 import { useModule } from '../contexts/ModuleContext'
-import { convertCurrency, loadTeamVaultIntoCache, getTeamVault, setTeamVault } from '../lib/currencyStore'
-import { getEffectiveTeamVaultBalances, deductTeamCurrency, convertEffectiveTeamCurrency, sumWarehouseWalletBalances, sumPublicBagWalletBalances } from '../lib/teamCurrencyPublicBags'
-import { loadWarehouseIntoCache, addWarehouseCurrencyStack, tryConsumeWarehouseCurrencyStacks } from '../lib/warehouseStore'
+import { convertCurrency, loadTeamVaultIntoCache } from '../lib/currencyStore'
+import { getEffectiveTeamVaultBalances, deductTeamCurrency, convertEffectiveTeamCurrency } from '../lib/teamCurrencyPublicBags'
+import { loadWarehouseIntoCache, addWarehouseCurrencyStack } from '../lib/warehouseStore'
 import { CURRENCY_CONFIG, getCurrencyDisplayName } from '../data/currencyConfig'
 import { CurrencyGrid } from './CurrencyDisplay'
 
@@ -144,20 +144,19 @@ export default function CurrencyPanel({ variant = 'panel', showControls = true, 
       ? Math.round(Math.max(0, value) * 10) / 10
       : Math.max(0, Math.floor(value))
 
-    // 1. 账面清零
-    const vault = getTeamVault(currentModuleId)
-    await setTeamVault(currentModuleId, { ...vault, [currencyId]: 0 })
+    // 基于当前有效余额做差额调整，绝不先清空再重建
+    const eff = getEffectiveTeamVaultBalances(currentModuleId)
+    const current = eff[currencyId] ?? 0
+    const delta = targetValue - current
 
-    // 2. 清空秘法箱中该货币的实物（顶层）
-    const whCurrent = sumWarehouseWalletBalances(currentModuleId)
-    const currentWh = whCurrent[currencyId] ?? 0
-    if (currentWh > 0) {
-      await tryConsumeWarehouseCurrencyStacks(currentModuleId, currencyId, currentWh)
-    }
-
-    // 3. 按目标值重新添加实物到秘法箱
-    if (targetValue > 0) {
-      await addWarehouseCurrencyStack(currentModuleId, currencyId, targetValue)
+    if (delta > 0) {
+      await addWarehouseCurrencyStack(currentModuleId, currencyId, delta)
+    } else if (delta < 0) {
+      const result = await deductTeamCurrency(currentModuleId, currencyId, Math.abs(delta))
+      if (!result.success) {
+        refresh()
+        return
+      }
     }
 
     window.dispatchEvent(new CustomEvent('dnd-realtime-team-vault'))

@@ -96,7 +96,6 @@ const nestedCardClass = 'rounded-lg border border-gray-600/50 bg-[#1a2430]/50 ov
 /** 团队仓库物品卡（与 inventoryItemCardStyles 一致） */
 const teamBackpackItemCardClass = inventoryItemCardShellClass
 const teamBagRowGrid = inventoryItemRowGridEditableWithCharge
-const teamBagRowGridNoCharge = inventoryItemRowGridEditableNoCharge
 
 /** 秘法箱 ↔ 公家袋 转移时复制袋内结构，避免共享引用导致一侧清空另一侧丢内容 */
 function cloneBagNestedInventory(nested) {
@@ -1769,13 +1768,13 @@ export default function Warehouse() {
                           role="presentation"
                         >
                           <span className="shrink-0 leading-none">数量</span>
-                          <div className="w-[5.125rem] shrink-0 max-w-full">
+                          <div className="w-[5.125rem] shrink-0 max-w-full h-6 flex items-center justify-end">
                             <span className="text-dnd-text-body text-xs font-semibold tabular-nums inline-block text-right w-full pr-0.5">
                               {nEntry.walletCurrencyId === 'gem_lb' ? formatDisplayGemLbQty(cq) : cq.toLocaleString('en-US')}
                             </span>
                           </div>
                         </div>
-                        <div className="flex shrink-0 min-h-7 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
+                        <div className="flex shrink-0 min-h-7 w-16 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
                           {stackLb > 0 ? (
                             <span className="text-dnd-text-body">{formatDisplayWeightLb(stackLb)} lb</span>
                           ) : (
@@ -1894,7 +1893,7 @@ export default function Warehouse() {
                         />
                       </div>
                     </div>
-                    <div className="flex shrink-0 min-h-7 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
+                    <div className="flex shrink-0 min-h-7 w-16 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
                       {nestedSelfLb > 0 ? (
                         <span className="text-dnd-text-body" title="仅子袋自重">
                           {formatDisplayWeightLb(nestedSelfLb)} lb
@@ -1987,7 +1986,7 @@ export default function Warehouse() {
                   onDragStart={(e) => handleNestedArcaneDragStart(e, topBagIndex, path)}
                   onDragEnd={handleNestedArcaneDragEnd}
                 >
-                  <div className={showCharge ? teamBagRowGrid : teamBagRowGridNoCharge}>
+                  <div className={teamBagRowGrid}>
                     <div className="shrink-0 flex items-center justify-center min-h-7 text-dnd-text-muted pointer-events-none select-none" aria-hidden>
                       <DragHandleIcon className="w-3.5 h-3.5" />
                     </div>
@@ -2026,7 +2025,11 @@ export default function Warehouse() {
                           />
                         </div>
                       </div>
-                    ) : null}
+                    ) : (
+                      <div className={inventoryItemChargeCellClass} aria-hidden>
+                        <span className="opacity-0 select-none">—</span>
+                      </div>
+                    )}
                     <div className={inventoryItemQtyWeightCellClass}>
                       <div
                         className="flex shrink-0 min-h-7 items-center justify-end gap-1 text-[10px] text-dnd-text-muted"
@@ -2048,7 +2051,7 @@ export default function Warehouse() {
                           />
                         </div>
                       </div>
-                      <div className="flex shrink-0 min-h-7 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
+                      <div className="flex shrink-0 min-h-7 w-16 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
                         {stackLb > 0 ? (
                           <span className="text-dnd-text-body">{formatDisplayWeightLb(stackLb)} lb</span>
                         ) : (
@@ -2274,13 +2277,13 @@ export default function Warehouse() {
                                           role="presentation"
                                         >
                                           <span className="shrink-0 leading-none">数量</span>
-                                          <div className="w-[5.125rem] shrink-0 max-w-full">
+                                          <div className="w-[5.125rem] shrink-0 max-w-full h-6 flex items-center justify-end">
                                             <span className="text-dnd-text-body text-xs font-semibold tabular-nums text-right block w-full pr-0.5">
                                               {entry.walletCurrencyId === 'gem_lb' ? formatDisplayGemLbQty(cq) : cq.toLocaleString('en-US')}
                                             </span>
                                           </div>
                                         </div>
-                                        <div className="flex shrink-0 min-h-7 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
+                                        <div className="flex shrink-0 min-h-7 w-16 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
                                           {stackLb > 0 ? (
                                             <span className="text-dnd-text-body">{formatDisplayWeightLb(stackLb)} lb</span>
                                           ) : (
@@ -2342,7 +2345,7 @@ export default function Warehouse() {
                                   onDragStart={(e) => handlePublicBagDragStart(e, c.id, invIdx)}
                                   onDragEnd={handleDragEnd}
                                 >
-                                  <div className={showCharge ? teamBagRowGrid : teamBagRowGridNoCharge}>
+                                  <div className={teamBagRowGrid}>
                                     <div className="shrink-0 flex items-center justify-center min-h-7 text-dnd-text-muted pointer-events-none select-none" aria-hidden>
                                       <DragHandleIcon className="w-3.5 h-3.5" />
                                     </div>
@@ -2377,7 +2380,11 @@ export default function Warehouse() {
                                           />
                                         </div>
                                       </div>
-                                    ) : null}
+                                    ) : (
+                                      <div className={inventoryItemChargeCellClass} aria-hidden>
+                                        <span className="opacity-0 select-none">—</span>
+                                      </div>
+                                    )}
                                     <div className={inventoryItemQtyWeightCellClass}>
                                       <div
                                         className="flex shrink-0 min-h-7 items-center justify-end gap-1 text-[10px] text-dnd-text-muted"
@@ -2396,7 +2403,7 @@ export default function Warehouse() {
                                           />
                                         </div>
                                       </div>
-                                      <div className="flex shrink-0 min-h-7 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
+                                      <div className="flex shrink-0 min-h-7 w-16 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
                                         {stackLb > 0 ? (
                                           <span className="text-dnd-text-body">{formatDisplayWeightLb(stackLb)} lb</span>
                                         ) : (
@@ -2587,7 +2594,7 @@ export default function Warehouse() {
                                       />
                                     </div>
                                   </div>
-                                  <div className="flex shrink-0 min-h-7 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
+                                  <div className="flex shrink-0 min-h-7 w-16 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
                                     {stackLb > 0 ? (
                                       <span className="text-dnd-text-body">{formatDisplayWeightLb(stackLb)} lb</span>
                                     ) : (
@@ -2648,7 +2655,7 @@ export default function Warehouse() {
                               onDragOver={handleDragOver}
                               onDrop={(e) => handleDropOnArcaneTopRow(e, i)}
                             >
-                              <div className={teamBagRowGridNoCharge}>
+                              <div className={teamBagRowGrid}>
                                 <div
                                   className="shrink-0 flex items-center justify-center min-h-7 text-dnd-text-muted cursor-grab active:cursor-grabbing"
                                   draggable
@@ -2691,6 +2698,9 @@ export default function Warehouse() {
                                     <span className={inventoryItemNameTextClass}>{displayName(entry)}</span>
                                   </div>
                                 </div>
+                                <div className={inventoryItemChargeCellClass} aria-hidden>
+                                  <span className="opacity-0 select-none">—</span>
+                                </div>
                                 <div className={inventoryItemQtyWeightCellClass}>
                                   <div
                                     className="flex shrink-0 min-h-7 items-center justify-end gap-1 text-[10px] text-dnd-text-muted"
@@ -2710,7 +2720,7 @@ export default function Warehouse() {
                                       />
                                     </div>
                                   </div>
-                                  <div className="flex shrink-0 min-h-7 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
+                                  <div className="flex shrink-0 min-h-7 w-16 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
                                     {selfLb > 0 ? (
                                       <span className="text-dnd-text-body" title="仅次元袋自重；袋内重量不计入此行">
                                         {formatDisplayWeightLb(selfLb)} lb
@@ -2836,7 +2846,7 @@ export default function Warehouse() {
                         onDragOver={handleDragOver}
                         onDrop={(e) => handleDropOnArcaneTopRow(e, i)}
                       >
-                        <div className={showCharge ? teamBagRowGrid : teamBagRowGridNoCharge}>
+                        <div className={teamBagRowGrid}>
                           <div className="shrink-0 flex items-center justify-center min-h-7 text-dnd-text-muted pointer-events-none select-none" aria-hidden>
                             <DragHandleIcon className="w-3.5 h-3.5" />
                           </div>
@@ -2864,7 +2874,11 @@ export default function Warehouse() {
                                 <NumberStepper value={Number(entry.charge) || 0} onChange={(v) => setCharge(i, v)} min={0} compact pill subtle />
                               </div>
                             </div>
-                          ) : null}
+                          ) : (
+                            <div className={inventoryItemChargeCellClass} aria-hidden>
+                              <span className="opacity-0 select-none">—</span>
+                            </div>
+                          )}
                           <div className={inventoryItemQtyWeightCellClass}>
                             <div
                               className="flex shrink-0 min-h-7 items-center justify-end gap-1 text-[10px] text-dnd-text-muted"
@@ -2876,7 +2890,7 @@ export default function Warehouse() {
                                 <NumberStepper value={qty} onChange={(v) => setQty(i, v)} min={1} compact pill subtle />
                               </div>
                             </div>
-                            <div className="flex shrink-0 min-h-7 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
+                            <div className="flex shrink-0 min-h-7 w-16 items-center justify-end text-[10px] tabular-nums whitespace-nowrap">
                               {stackLb > 0 ? (
                                 <span className="text-dnd-text-body">{formatDisplayWeightLb(stackLb)} lb</span>
                               ) : (

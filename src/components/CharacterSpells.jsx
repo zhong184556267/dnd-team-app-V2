@@ -114,6 +114,15 @@ export default function CharacterSpells({
   const spells = optimisticSpells
   const spellIds = new Set(spells.map((s) => s.spellId).filter(Boolean))
 
+  /** 乐观更新：本地维护 spellSlots 状态，环位点击/施法后立即反映到 UI */
+  const [optimisticSpellSlots, setOptimisticSpellSlots] = useState(() => ({ ...(char?.spellSlots ?? {}) }))
+
+  useEffect(() => {
+    setOptimisticSpellSlots({ ...(char?.spellSlots ?? {}) })
+  }, [char?.id])
+
+  const spellSlotsCurrent = optimisticSpellSlots
+
   /** 按环阶分组（0→9），同环内按名称排序 */
   const spellsByLevel = useMemo(() => {
     const grouped = {}
@@ -196,7 +205,6 @@ export default function CharacterSpells({
   /** 施法等级与环位数量（与 CombatStatus 一致：含 spellSlotsMaxOverride + 额外环位） */
   const maxSlotsByRing = useMemo(() => getMaxSpellSlotsByRing(char), [char])
   const spellSlotsMaxOverride = char?.spellSlotsMax && typeof char.spellSlotsMax === 'object' ? char.spellSlotsMax : {}
-  const spellSlotsCurrent = char?.spellSlots ?? {} // { 1: 2, 2: 1, ... } 当前剩余
   const extraSlotsList = useMemo(() => {
     const raw = char?.extraSpellSlots
     if (Array.isArray(raw)) return raw.map((e) => ({ id: e.id, ring: Number(e.ring) || 1, max: Math.max(0, Number(e.max) || 0) }))
@@ -223,6 +231,7 @@ export default function CharacterSpells({
   const setSpellSlotCurrent = (ring, remaining) => {
     const max = effectiveMaxByRing[ring] ?? maxSlotsByRing[ring] ?? 0
     const next = { ...spellSlotsCurrent, [ring]: Math.max(0, Math.min(max, remaining)) }
+    setOptimisticSpellSlots(next)
     onSave({ spellSlots: next })
   }
 
@@ -271,6 +280,7 @@ export default function CharacterSpells({
         const maxR = effectiveMaxByRing[ring] ?? 0
         const cur = Math.max(0, (spellSlotsCurrent[ring] ?? maxR) - 1)
         const nextSlots = { ...spellSlotsCurrent, [ring]: cur }
+        setOptimisticSpellSlots(nextSlots)
         const patch = { spellSlots: nextSlots }
         if (psychicEchoSuccess && hasPsychicCollapse && spell) {
           patch.psychicCollapseEcho = {

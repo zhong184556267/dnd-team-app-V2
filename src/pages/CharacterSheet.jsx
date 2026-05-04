@@ -711,6 +711,15 @@ function ClassFeaturesSection({ char, canEdit, onSave }) {
   const { currentModuleId } = useModule()
   const moduleId = currentModuleId || 'default'
   const overridesMap = useRuleTextOverridesMap(moduleId)
+  const [expandedFeatureIds, setExpandedFeatureIds] = useState(new Set())
+  const toggleFeatureExpand = (key) => {
+    setExpandedFeatureIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
 
   const selected = resolveSelectedFeatures(char)
   const available = getAvailableFeatures(char)
@@ -729,53 +738,6 @@ function ClassFeaturesSection({ char, canEdit, onSave }) {
     <div className="rounded-lg border border-gray-600 bg-gray-800/50 p-4">
       <div className="space-y-3">
         <p className="text-gray-500 text-xs">根据当前职业与等级从职业库调出可选特性，可添加至下方以便查阅。</p>
-      {/* 已添加的特性：优先显示在上方，添加后会出现在这里 */}
-      <div>
-        <p className={`${CS_LIST_SECTION_LBL} mb-2`}>已添加</p>
-        {selected.length > 0 ? (
-          <ul className="space-y-2">
-            {selected.map((f) => (
-              <li key={f.selectedKey} className="rounded-lg border border-gray-600 bg-gray-800/50 p-3">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <span className={CS_LIST_TITLE}>
-                      {resolveRuleText(
-                        overridesMap,
-                        f.sourceSubclass
-                          ? buildSubclassFeatureNameKey(f.sourceClass, f.sourceSubclass, f.id)
-                          : buildClassFeatureNameKey(f.sourceClass, f.id),
-                        f.name,
-                      )}
-                    </span>
-                    <span className={`${CS_LIST_META} ml-2`}>{f.sourceClass}{f.sourceSubclass ? `（${f.sourceSubclass}）` : ''} · {f.level} 级</span>
-                    <p className={`${CS_LIST_BODY} mt-1 whitespace-pre-line`}>
-                      {resolveRuleText(
-                        overridesMap,
-                        f.sourceSubclass
-                          ? buildSubclassFeatureKey(f.sourceClass, f.sourceSubclass, f.id)
-                          : buildClassFeatureKey(f.sourceClass, f.id),
-                        f.description,
-                      )}
-                    </p>
-                  </div>
-                  {canEdit && (
-                    <button
-                      type="button"
-                      onClick={() => removeFeature(f.selectedKey)}
-                      className={`${CS_ICON_BTN} text-gray-500 hover:bg-red-900/30 hover:text-red-400`}
-                      title="从角色卡移除"
-                    >
-                      <Trash2 className={CS_ICON_16} />
-                    </button>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-gray-500 text-xs py-2">从下方选择特性添加后，将显示在此处。</p>
-        )}
-      </div>
       {canEdit && toAdd.length > 0 && (
         <div>
           <p className={`${CS_LIST_SECTION_LBL} mb-1`}>从职业库添加</p>
@@ -806,6 +768,62 @@ function ClassFeaturesSection({ char, canEdit, onSave }) {
           </select>
         </div>
       )}
+      {/* 已添加的特性 */}
+      <div>
+        <p className={`${CS_LIST_SECTION_LBL} mb-2`}>已添加</p>
+        {selected.length > 0 ? (
+          <ul className="space-y-2">
+            {selected.map((f) => {
+              const isExpanded = expandedFeatureIds.has(f.selectedKey)
+              const descText = resolveRuleText(
+                overridesMap,
+                f.sourceSubclass
+                  ? buildSubclassFeatureKey(f.sourceClass, f.sourceSubclass, f.id)
+                  : buildClassFeatureKey(f.sourceClass, f.id),
+                f.description,
+              )
+              return (
+              <li key={f.selectedKey} className="rounded-lg border border-gray-600 bg-gray-800/50 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div
+                    className="flex-1 min-w-0 cursor-pointer select-none"
+                    onClick={() => toggleFeatureExpand(f.selectedKey)}
+                  >
+                    <span className={CS_LIST_TITLE}>
+                      {resolveRuleText(
+                        overridesMap,
+                        f.sourceSubclass
+                          ? buildSubclassFeatureNameKey(f.sourceClass, f.sourceSubclass, f.id)
+                          : buildClassFeatureNameKey(f.sourceClass, f.id),
+                        f.name,
+                      )}
+                    </span>
+                    <span className={`${CS_LIST_META} ml-2`}>{f.sourceClass}{f.sourceSubclass ? `（${f.sourceSubclass}）` : ''} · {f.level} 级</span>
+                  </div>
+                  {canEdit && (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); removeFeature(f.selectedKey) }}
+                      className={`${CS_ICON_BTN} text-gray-500 hover:bg-red-900/30 hover:text-red-400`}
+                      title="从角色卡移除"
+                    >
+                      <Trash2 className={CS_ICON_16} />
+                    </button>
+                  )}
+                </div>
+                {isExpanded && descText && (
+                  <p className={`${CS_LIST_BODY} mt-2 border-t border-gray-700/35 pt-2 whitespace-pre-line`}>
+                    {descText}
+                  </p>
+                )}
+              </li>
+              )
+            })}
+          </ul>
+        ) : (
+          <p className="text-gray-500 text-xs py-2">暂无已添加的特性</p>
+        )}
+      </div>
       </div>
     </div>
   )
@@ -831,6 +849,15 @@ function FeatsSection({ char, canEdit, onSave }) {
   const { currentModuleId } = useModule()
   const moduleId = currentModuleId || 'default'
   const overridesMap = useRuleTextOverridesMap(moduleId)
+  const [expandedFeatIds, setExpandedFeatIds] = useState(new Set())
+  const toggleFeatExpand = (featId) => {
+    setExpandedFeatIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(featId)) next.delete(featId)
+      else next.add(featId)
+      return next
+    })
+  }
 
   const raw = char?.selectedFeats ?? []
   const featDragFrom = useRef(null)
@@ -988,7 +1015,10 @@ function FeatsSection({ char, canEdit, onSave }) {
                 }
               >
                 <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <div className="flex items-center gap-2 flex-wrap min-w-0 flex-1">
+                  <div
+                    className="flex items-center gap-2 flex-wrap min-w-0 flex-1 cursor-pointer select-none"
+                    onClick={() => toggleFeatExpand(item.featId)}
+                  >
                     {canEdit && (
                       <span
                         aria-label="拖动排序"
@@ -1004,6 +1034,7 @@ function FeatsSection({ char, canEdit, onSave }) {
                           featDragFrom.current = null
                           setFeatDragOver(null)
                         }}
+                        onClick={(e) => e.stopPropagation()}
                       >
                         <DragHandleIcon className={`${CS_ICON_16} text-dnd-text-muted`} aria-hidden />
                       </span>
@@ -1014,7 +1045,7 @@ function FeatsSection({ char, canEdit, onSave }) {
                   {canEdit && (
                     <button
                       type="button"
-                      onClick={() => removeFeat(i)}
+                      onClick={(e) => { e.stopPropagation(); removeFeat(i) }}
                       className={`${CS_ICON_BTN} text-gray-500 hover:text-dnd-red`}
                       title="移除"
                     >
@@ -1022,21 +1053,15 @@ function FeatsSection({ char, canEdit, onSave }) {
                     </button>
                   )}
                 </div>
-                {feat?.description && (
-                  <p className={`${CS_LIST_BODY} mt-2 whitespace-pre-line`}>
+                {expandedFeatIds.has(item.featId) && feat?.description && (
+                  <p className={`${CS_LIST_BODY} mt-2 border-t border-gray-700/35 pt-2 whitespace-pre-line`}>
                     {formatFeatDescriptionForDisplay(
                       resolveRuleText(overridesMap, buildFeatDescriptionKey(item.featId), feat.description),
                     )}
                   </p>
                 )}
-                {canEdit ? (
-                  <div
-                    className={
-                      featHasDescription
-                        ? 'mt-3 min-w-0 w-full border-t border-gray-600/35 pt-3'
-                        : 'mt-2 min-w-0 w-full'
-                    }
-                  >
+                {expandedFeatIds.has(item.featId) && (canEdit ? (
+                  <div className="mt-3 min-w-0 w-full border-t border-gray-600/35 pt-3">
                     <div
                       className={`${featAcquireText} flex flex-wrap items-center gap-x-0.5 gap-y-1.5`}
                       role="group"
@@ -1075,16 +1100,10 @@ function FeatsSection({ char, canEdit, onSave }) {
                     </div>
                   </div>
                 ) : (
-                  <p
-                    className={
-                      featHasDescription
-                        ? `${CS_LIST_META} mt-3 border-t border-gray-600/35 pt-3 leading-relaxed`
-                        : `${CS_LIST_META} mt-2 leading-relaxed`
-                    }
-                  >
+                  <p className={`${CS_LIST_META} mt-3 border-t border-gray-600/35 pt-3 leading-relaxed`}>
                     {formatFeatAcquisitionSentence(item.sourceClass, item.level, category)}
                   </p>
-                )}
+                ))}
               </li>
             )
           })}
@@ -1748,12 +1767,12 @@ export default function CharacterSheet() {
           )}
           {!isCreatureTemplate && (
             <section id="sheet-features" className="character-sheet-section-anchor mt-6">
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-                <div className="md:col-span-3 min-w-0">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="min-w-0">
                   <h3 className="section-title">职业特性</h3>
                   <ClassFeaturesSection char={char} canEdit={canEdit} onSave={persist} />
                 </div>
-                <div className="md:col-span-2 min-w-0">
+                <div className="min-w-0">
                   <h3 className="section-title">专长</h3>
                   <FeatsSection char={char} canEdit={canEdit} onSave={persist} />
                 </div>

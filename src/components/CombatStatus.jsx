@@ -37,7 +37,7 @@ const DAMAGE_TYPE_SHORT = { 强酸: '酸', 钝击: '钝', 寒冷: '寒', 火焰:
 const HIT_RESOLUTION_LABELS = { dex_save: '敏捷豁免', str_save: '力量豁免', con_save: '体质豁免', wis_save: '感知豁免', int_save: '智力豁免', cha_save: '魅力豁免', spell_attack: '法术攻击' }
 import { getItemById, parseWeaponNoteToTraits } from '../data/itemDatabase'
 import { getSpellById, getWandScrollSpellPower, getMergedSpells } from '../data/spellDatabase'
-import { getSpellcastingLevel, getMaxSpellSlotsByRing } from '../data/classDatabase'
+import { getSpellcastingLevel, getMaxSpellSlotsByRing, getHitDice } from '../data/classDatabase'
 import { getSpellcastingCombatStats } from '../lib/spellcastingStats'
 import { rollDice, rollCombatDicePool, parseCombatDiceExpression } from '../data/weaponDatabase'
 import { buildQuickRollAnimation } from '../lib/quickRollAnimation'
@@ -65,13 +65,9 @@ const COMBAT_LIST_ROW_SHADOW = 'shadow-[0_2px_10px_rgba(0,0,0,0.42)]'
 /** 战斗手段：非高显（灰标签、区标题、添加行）统一 text-xs；高显（名称、射程/命中/伤害数值与骰串）用 text-sm */
 const CM_MEAN_LABEL = 'text-xs'
 const CM_MEAN_HI = 'text-sm'
-/** 武技右侧分组排序：攻击技 / 强化技 / 应对技 … */
-const MARTIAL_OTHER_TYPE_ORDER = ['攻击技', '强化技', '应对技', '架势技', '其它']
 /** 与装备/背包物品卡同系：每招独立成卡 */
 const MARTIAL_MOVE_CARD_CLASS =
   `rounded-md border border-gray-600/50 bg-[#1a2430]/90 px-3 py-2.5 min-w-0 ${COMBAT_LIST_ROW_SHADOW}`
-const MARTIAL_SECTION_HEAD_CLASS =
-  'text-center text-[11px] font-bold uppercase tracking-wider text-dnd-gold-light/95'
 const CM_BTN_GOLD =
   'w-6 h-6 shrink-0 flex items-center justify-center rounded-md border border-transparent bg-transparent text-dnd-gold-light transition-colors hover:text-dnd-gold'
 const CM_BTN_RED =
@@ -555,6 +551,16 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   const [martialActiveStanceId, setMartialActiveStanceId] = useState(() =>
     typeof char?.martialActiveStanceId === 'string' && char.martialActiveStanceId.trim() ? char.martialActiveStanceId : null
   )
+  /** 战斗区武技卡片展开状态 */
+  const [expandedMartialIds, setExpandedMartialIds] = useState(new Set())
+  const toggleMartialExpand = (slotId) => {
+    setExpandedMartialIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(slotId)) next.delete(slotId)
+      else next.add(slotId)
+      return next
+    })
+  }
   /** 战斗区·武技：含架势/攻击技槽、准备状态、其它类型（强化/应对等）；非架势可有 used */
   const [martialSlots, setMartialSlots] = useState(() => {
     const arr = Array.isArray(char?.combatMartialTechniques) ? char.combatMartialTechniques : []
@@ -574,11 +580,16 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       })
       .filter((m) => m.techniqueId)
   })
-  const [martialLearnQuota, setMartialLearnQuota] = useState(() => ({
-    stanceMax: Math.max(0, Math.min(30, Number(char?.martialLearnQuota?.stanceMax) || 0)),
-    strikeMax: Math.max(0, Math.min(30, Number(char?.martialLearnQuota?.strikeMax) || 0)),
-    style: char?.martialLearnQuota?.style || '',
-  }))
+  const [martialLearnQuota, setMartialLearnQuota] = useState(() => {
+    const rawStyle = char?.martialLearnQuota?.style
+    // 兼容旧存档：字符串转数组
+    const style = Array.isArray(rawStyle) ? rawStyle : rawStyle ? [rawStyle] : []
+    return {
+      stanceMax: Math.max(0, Math.min(30, Number(char?.martialLearnQuota?.stanceMax) || 0)),
+      strikeMax: Math.max(0, Math.min(30, Number(char?.martialLearnQuota?.strikeMax) || 0)),
+      style,
+    }
+  })
   /** 添加武技弹窗内编辑快照：quota + 两行槽表 */
   const [martialModal, setMartialModal] = useState(null)
   const [showAddMartialModal, setShowAddMartialModal] = useState(false)
@@ -667,10 +678,12 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     )
     const q = char?.martialLearnQuota
     if (q && typeof q === 'object') {
+      const rawStyle = q.style
+      const style = Array.isArray(rawStyle) ? rawStyle : rawStyle ? [rawStyle] : []
       setMartialLearnQuota({
         stanceMax: Math.max(0, Math.min(30, Number(q.stanceMax) || 0)),
         strikeMax: Math.max(0, Math.min(30, Number(q.strikeMax) || 0)),
-        style: q.style || '',
+        style,
       })
     }
   }, [char?.id, char?.combatMartialTechniques, char?.martialLearnQuota, char?.martialActiveStanceId])
@@ -747,44 +760,6 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     [onSave]
   )
 
-  /** 架势：弹窗中已填写的架势槽均外显 */
-  const martialStanceSlots = useMemo(() => martialSlots.filter((s) => s.kind === 'stance'), [martialSlots])
-  /** 其他招式：仅外显在弹窗中勾选「已准备」的条目 */
-  const martialOtherSlots = useMemo(
-    () =>
-      martialSlots.filter(
-        (s) => (s.kind === 'strike' || s.kind === 'other') && s.prepared === true
-      ),
-    [martialSlots]
-  )
-
-  /** 右侧按类型分块：栏头竖排「攻/击/技」等 */
-  const martialSlotTypeGroupLabel = (slot) => {
-    const tech = getMartialTechniqueById(slot.techniqueId)
-    if (!tech) return slot.kind === 'strike' ? '攻击技' : '其它'
-    const t = tech.type || '其它'
-    if (t === '架势' || t === '架势技') return '架势技'
-    return t
-  }
-  const martialOtherGroupedSections = useMemo(() => {
-    const map = new Map()
-    for (const s of martialOtherSlots) {
-      const label = martialSlotTypeGroupLabel(s)
-      if (!map.has(label)) map.set(label, [])
-      map.get(label).push(s)
-    }
-    const keys = [...map.keys()].filter((k) => (map.get(k)?.length ?? 0) > 0)
-    keys.sort((a, b) => {
-      const ia = MARTIAL_OTHER_TYPE_ORDER.indexOf(a)
-      const ib = MARTIAL_OTHER_TYPE_ORDER.indexOf(b)
-      if (ia === -1 && ib === -1) return a.localeCompare(b, 'zh-Hans-CN')
-      if (ia === -1) return 1
-      if (ib === -1) return -1
-      return ia - ib
-    })
-    return keys.map((k) => ({ key: k, slots: map.get(k) }))
-  }, [martialOtherSlots])
-
   const openMartialSettingsModal = () => {
     const stanceSlots = martialSlots.filter((s) => s.kind === 'stance')
     const strikeSlots = martialSlots.filter((s) => s.kind === 'strike')
@@ -822,14 +797,16 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       : descRaw
     const styleGraphemes = tagStyle !== '—' ? Array.from(tagStyle) : []
     const styleSubTracking = styleGraphemes.length === 2 ? 'tracking-[0.62em]' : ''
+    const isExpanded = expandedMartialIds.has(slot.id)
+    const hasDesc = descText.length > 0
     return (
       <div key={slot.id} className={MARTIAL_MOVE_CARD_CLASS}>
-        <div className="flex gap-2.5">
-          <div className="flex shrink-0 flex-col items-center pt-0.5">
+        <div className="flex gap-2.5 items-start">
+          <div className="flex shrink-0 flex-col items-center">
             {isStanceCol ? (
               <button
                 type="button"
-                onClick={() => pickMartialActiveStance(slot.id)}
+                onClick={(e) => { e.stopPropagation(); pickMartialActiveStance(slot.id) }}
                 title={activeStance ? '正在使用' : '设为正在使用'}
                 aria-label={activeStance ? '正在使用' : '设为正在使用'}
                 className={`rounded-md border p-1 transition-colors ${
@@ -843,7 +820,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
             ) : (
               <button
                 type="button"
-                onClick={() => toggleMartialOtherUsed(slot.id)}
+                onClick={(e) => { e.stopPropagation(); toggleMartialOtherUsed(slot.id) }}
                 title={usedOther ? '已使用' : '标记已使用'}
                 aria-label={usedOther ? '已使用' : '标记已使用'}
                 className={`rounded-md border p-1 transition-colors ${
@@ -857,33 +834,38 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
             )}
           </div>
           <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
+            <div
+              className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 cursor-pointer select-none"
+              onClick={() => toggleMartialExpand(slot.id)}
+            >
               <div className="min-w-0 flex-1">
-                <span
-                  className={`block break-words font-semibold leading-tight ${tech ? 'text-sm text-white' : 'text-xs text-gray-500'}`}
-                  title={tech?.name}
-                >
-                  {tech?.name ?? '未知武技（库中无此条目）'}
-                </span>
-                {tech && tagStyle !== '—' ? (
-                  <span className="mt-0.5 block text-[10px] leading-tight text-dnd-text-muted">
-                    <span className={['inline-block', 'break-words', styleSubTracking].filter(Boolean).join(' ')}>{tagStyle}</span>
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                  <span
+                    className={`break-words font-semibold leading-tight ${tech ? 'text-sm text-white' : 'text-xs text-gray-500'}`}
+                    title={tech?.name}
+                  >
+                    {tech?.name ?? '未知武技（库中无此条目）'}
                   </span>
-                ) : null}
-                {tech?.tag ? (
-                  <span className="mt-0.5 block text-[10px] leading-tight text-violet-300/85">{tech.tag}</span>
-                ) : null}
+                  {tech && tagStyle !== '—' ? (
+                    <span className="text-[10px] leading-tight text-dnd-text-muted">
+                      <span className={['inline-block', 'break-words', styleSubTracking].filter(Boolean).join(' ')}>{tagStyle}</span>
+                    </span>
+                  ) : null}
+                  {tech?.tag ? (
+                    <span className="text-[10px] leading-tight text-violet-300/85">{tech.tag}</span>
+                  ) : null}
+                </div>
               </div>
               <div className="shrink-0 text-right text-[10px] leading-tight">
                 <div className={isStanceCol ? 'text-dnd-gold-light/80' : 'text-dnd-text-muted'}>{tagAction}</div>
                 <div className={isStanceCol ? 'text-dnd-gold-light/80' : 'text-dnd-text-muted'}>{tagRange}</div>
               </div>
             </div>
-            <p
-              className={`mt-2 border-t border-gray-700/35 pt-2 text-[11px] leading-snug break-words ${descText ? 'text-dnd-text-body' : 'text-dnd-text-muted'}`}
-            >
-              {descText || '—'}
-            </p>
+            {isExpanded && hasDesc && (
+              <p className="mt-2 border-t border-gray-700/35 pt-2 text-[11px] leading-snug break-words text-dnd-text-body">
+                {descText}
+              </p>
+            )}
           </div>
         </div>
       </div>
@@ -1575,6 +1557,115 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   const DEATH_SAVE_RULE_HINT =
     '（D&D 2024）d20≥10 成功；投出 1 计两次失败；投出 20 恢复 1 HP、清醒并重置死亡豁免。累计 3 次成功伤势稳定；累计 3 次失败死亡。'
 
+  /** 生命值上限计算公式文案（hover 提示） */
+  const maxHpFormulaTooltip = useMemo(() => {
+    const parts = []
+    const classes = []
+    const main = char?.['class']
+    const mainLevel = Math.max(0, Math.min(20, Number(char?.classLevel) ?? 0))
+    if (main && mainLevel > 0) classes.push({ name: main, level: mainLevel })
+    const multiclass = char?.multiclass ?? []
+    multiclass.forEach((m) => {
+      const name = m?.['class']
+      const level = Math.max(0, Math.min(20, Number(m?.level) ?? 0))
+      if (name && level > 0) classes.push({ name, level })
+    })
+    const prestige = char?.prestige ?? []
+    prestige.forEach((p) => {
+      const name = p?.['class']
+      const level = Math.max(0, Math.min(20, Number(p?.level) ?? 0))
+      if (name && level > 0) classes.push({ name, level })
+    })
+    const conScore = abilitiesForMaxHp?.con != null ? Number(abilitiesForMaxHp.con) : Number(char?.abilities?.con ?? 10)
+    const conMod = abilityModifier(conScore)
+    let baseSum = 0
+    classes.forEach(({ name, level }, idx) => {
+      const hd = getHitDice(name)
+      const avg = Math.ceil((hd + 1) / 2)
+      if (idx === 0) {
+        // 起始职业：第1级取最大值，后续取平均值
+        const firstLv = hd + conMod
+        const restLv = level > 1 ? (level - 1) * (avg + conMod) : 0
+        const sub = firstLv + restLv
+        baseSum += sub
+        parts.push(`${name} ${level}级（起始）：1级 ${hd}+${conMod}=${firstLv}${level > 1 ? ` + ${level - 1}×(${avg}+${conMod})=${restLv}` : ''} = ${sub}`)
+      } else {
+        // 兼职/进阶：所有等级取平均值
+        const sub = level * (avg + conMod)
+        baseSum += sub
+        parts.push(`${name} ${level}级（兼/进阶）：${level}×(${avg}+${conMod})=${sub}`)
+      }
+    })
+    if (parts.length === 0) return '生命上限：无职业数据'
+
+    /** 收集 HP 加值来源（旧格式 hp 字段 + 新/旧格式 max_hp_bonus） */
+    const hpBonusSources = []
+    ;(char?.buffs ?? []).forEach((b) => {
+      const v = Number(b.hp) || 0
+      if (v !== 0) {
+        const src = b.source?.trim() || '未知来源'
+        hpBonusSources.push(`${src} ${v > 0 ? '+' : ''}${v}`)
+      }
+    })
+    mergedBuffs.forEach((b) => {
+      if (Array.isArray(b.effects)) {
+        b.effects.forEach((e) => {
+          if (e.effectType === 'max_hp_bonus') {
+            const v = (typeof e.value === 'object' && e.value && 'val' in e.value ? Number(e.value.val) : Number(e.value)) || 0
+            if (v !== 0) {
+              const src = b.source?.trim() || '未知来源'
+              hpBonusSources.push(`${src} ${v > 0 ? '+' : ''}${v}`)
+            }
+          }
+        })
+      } else if (b.effectType === 'max_hp_bonus') {
+        const v = (typeof b.value === 'object' && b.value && 'val' in b.value ? Number(b.value.val) : Number(b.value)) || 0
+        if (v !== 0) {
+          const src = b.source?.trim() || '未知来源'
+          hpBonusSources.push(`${src} ${v > 0 ? '+' : ''}${v}`)
+        }
+      }
+    })
+
+    /** 收集 HP 倍率来源 */
+    const multSources = []
+    mergedBuffs.forEach((b) => {
+      if (Array.isArray(b.effects)) {
+        b.effects.forEach((e) => {
+          if (e.effectType === 'max_hp_multiplier') {
+            const v = Number(e.value) || 1
+            if (v !== 1) {
+              const src = b.source?.trim() || '未知来源'
+              multSources.push(`${src} ×${v}`)
+            }
+          }
+        })
+      } else if (b.effectType === 'max_hp_multiplier') {
+        const v = Number(b.value) || 1
+        if (v !== 1) {
+          const src = b.source?.trim() || '未知来源'
+          multSources.push(`${src} ×${v}`)
+        }
+      }
+    })
+
+    let formula = `基础 = ${baseSum}`
+    const hpBuffSum = getHPBuffSum(char)
+    if (hpBuffSum !== 0) { formula += ` + HP加值 ${hpBuffSum}`; baseSum += hpBuffSum }
+    const maxHpBonus = buffStats?.maxHpBonus ?? 0
+    if (maxHpBonus !== 0) { formula += ` + 上限加值 ${maxHpBonus}`; baseSum += maxHpBonus }
+    const mult = buffStats?.maxHpMultiplier ?? 1
+    if (mult !== 1) { formula += ` × 倍率 ${mult}`; baseSum = Math.max(1, Math.floor(baseSum * mult)) }
+    formula += ` = ${maxHpCalculated}`
+    if (isCreatureTemplate && char?.hp?.max != null && Number(char.hp.max) > 0) {
+      formula += `（生物卡手动设定：${Number(char.hp.max)}）`
+    }
+    const detailLines = [...parts, formula]
+    if (hpBonusSources.length) detailLines.push(`  HP加值来源：${hpBonusSources.join('、')}`)
+    if (multSources.length) detailLines.push(`  倍率来源：${multSources.join('、')}`)
+    return detailLines.join('\n')
+  }, [char, abilitiesForMaxHp, buffStats?.maxHpBonus, buffStats?.maxHpMultiplier, maxHpCalculated, mergedBuffs])
+
   return (
     <div
       className={`rounded-xl border border-white/10 bg-gradient-to-b from-[#243147]/35 to-[#1f2a3d]/30 p-3 space-y-3 ${COMBAT_ROOT_OUTER_SHADOW}`}
@@ -1582,8 +1673,8 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
       <div
         className={`rounded-lg border border-white/10 bg-gradient-to-b from-[#2a3952]/28 to-[#222f45]/22 p-3 ${COMBAT_INNER_RIM_ONLY}`}
       >
-        <h3 className="text-dnd-gold-light text-xs font-bold uppercase tracking-wider mb-1.5">生命值</h3>
-        <div className="flex items-center gap-2 mb-1.5">
+        <div className="flex items-baseline gap-2 mb-1.5" title={maxHpFormulaTooltip}>
+          <h3 className="text-dnd-gold-light text-xs font-bold uppercase tracking-wider shrink-0">生命值</h3>
           <span className="text-white font-bold text-xl font-mono">
             {displayCurrent} / {maxHp}
             {hasTempHp && <span className="text-blue-400 text-sm font-normal ml-1">（含 {hpTemp} 临时）</span>}
@@ -3018,40 +3109,48 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                   </div>
                   <div>
                     <label className="block text-dnd-text-muted text-[11px] mb-1">可学习流派</label>
-                    <select
-                      value={martialModal.quota.style}
-                      onChange={(e) => {
-                        const style = e.target.value
-                        const sanitize = (rows) =>
-                          rows.map((r) => {
-                            if (!r.techniqueId) return r
-                            const t = getMartialTechniqueById(r.techniqueId)
-                            if (!t || (style && t.style !== style)) {
-                              return { ...r, techniqueId: '', prepared: false }
-                            }
-                            return r
-                          })
-                        const nextQuota = { ...martialModal.quota, style }
-                        commitMartialModal({
-                          ...martialModal,
-                          quota: nextQuota,
-                          stanceRows: sanitize(martialModal.stanceRows),
-                          strikeRows: sanitize(martialModal.strikeRows),
-                        })
-                      }}
-                      className={inputClass + ' w-full h-9 text-sm'}
-                    >
-                      <option value="">不限流派（列出全部可选项）</option>
-                      {MARTIAL_TECHNIQUE_STYLES.map((s) => (
-                        <option key={s} value={s}>
-                          {s}
-                        </option>
-                      ))}
-                    </select>
+                    <div className="flex flex-wrap gap-x-3 gap-y-1.5">
+                      {MARTIAL_TECHNIQUE_STYLES.map((s) => {
+                        const checked = martialModal.quota.style.includes(s)
+                        return (
+                          <label key={s} className="inline-flex items-center gap-1.5 cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => {
+                                const nextStyle = checked
+                                  ? martialModal.quota.style.filter((x) => x !== s)
+                                  : [...martialModal.quota.style, s]
+                                const sanitize = (rows) =>
+                                  rows.map((r) => {
+                                    if (!r.techniqueId) return r
+                                    const t = getMartialTechniqueById(r.techniqueId)
+                                    if (!t || (nextStyle.length > 0 && !nextStyle.includes(t.style))) {
+                                      return { ...r, techniqueId: '', prepared: false }
+                                    }
+                                    return r
+                                  })
+                                const nextQuota = { ...martialModal.quota, style: nextStyle }
+                                commitMartialModal({
+                                  ...martialModal,
+                                  quota: nextQuota,
+                                  stanceRows: sanitize(martialModal.stanceRows),
+                                  strikeRows: sanitize(martialModal.strikeRows),
+                                })
+                              }}
+                              className="h-3.5 w-3.5 accent-dnd-gold cursor-pointer"
+                            />
+                            <span className="text-dnd-text-body text-xs">{s}</span>
+                          </label>
+                        )
+                      })}
+                    </div>
                   </div>
-                  {martialModal.quota.style ? (
-                    <div className="max-h-[22vh] overflow-y-auto pr-0.5 rounded border border-gray-700/80 bg-black/20 p-1.5">
-                      <MartialStyleIntroBlock styleName={martialModal.quota.style} compact />
+                  {martialModal.quota.style.length > 0 ? (
+                    <div className="max-h-[22vh] overflow-y-auto pr-0.5 rounded border border-gray-700/80 bg-black/20 p-1.5 space-y-1.5">
+                      {martialModal.quota.style.map((s) => (
+                        <MartialStyleIntroBlock key={s} styleName={s} compact />
+                      ))}
                     </div>
                   ) : null}
                 </section>
@@ -3068,7 +3167,16 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                       ) : (
                         <div className="space-y-1.5">
                           {martialModal.stanceRows.map((row, idx) => {
-                            const options = listMartialTechniquesForSlot('stance', martialModal.quota.style)
+                            const selectedIds = new Set(
+                              martialModal.stanceRows
+                                .filter((_, i) => i !== idx)
+                                .map((r) => r.techniqueId)
+                                .filter(Boolean)
+                            )
+                            const options = listMartialTechniquesForSlot(
+                              'stance',
+                              martialModal.quota.style
+                            ).filter((t) => !selectedIds.has(t.id) || t.id === row.techniqueId)
                             return (
                               <div
                                 key={row.id}
@@ -3123,7 +3231,16 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                       ) : (
                         <div className="space-y-1.5">
                           {martialModal.strikeRows.map((row, idx) => {
-                            const options = listMartialTechniquesForSlot('strike', martialModal.quota.style)
+                            const selectedIds = new Set(
+                              martialModal.strikeRows
+                                .filter((_, i) => i !== idx)
+                                .map((r) => r.techniqueId)
+                                .filter(Boolean)
+                            )
+                            const options = listMartialTechniquesForSlot(
+                              'strike',
+                              martialModal.quota.style
+                            ).filter((t) => !selectedIds.has(t.id) || t.id === row.techniqueId)
                             return (
                               <div
                                 key={row.id}
@@ -3341,29 +3458,12 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
             {martialSlots.length === 0 ? (
               <p className="text-dnd-text-muted text-xs">暂无武技，点击右上角「编辑」在弹窗中设置可学数量并分配招式</p>
             ) : (
-              <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
-                <div className="flex min-h-0 min-w-0 flex-1 basis-0 flex-col gap-2">
-                  <p className={MARTIAL_SECTION_HEAD_CLASS}>架势</p>
-                  {martialStanceSlots.length === 0 ? (
-                    <p className="py-2 text-center text-dnd-text-muted text-[11px]">暂无</p>
-                  ) : (
-                    martialStanceSlots.map((slot) => renderMartialCombatRow(slot, 'stance'))
-                  )}
-                </div>
-                <div className="flex min-h-0 min-w-0 flex-1 basis-0 flex-col gap-3">
-                  {martialOtherSlots.length === 0 ? (
-                    <p className="py-2 text-center text-dnd-text-muted text-[11px]">暂无在弹窗中勾选「已准备」的其他招式</p>
-                  ) : martialOtherGroupedSections.length === 0 ? (
-                    <p className="py-2 text-center text-dnd-text-muted text-[11px]">暂无</p>
-                  ) : (
-                    martialOtherGroupedSections.map(({ key, slots }) => (
-                      <div key={key} className="flex min-w-0 flex-col gap-2">
-                        <p className={MARTIAL_SECTION_HEAD_CLASS}>{key}</p>
-                        {slots.map((slot) => renderMartialCombatRow(slot, 'other'))}
-                      </div>
-                    ))
-                  )}
-                </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {martialSlots.length === 0 ? (
+                  <p className="py-2 text-center text-dnd-text-muted text-[11px] col-span-full">暂无</p>
+                ) : (
+                  martialSlots.map((slot) => renderMartialCombatRow(slot, slot.kind === 'stance' ? 'stance' : 'other'))
+                )}
               </div>
             )}
           </div>

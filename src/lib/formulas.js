@@ -388,11 +388,18 @@ export function calcMaxHP(character, effectiveAbilities = null) {
   if (classes.length === 0) return 0
 
   let total = 0
-  for (const { name, level } of classes) {
+  for (let i = 0; i < classes.length; i++) {
+    const { name, level } = classes[i]
     const hd = getHitDice(name)
     const avg = hitDieAverage(hd)
-    total += hd + conMod
-    total += (level - 1) * (avg + conMod)
+    if (i === 0) {
+      // 起始职业：第1级取生命骰最大值，后续取平均值
+      total += hd + conMod
+      total += (level - 1) * (avg + conMod)
+    } else {
+      // 兼职/进阶：所有等级均取平均值
+      total += level * (avg + conMod)
+    }
   }
   return Math.max(1, total)
 }

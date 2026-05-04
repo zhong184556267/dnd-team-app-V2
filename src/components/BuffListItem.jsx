@@ -167,6 +167,21 @@ export function getBuffSummaryLine(buff, baseAbilities = {}) {
   return effectsStr ? `${source} | ${effectsStr}` : source
 }
 
+/** 结构化效果列表：每条效果带 text 和 suppressed 标记，供逐条渲染 */
+export function getBuffEffectsList(buff, baseAbilities = {}, suppressedEffectTypes = new Set()) {
+  const effectParts = []
+  if (Array.isArray(buff.effects) && buff.effects.length) {
+    buff.effects.forEach((e) => {
+      const s = getEffectSummaryShort({ effectType: e.effectType, value: e.value, customText: e.customText })
+      if (s) effectParts.push({ text: s, suppressed: suppressedEffectTypes.has(e.effectType) })
+    })
+  } else {
+    const s = getEffectSummaryShort(buff)
+    if (s) effectParts.push({ text: s, suppressed: suppressedEffectTypes.has(buff.effectType) })
+  }
+  return effectParts
+}
+
 /** 效果描述 + 数值（用于胶囊）；属性用中文名并显示扣除后的总值 */
 function getEffectDisplay(buff, baseAbilities = {}) {
   const info = getEffectInfo(buff.effectType)
@@ -330,11 +345,13 @@ export default function BuffListItem({
   standalone,
   hideSourceTag = false,
   showDragHint = false,
+  suppressedEffectTypes = new Set(),
 }) {
   const summaryLine = getBuffSummaryLine(buff, baseAbilities)
   const barIdx = summaryLine.indexOf(' | ')
   const sourceName = barIdx >= 0 ? summaryLine.slice(0, barIdx) : summaryLine
-  const effectsStr = barIdx >= 0 ? summaryLine.slice(barIdx + 3) : ''
+  const effectsList = getBuffEffectsList(buff, baseAbilities, suppressedEffectTypes)
+  const hasSuppressed = effectsList.some(e => e.suppressed)
 
   const rowHoverTitle = buff.fromItem
     ? '装备BUFF由装备所控'
@@ -364,17 +381,29 @@ export default function BuffListItem({
           </span>
         )}
       </div>
-      {/* 效果：垂直对齐；负值红色；略左移约 3 字宽贴近名称列 */}
+      {/* 效果：垂直对齐；负值红色；被抑制的DC/法术攻击加值灰色；略左移约 3 字宽贴近名称列 */}
       <div className="min-w-0 -ml-[3ch]">
-        {effectsStr ? (
-          <span className="text-gray-200 text-sm truncate block" title={effectsStr}>
-            {effectsStr.split(/((?<![0-9])-\d+)/g).map((part, i) =>
-              /^-\d+$/.test(part) ? (
-                <span key={i} className="text-red-400">{part}</span>
-              ) : (
-                part
-              )
-            )}
+        {effectsList.length > 0 ? (
+          <span className="text-gray-200 text-sm truncate block" title={effectsList.map(e => e.text).join('，')}>
+            {effectsList.map((eff, i) => {
+              const sep = i > 0 ? '，' : ''
+              // 被抑制的效果：灰色 + 删除线
+              if (eff.suppressed) {
+                return <span key={i}>{sep}<span className="text-gray-500 line-through">{eff.text}</span></span>
+              }
+              // 正常效果：负值红色
+              const parts = eff.text.split(/((?<![0-9])-\d+)/g)
+              if (parts.length <= 1) {
+                return <span key={i}>{sep}{eff.text}</span>
+              }
+              return <span key={i}>{sep}{parts.map((part, j) =>
+                /^-\d+$/.test(part) ? (
+                  <span key={j} className="text-red-400">{part}</span>
+                ) : (
+                  part
+                )
+              )}</span>
+            })}
           </span>
         ) : null}
       </div>

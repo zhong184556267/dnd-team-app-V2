@@ -271,9 +271,9 @@ export function computeBuffStats(character, activeBuffs) {
     let speedBonus = 0
     let reachBonus = 0
     let initBonus = 0
-    let saveDcBonus = 0
+    const saveDcValues = []
     let profOverride = null
-    let spellAttackBonus = 0
+    const spellAttackValues = []
     let flightSpeed = 0
     let flightHover = false
     const saveBonusPerAbility = { str: 0, dex: 0, con: 0, int: 0, wis: 0, cha: 0 }
@@ -314,8 +314,8 @@ export function computeBuffStats(character, activeBuffs) {
           initBonus += initiativeProfBonus
         }
       }
-      else if (b.effectType === 'save_dc_bonus') saveDcBonus += (typeof raw === 'object' && raw && 'val' in raw ? Number(raw.val) : Number(raw)) || 0
-      else if (b.effectType === 'spell_attack_bonus') spellAttackBonus += (typeof raw === 'object' && raw && 'val' in raw ? Number(raw.val) : Number(raw)) || 0
+      else if (b.effectType === 'save_dc_bonus') { const dv = (typeof raw === 'object' && raw && 'val' in raw ? Number(raw.val) : Number(raw)) || 0; saveDcValues.push(dv) }
+      else if (b.effectType === 'spell_attack_bonus') { const sv = (typeof raw === 'object' && raw && 'val' in raw ? Number(raw.val) : Number(raw)) || 0; spellAttackValues.push(sv) }
       else if (b.effectType === 'proficiency_override' && !Number.isNaN(v)) profOverride = v
       else if (b.effectType === 'flight_speed' && raw && typeof raw === 'object') {
         const sp = Number(raw.speed)
@@ -435,6 +435,10 @@ export function computeBuffStats(character, activeBuffs) {
       ac = Math.min(ac, cap)
     }
 
+    // DC 和法术攻击加值：不能累加，只取最高值
+    const saveDcBonus = saveDcValues.length ? Math.max(...saveDcValues) : 0
+    const spellAttackBonus = spellAttackValues.length ? Math.max(...spellAttackValues) : 0
+
     return {
       abilities: finalAbilities,
       meleeAttackBonus,
@@ -502,5 +506,61 @@ export function calculateDamage(baseRoll, damageType, buffStats) {
   if (resistTypes.includes(type) && !ignoreResistanceTypes.includes(type)) result = Math.floor(result / 2)
   const dr = Number(flatDr) || 0
   if (dr !== 0) result = Math.max(0, result - dr)
+  return result
+}
+
+/**
+ * 计算 DC 和法术攻击加值中被抑制的 buff 效果
+ * 规则：DC 和法术攻击加值不能累加，只能取最高值；非最高值的效果标记为抑制
+ * @param {Array} buffs - 所有 buff 列表
+ * @returns {Map<string, Set<string>>} buffId → 被抑制的 effectType 集合
+ */
+export function computeSuppressedEffects(buffs) {
+  const result = new Map()
+  const enabledBuffs = (buffs || []).filter(b => b.enabled !== false)
+
+  const dcEntries = []
+  const spellAtkEntries = []
+
+  for (const buff of enabledBuffs) {
+    const effects = Array.isArray(buff.effects) && buff.effects.length
+      ? buff.effects
+      : [{ effectType: buff.effectType, value: buff.value }]
+
+    for (const e of effects) {
+      if (e.effectType === 'save_dc_bonus') {
+        const raw = e.value
+        const v = (typeof raw === 'object' && raw && 'val' in raw ? Number(raw.val) : Number(raw)) || 0
+        dcEntries.push({ buffId: buff.id, value: v })
+      }
+      if (e.effectType === 'spell_attack_bonus') {
+        const raw = e.value
+        const v = (typeof raw === 'object' && raw && 'val' in raw ? Number(raw.val) : Number(raw)) || 0
+        spellAtkEntries.push({ buffId: buff.id, value: v })
+      }
+    }
+  }
+
+  // 仅当存在 2 个及以上同类效果时，才需抑制判定
+  const maxDc = dcEntries.length > 1 ? Math.max(...dcEntries.map(e => e.value)) : null
+  const maxSpellAtk = spellAtkEntries.length > 1 ? Math.max(...spellAtkEntries.map(e => e.value)) : null
+
+  if (maxDc !== null) {
+    for (const entry of dcEntries) {
+      if (entry.value < maxDc) {
+        if (!result.has(entry.buffId)) result.set(entry.buffId, new Set())
+        result.get(entry.buffId).add('save_dc_bonus')
+      }
+    }
+  }
+  if (maxSpellAtk !== null) {
+    for (const entry of spellAtkEntries) {
+      if (entry.value < maxSpellAtk) {
+        if (!result.has(entry.buffId)) result.set(entry.buffId, new Set())
+        result.get(entry.buffId).add('spell_attack_bonus')
+      }
+    }
+  }
+
   return result
 }

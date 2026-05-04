@@ -71,7 +71,7 @@ export default function RuleTextPairOverrideControl({
           }}
         >
           <div
-            className="w-full max-w-lg max-h-[85vh] flex flex-col rounded-xl border border-white/15 bg-[#1b2738] shadow-xl"
+            className="w-full max-w-2xl max-h-[85vh] flex flex-col rounded-xl border border-white/15 bg-[#1b2738] shadow-xl"
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-white/10">
@@ -104,7 +104,7 @@ export default function RuleTextPairOverrideControl({
                 <textarea
                   value={draftDesc}
                   onChange={(e) => setDraftDesc(e.target.value)}
-                  className={textareaClass + ' flex-1 min-h-[10rem] text-sm'}
+                  className={textareaClass + ' flex-1 min-h-[18rem] text-sm'}
                   spellCheck={false}
                 />
               </div>

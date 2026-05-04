@@ -756,7 +756,6 @@ export default function HouseRules() {
                           <li key={t.id} className="py-3 first:pt-0">
                             <div className="flex flex-wrap items-center gap-2 mb-1">
                               <span className="text-sm font-medium text-white">{t.name}</span>
-                              <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/20 text-amber-300 border border-amber-500/40">{t.type}</span>
                               {t.tag ? (
                                 <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-violet-500/15 text-violet-200/95 border border-violet-400/35">
                                   {t.tag}

@@ -701,7 +701,7 @@ export const MARTIAL_TECHNIQUES = [
     id: 'jinghong_zongyunshi',
     name: '纵云势',
     style: '惊鸿流',
-    type: '应对技',
+    type: '架势',
     level: 5,
     requirement: '2 种惊鸿招数',
     tag: '布兰卡自创',
@@ -858,28 +858,33 @@ export function isMartialStanceType(type) {
   return type === '架势' || type === '架势技'
 }
 
-/** 攻击技（可学习配额·攻击技槽） */
+/** 攻击技（可学习配额·攻击技槽）：除架势外全部归入攻击技 */
 export function isMartialStrikeType(type) {
-  return type === '攻击技'
+  return !isMartialStanceType(type)
 }
 
 /**
  * @param {'stance' | 'strike'} kind
- * @param {string} style 流派；空串表示不限流派
+ * @param {string | string[]} style 流派；空串/空数组表示不限流派；数组表示多选
  */
 export function listMartialTechniquesForSlot(kind, style) {
   const wantStance = kind === 'stance'
+  const styleSet = Array.isArray(style)
+    ? new Set(style.filter(Boolean))
+    : style
+      ? new Set([style])
+      : new Set()
+  const hasStyleFilter = styleSet.size > 0
   return MARTIAL_TECHNIQUES.filter((t) => {
-    if (style && t.style !== style) return false
+    if (hasStyleFilter && !styleSet.has(t.style)) return false
     if (wantStance) return isMartialStanceType(t.type)
     return isMartialStrikeType(t.type)
   })
 }
 
-/** 从库条目推断战斗区槽位类型（旧存档无 kind 时用） */
+/** 从库条目推断战斗区槽位类型（旧存档无 kind 时用）：只分架势/攻击技两类 */
 export function inferMartialSlotKind(technique) {
   if (!technique?.type) return 'other'
   if (isMartialStanceType(technique.type)) return 'stance'
-  if (isMartialStrikeType(technique.type)) return 'strike'
-  return 'other'
+  return 'strike'
 }

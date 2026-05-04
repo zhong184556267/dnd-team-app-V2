@@ -41,6 +41,7 @@ export default function BuffColumnBoard({
   onDragOverStash,
   onDropStash,
   dragOverStash,
+  suppressedMap = new Map(),
 }) {
   const order = useMemo(() => normalizeBuffColumnOrder(columnOrder), [columnOrder])
 
@@ -230,6 +231,7 @@ export default function BuffColumnBoard({
                         standalone
                         hideSourceTag
                         showDragHint={movable}
+                        suppressedEffectTypes={suppressedMap.get(buff.id) || new Set()}
                       />
                     </div>
                   )

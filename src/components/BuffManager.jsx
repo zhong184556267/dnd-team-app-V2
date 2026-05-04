@@ -10,6 +10,7 @@ import {
   BUFF_COLUMN_DRAG_MIME,
 } from '../lib/buffSourceKind'
 import { dataTransferHasType } from '../lib/dndTransferTypes'
+import { computeSuppressedEffects } from '../hooks/useBuffCalculator'
 
 const STASH_DRAG_MIME = 'application/x-dnd-team-buff-stash'
 
@@ -164,6 +165,9 @@ export default function BuffManager({
     return m
   }, [list])
 
+  // 计算被抑制的效果（DC和法术攻击加值取最高值，非最高标记为抑制）
+  const suppressedMap = useMemo(() => computeSuppressedEffects(list), [list])
+
   const handleMoveBuffToColumn = useCallback(
     (buffId, columnKey) => {
       if (columnKey === 'feat' || columnKey === 'equipment') return
@@ -287,8 +291,13 @@ export default function BuffManager({
           onDragOverStash={stashEditable ? onDragOverActive : undefined}
           onDropStash={stashEditable ? onDropActive : undefined}
           dragOverStash={stashEditable && dragOverActive}
+          suppressedMap={suppressedMap}
         />
       </div>
+
+      <p className="text-gray-600 text-[10px] mt-1.5 leading-snug">
+        ※ DC 与法术攻击加值不累加，只取最高值生效；被覆盖的词条显示为灰色删除线。
+      </p>
 
       {formState && (
         <>

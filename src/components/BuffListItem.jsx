@@ -3,26 +3,36 @@ import { getBuffSourceKindLabel, getBuffSourceKindTitle } from '../lib/buffSourc
 import { getEffectInfo, getDamageTypeLabel, getConditionLabel, ABILITY_NAMES_ZH, formatDamagePiercingTraitsValue } from '../data/buffTypes'
 import { SAVE_NAMES, SKILLS } from '../data/dndSkills'
 import { formatContainedSpellBrief } from '../lib/containedSpellBrief'
+import { isFormulaValue, formatFormulaLabel, evaluateBuffValue } from '../lib/formulas'
+
+/** 公式标签 + 求值后数字，例如「等级×2（+4）」、「感知调整值（+3）」 */
+function formatFormulaLabelWithEval(value, context = {}) {
+  if (!isFormulaValue(value)) return String(value ?? '')
+  const label = formatFormulaLabel(value)
+  const num = evaluateBuffValue(value, context)
+  const sign = typeof num === 'number' && num >= 0 ? '+' : ''
+  return `${label}（${sign}${num}）`
+}
 
 /** 命中/伤害加值摘要：全局 + 分武器行 / 旧版 weaponScope + weaponCategories */
-function formatAttackDamageBonusSummaryText(effectType, v) {
+function formatAttackDamageBonusSummaryText(effectType, v, context = {}) {
   if (effectType !== 'attack_damage_bonus' || !v || typeof v !== 'object') return ''
   const adv = v.advantage === 'advantage' ? ' 优势' : v.advantage === 'disadvantage' ? ' 劣势' : ''
   const parts = []
-  const gv = Number(v.val) || 0
-  if (gv !== 0) parts.push(`全局${gv >= 0 ? '+' : ''}${gv}`)
+  const gv = isFormulaValue(v.val) ? formatFormulaLabelWithEval(v.val, context) : Number(v.val) || 0
+  if (gv !== 0) parts.push(`全局${typeof gv === 'number' && gv >= 0 ? '+' : ''}${gv}`)
   const rows = Array.isArray(v.categoryRows) ? v.categoryRows.filter((r) => String(r.key || '').trim()) : []
   if (rows.length) {
     rows.forEach((r) => {
-      const n = Number(r.val) || 0
-      parts.push(`${r.key}${n >= 0 ? '+' : ''}${n}`)
+      const n = isFormulaValue(r.val) ? formatFormulaLabelWithEval(r.val, context) : Number(r.val) || 0
+      parts.push(`${r.key}${typeof n === 'number' && n >= 0 ? '+' : ''}${n}`)
     })
   }
   if (parts.length === 0 && v.weaponScope === 'weapon_category') {
     const cats = Array.isArray(v.weaponCategories) ? v.weaponCategories.filter(Boolean) : []
     if (cats.length) {
-      const val = Number(v.val) || 0
-      const numStr = val !== 0 ? (val >= 0 ? '+' : '') + val : ''
+      const val = isFormulaValue(v.val) ? formatFormulaLabelWithEval(v.val, context) : Number(v.val) || 0
+      const numStr = val !== 0 ? (typeof val === 'number' && val >= 0 ? '+' : '') + val : ''
       return `${cats.join('、')}${numStr}${adv}`.trim()
     }
   }
@@ -30,7 +40,7 @@ function formatAttackDamageBonusSummaryText(effectType, v) {
 }
 
 /** 单条效果的简化文案（用于外层一行展示），如 "心灵抗性"、"智力-2，感知+2"、"生命上限+26" */
-function getEffectSummaryShort(buff) {
+function getEffectSummaryShort(buff, context = {}, baseContext = context) {
   const info = getEffectInfo(buff.effectType)
   if (!info) return buff.value != null ? String(buff.value) : ''
   // 自由填写：优先 value（与保存一致），兼容 customText；空时显示占位便于记录“仅描述”类效果
@@ -45,24 +55,31 @@ function getEffectSummaryShort(buff) {
   if (buff.effectType === 'crit_extra_dice' && typeof v === 'number' && !Number.isNaN(v)) {
     return `${effectLabel}${v}`
   }
-  if (info.effect.dataType === 'number' && typeof v === 'number') {
+  if (info.effect.dataType === 'number' && (typeof v === 'number' || isFormulaValue(v))) {
+    if (isFormulaValue(v)) return `${effectLabel}${formatFormulaLabelWithEval(v, context)}`
     const sign = v >= 0 ? '+' : ''
     return `${effectLabel}${sign}${v}`
   }
   if (info.effect.dataType === 'object' && v) {
-    if (v.type != null && typeof v.val === 'number') {
+    if (v.type != null && (typeof v.val === 'number' || isFormulaValue(v.val))) {
       const typeLabel = getDamageTypeLabel(v.type)
+      if (isFormulaValue(v.val)) return `${typeLabel}${formatFormulaLabelWithEval(v.val, context)}`
       const sign = v.val >= 0 ? '+' : ''
       return `${typeLabel}${sign}${v.val}`
     }
     if (info.effect.subSelect === 'numberAndAdvantage') {
       if (buff.effectType === 'attack_damage_bonus') {
-        const detail = formatAttackDamageBonusSummaryText(buff.effectType, v)
+        const detail = formatAttackDamageBonusSummaryText(buff.effectType, v, context)
         return detail ? effectLabel + detail : effectLabel
       }
-      const val = v.val ?? (typeof v === 'number' ? v : 0)
+      let numStr = ''
+      if (isFormulaValue(v.val)) {
+        numStr = formatFormulaLabelWithEval(v.val, context)
+      } else {
+        const val = v.val ?? (typeof v === 'number' ? v : 0)
+        if (val !== 0) numStr = (val >= 0 ? '+' : '') + val
+      }
       const adv = v.advantage === 'advantage' ? '优势' : v.advantage === 'disadvantage' ? '劣势' : ''
-      const numStr = val !== 0 ? (val >= 0 ? '+' : '') + val : ''
       return effectLabel + (numStr ? numStr : '') + (adv ? (numStr ? ' ' : '') + adv : '')
     }
     if (info.effect.subSelect === 'flightSpeed') {
@@ -71,11 +88,12 @@ function getEffectSummaryShort(buff) {
       return (speed ? speed + '尺' : '') + (hover ? (speed ? ' ' : '') + hover : '') || effectLabel
     }
     if (info.effect.subSelect === 'initBonusAndProficiency' || buff.effectType === 'initiative_buff') {
-      const bon = Number(v.bonus) || 0
-      const prof = !!v.proficient
       const parts = []
-      if (bon !== 0) parts.push((bon >= 0 ? '+' : '') + bon)
-      if (prof) parts.push('熟练')
+      if (v.bonus != null && v.bonus !== 0) {
+        if (isFormulaValue(v.bonus)) parts.push(formatFormulaLabelWithEval(v.bonus, context))
+        else parts.push((Number(v.bonus) >= 0 ? '+' : '') + Number(v.bonus))
+      }
+      if (v.proficient) parts.push('熟练')
       return parts.length ? `${effectLabel} ${parts.join(' ')}` : effectLabel
     }
     if (info.effect.subSelect === 'abilityScoresAndAdvantage') {
@@ -84,6 +102,7 @@ function getEffectSummaryShort(buff) {
         .filter(([k, val]) => k !== 'advantage' && val != null && val !== 0)
         .map(([k, val]) => {
           const nameZh = labels[k] ?? k
+          if (isFormulaValue(val)) return `${nameZh}${formatFormulaLabelWithEval(val, context)}`
           const num = Number(val)
           const sign = num >= 0 ? '+' : ''
           return `${nameZh}${sign}${num}`
@@ -97,6 +116,7 @@ function getEffectSummaryShort(buff) {
         .map(([k, val]) => {
           const sk = SKILLS.find((s) => s.id === k)
           const nameZh = sk ? sk.name : k
+          if (isFormulaValue(val)) return `${nameZh}${formatFormulaLabelWithEval(val, context)}`
           const num = Number(val)
           const sign = num >= 0 ? '+' : ''
           return `${nameZh}${sign}${num}`
@@ -104,11 +124,12 @@ function getEffectSummaryShort(buff) {
       const adv = v.advantage === 'advantage' ? '优势' : v.advantage === 'disadvantage' ? '劣势' : ''
       return parts.join('，') + (adv ? (parts.length ? '，' : '') + adv : '')
     }
-    if (buff.effectType === 'ability_score' || buff.effectType === 'ability_override') {
+    if (buff.effectType === 'ability_score' || buff.effectType === 'ability_override' || buff.effectType === 'ability_score_uncapped') {
       const parts = Object.entries(v)
         .filter(([k, val]) => k !== 'advantage' && val != null && val !== 0)
         .map(([k, val]) => {
           const nameZh = ABILITY_NAMES_ZH[k] ?? k
+          if (isFormulaValue(val)) return `${nameZh}${formatFormulaLabelWithEval(val, baseContext)}`
           const num = Number(val)
           if (buff.effectType === 'ability_override') return `${nameZh}${num}`
           const sign = num >= 0 ? '+' : ''
@@ -151,16 +172,17 @@ function getEffectSummaryShort(buff) {
 }
 
 /** 整条 buff 的简化一行文案：来源 | 效果1，效果2，… */
-export function getBuffSummaryLine(buff, baseAbilities = {}) {
+export function getBuffSummaryLine(buff, baseAbilities = {}, context = {}) {
   const source = buff.source?.trim() || '未知来源'
+  const baseContext = { ...context, abilities: baseAbilities }
   const effectParts = []
   if (Array.isArray(buff.effects) && buff.effects.length) {
     buff.effects.forEach((e) => {
-      const s = getEffectSummaryShort({ effectType: e.effectType, value: e.value, customText: e.customText })
+      const s = getEffectSummaryShort({ effectType: e.effectType, value: e.value, customText: e.customText }, context, baseContext)
       if (s) effectParts.push(s)
     })
   } else {
-    const s = getEffectSummaryShort(buff)
+    const s = getEffectSummaryShort(buff, context, baseContext)
     if (s) effectParts.push(s)
   }
   const effectsStr = effectParts.join('，')
@@ -168,22 +190,24 @@ export function getBuffSummaryLine(buff, baseAbilities = {}) {
 }
 
 /** 结构化效果列表：每条效果带 text 和 suppressed 标记，供逐条渲染 */
-export function getBuffEffectsList(buff, baseAbilities = {}, suppressedEffectTypes = new Set()) {
+export function getBuffEffectsList(buff, baseAbilities = {}, suppressedEffectTypes = new Set(), context = {}) {
+  const baseContext = { ...context, abilities: baseAbilities }
   const effectParts = []
   if (Array.isArray(buff.effects) && buff.effects.length) {
     buff.effects.forEach((e) => {
-      const s = getEffectSummaryShort({ effectType: e.effectType, value: e.value, customText: e.customText })
+      const s = getEffectSummaryShort({ effectType: e.effectType, value: e.value, customText: e.customText }, context, baseContext)
       if (s) effectParts.push({ text: s, suppressed: suppressedEffectTypes.has(e.effectType) })
     })
   } else {
-    const s = getEffectSummaryShort(buff)
+    const s = getEffectSummaryShort(buff, context, baseContext)
     if (s) effectParts.push({ text: s, suppressed: suppressedEffectTypes.has(buff.effectType) })
   }
   return effectParts
 }
 
 /** 效果描述 + 数值（用于胶囊）；属性用中文名并显示扣除后的总值 */
-function getEffectDisplay(buff, baseAbilities = {}) {
+function getEffectDisplay(buff, baseAbilities = {}, context = {}) {
+  const baseContext = { ...context, abilities: baseAbilities }
   const info = getEffectInfo(buff.effectType)
   if (!info) return { label: '—', value: buff.value != null ? String(buff.value) : null }
   if (buff.effectType.startsWith('custom_')) {
@@ -198,25 +222,32 @@ function getEffectDisplay(buff, baseAbilities = {}) {
   if (buff.effectType === 'crit_extra_dice' && typeof buff.value === 'number') {
     return { label: effectLabel, value: String(buff.value) }
   }
-  if (info.effect.dataType === 'number' && typeof buff.value === 'number') {
+  if (info.effect.dataType === 'number' && (typeof buff.value === 'number' || isFormulaValue(buff.value))) {
+    if (isFormulaValue(buff.value)) return { label: effectLabel, value: formatFormulaLabelWithEval(buff.value, context) }
     const sign = buff.value >= 0 ? '+' : ''
     return { label: effectLabel, value: `${sign}${buff.value}` }
   }
   if (info.effect.dataType === 'object' && buff.value) {
     const v = buff.value
-    if (v.type != null && typeof v.val === 'number') {
-      const sign = v.val >= 0 ? '+' : ''
+    if (v.type != null && (typeof v.val === 'number' || isFormulaValue(v.val))) {
       const typeLabel = getDamageTypeLabel(v.type)
+      if (isFormulaValue(v.val)) return { label: `${effectLabel}(${typeLabel})`, value: formatFormulaLabelWithEval(v.val, context) }
+      const sign = v.val >= 0 ? '+' : ''
       return { label: `${effectLabel}(${typeLabel})`, value: `${sign}${v.val}` }
     }
     if (info.effect.subSelect === 'numberAndAdvantage') {
       if (buff.effectType === 'attack_damage_bonus') {
-        const detail = formatAttackDamageBonusSummaryText(buff.effectType, v)
+        const detail = formatAttackDamageBonusSummaryText(buff.effectType, v, context)
         return { label: effectLabel, value: detail || null }
       }
-      const val = v.val ?? (typeof v === 'number' ? v : 0)
+      let numStr = ''
+      if (isFormulaValue(v.val)) {
+        numStr = formatFormulaLabelWithEval(v.val, context)
+      } else {
+        const val = v.val ?? (typeof v === 'number' ? v : 0)
+        if (val !== 0) numStr = (val >= 0 ? '+' : '') + val
+      }
       const adv = v.advantage === 'advantage' ? '优势' : v.advantage === 'disadvantage' ? '劣势' : ''
-      const numStr = val !== 0 ? (val >= 0 ? '+' : '') + val : ''
       const core = (numStr || adv) ? `${numStr}${adv ? ' ' + adv : ''}` : ''
       return { label: effectLabel, value: core || null }
     }
@@ -226,18 +257,22 @@ function getEffectDisplay(buff, baseAbilities = {}) {
       return { label: effectLabel, value: speed ? `${speed}尺${hover ? ' ' + hover : ''}` : (hover || null) }
     }
     if (info.effect.subSelect === 'initBonusAndProficiency' || buff.effectType === 'initiative_buff') {
-      const bon = Number(v.bonus) || 0
-      const prof = !!v.proficient
       const parts = []
-      if (bon !== 0) parts.push((bon >= 0 ? '+' : '') + bon)
-      if (prof) parts.push('熟练加值')
+      if (v.bonus != null && v.bonus !== 0) {
+        if (isFormulaValue(v.bonus)) parts.push(formatFormulaLabelWithEval(v.bonus, context))
+        else parts.push((Number(v.bonus) >= 0 ? '+' : '') + Number(v.bonus))
+      }
+      if (v.proficient) parts.push('熟练加值')
       return { label: effectLabel, value: parts.length ? parts.join(' ') : null }
     }
     if (info.effect.subSelect === 'abilityScoresAndAdvantage') {
       const labels = buff.effectType === 'save_bonus' ? SAVE_NAMES : ABILITY_NAMES_ZH
       const parts = Object.entries(v)
         .filter(([k, val]) => k !== 'advantage' && val != null && val !== 0)
-        .map(([k, val]) => `${labels[k] ?? k} ${val >= 0 ? '+' : ''}${val}`)
+        .map(([k, val]) => {
+          if (isFormulaValue(val)) return `${labels[k] ?? k} ${formatFormulaLabelWithEval(val, context)}`
+          return `${labels[k] ?? k} ${val >= 0 ? '+' : ''}${val}`
+        })
       const adv = v.advantage === 'advantage' ? '优势' : v.advantage === 'disadvantage' ? '劣势' : ''
       return { label: effectLabel, value: parts.length ? parts.join('、') + (adv ? ' ' + adv : '') : (adv || null) }
     }
@@ -246,7 +281,9 @@ function getEffectDisplay(buff, baseAbilities = {}) {
         .filter(([k, val]) => k !== 'advantage' && val != null && val !== 0)
         .map(([k, val]) => {
           const sk = SKILLS.find((s) => s.id === k)
-          return `${sk ? sk.name : k} ${val >= 0 ? '+' : ''}${val}`
+          const nameZh = sk ? sk.name : k
+          if (isFormulaValue(val)) return `${nameZh} ${formatFormulaLabelWithEval(val, context)}`
+          return `${nameZh} ${val >= 0 ? '+' : ''}${val}`
         })
       const adv = v.advantage === 'advantage' ? '优势' : v.advantage === 'disadvantage' ? '劣势' : ''
       return { label: effectLabel, value: parts.length ? parts.join('、') + (adv ? ' ' + adv : '') : (adv || null) }
@@ -255,11 +292,12 @@ function getEffectDisplay(buff, baseAbilities = {}) {
       const spellLine = formatContainedSpellBrief(v)
       return { label: effectLabel, value: spellLine || null }
     }
-    if (buff.effectType === 'ability_score' || buff.effectType === 'ability_override') {
+    if (buff.effectType === 'ability_score' || buff.effectType === 'ability_override' || buff.effectType === 'ability_score_uncapped') {
       const parts = Object.entries(buff.value)
         .filter(([, v]) => v != null && v !== 0)
         .map(([k, val]) => {
           const nameZh = ABILITY_NAMES_ZH[k] ?? k
+          if (isFormulaValue(val)) return `${nameZh} ${formatFormulaLabelWithEval(val, baseContext)}`
           const num = Number(val)
           if (buff.effectType === 'ability_override') return `${nameZh} ${num}`
           const sign = num >= 0 ? '+' : ''
@@ -303,20 +341,20 @@ function isNegativeValue(val) {
  * 自动识别减益：显示值为负、或原始数值为负的条目归为减益栏。
  * 支持多效果 buff：任一效果为负则整条归为减益。
  */
-export function isDebuff(buff, baseAbilities = {}) {
+export function isDebuff(buff, baseAbilities = {}, context = {}) {
   if (Array.isArray(buff.effects) && buff.effects.length) {
     return buff.effects.some((e) => {
       const v = e.value
       if (typeof v === 'number' && v < 0) return true
       if (v && typeof v === 'object' && typeof v.val === 'number' && v.val < 0) return true
-      const { value } = getEffectDisplay({ effectType: e.effectType, value: e.value }, baseAbilities)
+      const { value } = getEffectDisplay({ effectType: e.effectType, value: e.value }, baseAbilities, context)
       return isNegativeValue(value)
     })
   }
   const v = buff.value
   if (typeof v === 'number' && v < 0) return true
   if (v && typeof v === 'object' && typeof v.val === 'number' && v.val < 0) return true
-  const { value } = getEffectDisplay(buff, baseAbilities)
+  const { value } = getEffectDisplay(buff, baseAbilities, context)
   return isNegativeValue(value)
 }
 
@@ -329,11 +367,11 @@ const GRID_COLS = {
 }
 
 /** 多效果时渲染为多组 (label, value) 胶囊（供 isDebuff 等内部用） */
-function getEffectDisplays(buff, baseAbilities) {
+function getEffectDisplays(buff, baseAbilities, context = {}) {
   if (Array.isArray(buff.effects) && buff.effects.length) {
-    return buff.effects.map((e) => getEffectDisplay({ effectType: e.effectType, value: e.value, customText: e.customText }, baseAbilities))
+    return buff.effects.map((e) => getEffectDisplay({ effectType: e.effectType, value: e.value, customText: e.customText }, baseAbilities, context))
   }
-  return [getEffectDisplay(buff, baseAbilities)]
+  return [getEffectDisplay(buff, baseAbilities, context)]
 }
 
 export default function BuffListItem({
@@ -346,11 +384,12 @@ export default function BuffListItem({
   hideSourceTag = false,
   showDragHint = false,
   suppressedEffectTypes = new Set(),
+  formulaContext = {},
 }) {
-  const summaryLine = getBuffSummaryLine(buff, baseAbilities)
+  const summaryLine = getBuffSummaryLine(buff, baseAbilities, formulaContext)
   const barIdx = summaryLine.indexOf(' | ')
   const sourceName = barIdx >= 0 ? summaryLine.slice(0, barIdx) : summaryLine
-  const effectsList = getBuffEffectsList(buff, baseAbilities, suppressedEffectTypes)
+  const effectsList = getBuffEffectsList(buff, baseAbilities, suppressedEffectTypes, formulaContext)
   const hasSuppressed = effectsList.some(e => e.suppressed)
 
   const rowHoverTitle = buff.fromItem

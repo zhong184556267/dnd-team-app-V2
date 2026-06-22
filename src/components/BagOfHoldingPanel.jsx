@@ -17,6 +17,7 @@ import {
 } from '../lib/bagOfHoldingModules'
 import { getCurrencyById, getCurrencyDisplayName } from '../data/currencyConfig'
 import { NumberStepper } from './BuffForm'
+import { isFormulaValue, formatFormulaLabel } from '../lib/formulas'
 import { inputClassInline } from '../lib/inputStyles'
 import {
   inventoryItemCardListGapClass,
@@ -211,11 +212,13 @@ export default function BagOfHoldingPanel({
     'inline-flex items-center justify-center h-7 w-7 shrink-0 rounded-lg border border-dnd-red/60 bg-gray-800/90 text-dnd-red hover:bg-dnd-red/20 hover:border-dnd-red/80 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-gray-800/90 disabled:hover:border-dnd-red/60'
   const renderNameExtras = (entry) => {
     const stoneEffect = Array.isArray(entry?.effects) ? entry.effects.find((x) => x.effectType === 'ac_cap_stone_layer') : null
-    const stoneVal = stoneEffect != null && stoneEffect.value != null ? Number(stoneEffect.value) : null
-    if (stoneVal != null && !Number.isNaN(stoneVal) && stoneVal > 0) {
+    const stoneRaw = stoneEffect != null ? stoneEffect.value : null
+    const stoneLabel = isFormulaValue(stoneRaw) ? formatFormulaLabel(stoneRaw) : null
+    const stoneVal = stoneLabel == null && stoneRaw != null ? Number(stoneRaw) : null
+    if (stoneLabel || (stoneVal != null && !Number.isNaN(stoneVal) && stoneVal > 0)) {
       return (
         <span className="text-dnd-gold-light/90 text-xs font-mono tabular-nums shrink-0" title="瓦石层">
-          {stoneVal}层
+          {stoneLabel ?? `${stoneVal}层`}
         </span>
       )
     }

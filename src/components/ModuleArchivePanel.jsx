@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Save, RotateCcw, Upload, Download, Trash2, X, Github, Settings, HardDrive, Cloud } from 'lucide-react'
+import { Save, RotateCcw, Upload, Download, Trash2, X, Github, Settings, HardDrive, Cloud, ChevronDown, ChevronUp, Archive } from 'lucide-react'
 import {
   saveManualArchive,
   listArchives,
@@ -29,6 +29,9 @@ export default function ModuleArchivePanel({ moduleId, moduleName, isAdmin }) {
   const [githubFiles, setGithubFiles] = useState([])
   const [githubLoading, setGithubLoading] = useState(false)
   const [message, setMessage] = useState('')
+  const [listExpanded, setListExpanded] = useState(false)
+  const [showModal, setShowModal] = useState(false)
+  const [modalTab, setModalTab] = useState('local')
 
   const showMsg = (text) => {
     setMessage(text)
@@ -103,11 +106,18 @@ export default function ModuleArchivePanel({ moduleId, moduleName, isAdmin }) {
         else showMsg('GitHub 同步失败: ' + up.error)
         setUploadingId(null)
       }
+      setModalTab('local')
+      setShowModal(true)
     } catch (e) {
       showMsg('存档失败: ' + (e?.message || String(e)))
     } finally {
       setSaving(false)
     }
+  }
+
+  const handleLoad = () => {
+    setModalTab(tab)
+    setShowModal(true)
   }
 
   const handleUpload = async (archiveId) => {
@@ -211,6 +221,15 @@ export default function ModuleArchivePanel({ moduleId, moduleName, isAdmin }) {
           {saving ? '保存中...' : '保存存档'}
         </button>
 
+        <button
+          type="button"
+          onClick={handleLoad}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition-colors"
+        >
+          <Archive className="w-3.5 h-3.5" />
+          读取存档
+        </button>
+
         <div className="flex items-center bg-black/30 rounded-lg border border-white/10 overflow-hidden">
           <button
             type="button"
@@ -239,13 +258,23 @@ export default function ModuleArchivePanel({ moduleId, moduleName, isAdmin }) {
           配置
         </button>
 
+        <button
+          type="button"
+          onClick={() => setListExpanded((v) => !v)}
+          className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-dnd-text-muted hover:text-white text-xs transition-colors"
+          title={listExpanded ? '收起存档列表' : '展开存档列表'}
+        >
+          {listExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          {listExpanded ? '收起' : '展开'}
+        </button>
+
         {message && (
           <span className="text-xs text-emerald-400 animate-pulse">{message}</span>
         )}
       </div>
 
-      {/* 本地存档列表 */}
-      {tab === 'local' && (
+      {/* 本地存档列表（可折叠） */}
+      {tab === 'local' && listExpanded && (
         <div className="space-y-3">
           {manualArchives.length > 0 && (
             <div>
@@ -343,8 +372,8 @@ export default function ModuleArchivePanel({ moduleId, moduleName, isAdmin }) {
         </div>
       )}
 
-      {/* GitHub 备份列表 */}
-      {tab === 'github' && (
+      {/* GitHub 备份列表（可折叠） */}
+      {tab === 'github' && listExpanded && (
         <div className="space-y-3">
           {!getGitHubConfig()?.token && (
             <p className="text-dnd-text-muted text-sm py-4 text-center">
@@ -379,6 +408,123 @@ export default function ModuleArchivePanel({ moduleId, moduleName, isAdmin }) {
           {!githubLoading && getGitHubConfig()?.token && githubFiles.length === 0 && (
             <p className="text-dnd-text-muted text-sm py-4 text-center">GitHub 上暂无该模组备份</p>
           )}
+        </div>
+      )}
+
+      {/* 存档名录弹窗 */}
+      {showModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4" onClick={() => setShowModal(false)}>
+          <div className="w-full max-w-lg rounded-xl bg-gray-900 border border-white/15 shadow-2xl max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+              <h3 className="text-white font-semibold text-sm flex items-center gap-2">
+                <Archive className="w-4 h-4" />
+                存档名录
+              </h3>
+              <button type="button" onClick={() => setShowModal(false)} className="p-1 rounded text-gray-400 hover:text-white">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="px-4 py-3 flex gap-2 border-b border-white/10">
+              <button
+                type="button"
+                onClick={() => setModalTab('local')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${modalTab === 'local' ? 'bg-white/10 text-white' : 'text-dnd-text-muted hover:text-white'}`}
+              >
+                本地
+              </button>
+              <button
+                type="button"
+                onClick={() => setModalTab('github')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${modalTab === 'github' ? 'bg-white/10 text-white' : 'text-dnd-text-muted hover:text-white'}`}
+              >
+                GitHub
+              </button>
+            </div>
+            <div className="px-4 py-3 overflow-y-auto flex-1 space-y-3">
+              {modalTab === 'local' && (
+                <>
+                  {manualArchives.length > 0 && (
+                    <div>
+                      <p className="text-[11px] text-dnd-text-muted mb-1.5 uppercase tracking-wider">手动存档 ({manualArchives.length}/30)</p>
+                      <ul className="space-y-1.5">
+                        {manualArchives.map((arch) => (
+                          <li
+                            key={arch.id}
+                            className="flex items-center justify-between gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <p className="text-white text-sm truncate">{arch.label}</p>
+                              <p className="text-dnd-text-muted text-[10px]">{new Date(arch.timestamp).toLocaleString('zh-CN')}</p>
+                            </div>
+                            <div className="flex items-center gap-0.5 shrink-0">
+                              <button type="button" onClick={() => { handleRestoreLocal(arch.id); setShowModal(false); }} disabled={restoringId === arch.id} title="恢复" className="p-1.5 rounded text-dnd-text-muted hover:text-blue-400 hover:bg-blue-500/15 transition-colors disabled:opacity-50"><RotateCcw className="w-3.5 h-3.5" /></button>
+                              <button type="button" onClick={() => handleUpload(arch.id)} disabled={uploadingId === arch.id} title="上传到 GitHub" className="p-1.5 rounded text-dnd-text-muted hover:text-purple-400 hover:bg-purple-500/15 transition-colors disabled:opacity-50"><Upload className="w-3.5 h-3.5" /></button>
+                              <button type="button" onClick={() => handleDownload(arch.id)} title="下载 JSON" className="p-1.5 rounded text-dnd-text-muted hover:text-emerald-400 hover:bg-emerald-500/15 transition-colors"><Download className="w-3.5 h-3.5" /></button>
+                              <button type="button" onClick={() => handleDelete(arch.id)} disabled={deletingId === arch.id} title="删除" className="p-1.5 rounded text-dnd-text-muted hover:text-red-400 hover:bg-red-500/15 transition-colors disabled:opacity-50"><Trash2 className="w-3.5 h-3.5" /></button>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {autoArchives.length > 0 && (
+                    <div>
+                      <p className="text-[11px] text-dnd-text-muted mb-1.5 uppercase tracking-wider">自动存档 ({autoArchives.length}/5)</p>
+                      <ul className="space-y-1.5">
+                        {autoArchives.map((arch) => (
+                          <li
+                            key={arch.id}
+                            className="flex items-center justify-between gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 opacity-80"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <p className="text-white text-sm truncate">{arch.label}</p>
+                              <p className="text-dnd-text-muted text-[10px]">{new Date(arch.timestamp).toLocaleString('zh-CN')}</p>
+                            </div>
+                            <div className="flex items-center gap-0.5 shrink-0">
+                              <button type="button" onClick={() => { handleRestoreLocal(arch.id); setShowModal(false); }} disabled={restoringId === arch.id} title="恢复" className="p-1.5 rounded text-dnd-text-muted hover:text-blue-400 hover:bg-blue-500/15 transition-colors disabled:opacity-50"><RotateCcw className="w-3.5 h-3.5" /></button>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {manualArchives.length === 0 && autoArchives.length === 0 && (
+                    <p className="text-dnd-text-muted text-sm py-4 text-center">该模组暂无存档</p>
+                  )}
+                </>
+              )}
+              {modalTab === 'github' && (
+                <>
+                  {!getGitHubConfig()?.token && (
+                    <p className="text-dnd-text-muted text-sm py-4 text-center">尚未配置 GitHub，请点击「配置」填写 Token 和仓库信息</p>
+                  )}
+                  {githubLoading && <p className="text-dnd-text-muted text-sm py-4 text-center">加载中...</p>}
+                  {!githubLoading && githubFiles.length > 0 && (
+                    <ul className="space-y-1.5">
+                      {githubFiles.map((file) => (
+                        <li
+                          key={file.sha}
+                          className="flex items-center justify-between gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="text-white text-sm truncate">{file.name}</p>
+                            <p className="text-dnd-text-muted text-[10px]">{file.size > 1024 ? (file.size / 1024).toFixed(1) + ' KB' : file.size + ' B'}</p>
+                          </div>
+                          <button type="button" onClick={() => { handleDownloadFromGitHub(file); setShowModal(false); }} className="shrink-0 px-2 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition-colors">恢复</button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {!githubLoading && getGitHubConfig()?.token && githubFiles.length === 0 && (
+                    <p className="text-dnd-text-muted text-sm py-4 text-center">GitHub 上暂无该模组备份</p>
+                  )}
+                </>
+              )}
+            </div>
+            <div className="px-4 py-3 border-t border-white/10 flex justify-end">
+              <button type="button" onClick={() => setShowModal(false)} className="px-4 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white text-sm">关闭</button>
+            </div>
+          </div>
         </div>
       )}
 

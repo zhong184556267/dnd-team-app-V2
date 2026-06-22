@@ -238,6 +238,7 @@ export const BUFF_TYPES = {
     effects: [
       { key: 'ability_score', label: '属性调整', dataType: 'object', subSelect: 'abilityScores' },
       { key: 'ability_override', label: '属性值上限', dataType: 'object', subSelect: 'abilityScores' },
+      { key: 'ability_score_uncapped', label: '可突破20属性', dataType: 'object', subSelect: 'abilityScores' },
       { key: 'extra_attunement_slots', label: '额外同调位', dataType: 'number' },
       // 技能增强：数值加值+优势配置，这里沿用原有技能加值结构
       { key: 'skill_bonus', label: '技能增强', dataType: 'object', subSelect: 'skillsAndAdvantage' },

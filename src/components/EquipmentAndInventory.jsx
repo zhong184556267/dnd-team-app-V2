@@ -34,6 +34,9 @@ import { getCurrencyById, getCurrencyDisplayName } from '../data/currencyConfig'
 import { getCharacterWallet, transferCurrency } from '../lib/currencyStore'
 import { getCharacter } from '../lib/characterStore'
 import { addToWarehouse } from '../lib/warehouseStore'
+import { useModule } from '../contexts/ModuleContext'
+import { getMergedBuffsForCalculator } from '../lib/effects/effectMapping'
+import { getSpellcastingCombatStats } from '../lib/spellcastingStats'
 import { CurrencyGrid } from './CurrencyDisplay'
 import {
   getInventoryEntryStackWeightLb,
@@ -46,9 +49,9 @@ import ItemAddForm from './ItemAddForm'
 import EncumbranceBar from './EncumbranceBar'
 import TransferModal from './TransferModal'
 import { parseArmorNote } from '../lib/formulas'
-import { abilityModifier, proficiencyBonus } from '../lib/formulas'
+import { abilityModifier } from '../lib/formulas'
 import { useBuffCalculator } from '../hooks/useBuffCalculator'
-import { getPrimarySpellcastingAbility } from '../data/classDatabase'
+import { ABILITY_NAMES_ZH } from '../data/buffTypes'
 import { inputClass, inputClassInline } from '../lib/inputStyles'
 import { logTeamActivity } from '../lib/activityLog'
 import { NumberStepper } from './BuffForm'
@@ -244,6 +247,8 @@ const BAG_PANEL_ICON_BTN =
 const BAG_PANEL_REMOVE_BTN =
   'inline-flex items-center justify-center h-7 w-7 shrink-0 rounded-lg border border-dnd-red/60 bg-gray-800/90 text-dnd-red hover:bg-dnd-red/20 hover:border-dnd-red/80 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-gray-800/90 disabled:hover:border-dnd-red/60'
 export default function EquipmentAndInventory({ character, canEdit, onSave, onWalletSuccess, activityActor }) {
+  const { currentModuleId } = useModule()
+  const moduleId = currentModuleId || 'default'
   const reconcileResult = useMemo(() => reconcileBagModuleAnchors(character), [character])
   const inv = reconcileResult.inventory
 
@@ -263,13 +268,33 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
     [inv],
   )
   const migrated = migrateSlots(character)
-  const buffStats = useBuffCalculator(character, character?.buffs)
+  const mergedBuffs = useMemo(() => getMergedBuffsForCalculator(character, moduleId), [
+    character?.buffs,
+    character?.selectedFeats,
+    character?.inventory,
+    character?.equippedHeld,
+    character?.equippedWorn,
+    moduleId,
+  ])
+  const buffStats = useBuffCalculator(character, mergedBuffs)
   const level = Math.max(1, Math.min(20, parseInt(character?.level, 10) || 1))
-  const abilities = character?.abilities ?? {}
-  const spellAbility = getPrimarySpellcastingAbility(character)
-  const prof = buffStats?.proficiencyOverride != null ? buffStats.proficiencyOverride : proficiencyBonus(level)
-  const spellAttackBonus = spellAbility != null ? prof + abilityModifier(abilities?.[spellAbility] ?? 10) + (buffStats?.spellAttackBonus ?? 0) : null
-  const spellDC = spellAbility != null ? 8 + prof + abilityModifier(abilities?.[spellAbility] ?? 10) + (buffStats?.saveDcBonus ?? 0) : null
+  const abilities = buffStats?.abilities ?? character?.abilities ?? {}
+  const { spellAbility, spellAttackBonus, spellDC, prof } = getSpellcastingCombatStats(character, buffStats, level)
+  const referenceData = useMemo(() => {
+    const arr = []
+    Object.entries(abilities).forEach(([k, v]) => {
+      const label = ABILITY_NAMES_ZH[k] ?? k
+      const score = Number(v) || 0
+      if (v != null) {
+        arr.push({ label: `${label}调整值`, value: abilityModifier(score), ref: 'abilityModifier', ability: k })
+      }
+    })
+    arr.push({ label: '熟练加值', value: prof, ref: 'proficiency' })
+    arr.push({ label: '等级', value: level, ref: 'level' })
+    if (spellDC != null) arr.push({ label: '法术DC', value: spellDC, ref: 'spellDc' })
+    if (spellAttackBonus != null) arr.push({ label: '法术攻击', value: spellAttackBonus, ref: 'spellAttack' })
+    return arr
+  }, [abilities, prof, level, spellDC, spellAttackBonus])
   const heldSlots = character?.equippedHeld ?? migrated?.held ?? [
     { id: 'main', inventoryId: null },
     { id: 'off', inventoryId: null },
@@ -291,7 +316,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
   const bodySlot = wornSlots[0]
   const wornAddable = wornSlots.slice(1)
 
-  const maxAttunementSlots = getMaxAttunementSlots(character?.buffs ?? [])
+  const maxAttunementSlots = getMaxAttunementSlots(character?.buffs ?? [], character)
   const attunedCount = getAttunedCountFromInventory(inv)
   const [wallet, setWallet] = useState({})
   const [transferOpen, setTransferOpen] = useState(false)
@@ -1431,8 +1456,9 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                   inventory={inv}
                   spellDC={spellDC}
                   spellAttackBonus={spellAttackBonus}
+                  referenceData={referenceData}
                 />
-                <ItemAddForm open={editingIndex !== null} onClose={() => setEditingIndex(null)} onSave={applyEditSave} submitLabel="保存" editEntry={editingIndex != null ? inv[editingIndex] : null} inventory={inv} spellDC={spellDC} spellAttackBonus={spellAttackBonus} />
+                <ItemAddForm open={editingIndex !== null} onClose={() => setEditingIndex(null)} onSave={applyEditSave} submitLabel="保存" editEntry={editingIndex != null ? inv[editingIndex] : null} inventory={inv} spellDC={spellDC} spellAttackBonus={spellAttackBonus} referenceData={referenceData} />
               </>
             )}
           </div>

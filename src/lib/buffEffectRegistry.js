@@ -24,6 +24,7 @@ export const BUFF_EFFECT_KEY_RUNTIME = {
   // ability
   ability_score: 'calculator',
   ability_override: 'calculator',
+  ability_score_uncapped: 'calculator',
   extra_attunement_slots: 'metadata',
   skill_bonus: 'calculator',
   save_bonus: 'calculator',

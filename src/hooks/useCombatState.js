@@ -18,7 +18,7 @@ export function useCombatState(character) {
     const buffs = character?.buffs ?? []
     const equipment = character?.equipment ?? {}
     const inventory = character?.inventory ?? []
-    const maxSlots = getMaxAttunementSlots(buffs)
+    const maxSlots = getMaxAttunementSlots(buffs, character)
     const attunedCount = getAttunedCountFromInventory(inventory)
     const attunedItems = getAttunedItemsFromInventory(inventory)
 

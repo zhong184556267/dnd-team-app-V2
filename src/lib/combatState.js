@@ -5,6 +5,7 @@
  */
 
 import { getWeaponById } from '../data/weaponDatabase'
+import { evaluateBuffValue, proficiencyBonus } from './formulas'
 
 /** 同调位基础上限 */
 export const BASE_ATTUNEMENT_SLOTS = 3
@@ -32,15 +33,20 @@ function getFlatEffectEntries(buffs) {
 /**
  * 从全局增益表计算最大同调位
  * @param {Array<{ effectType?: string, value?: number, enabled?: boolean, effects?: Array }>} buffs
+ * @param {object} [character] - 用于公式求值（等级、属性等）
  * @returns {number}
  */
-export function getMaxAttunementSlots(buffs) {
+export function getMaxAttunementSlots(buffs, character = null) {
   const list = Array.isArray(buffs) ? buffs : []
   const entries = getFlatEffectEntries(list)
+  const level = Math.max(1, Math.min(20, Number(character?.level) || 1))
+  const prof = proficiencyBonus(level)
+  const abilities = character?.abilities ?? {}
+  const formulaContext = { level, abilities, prof, spellDC: 0, spellAttack: 0 }
   let extra = 0
   for (const b of entries) {
     if (b.effectType === 'extra_attunement_slots') {
-      const v = Number(b.value)
+      const v = evaluateBuffValue(b.value, formulaContext)
       if (!Number.isNaN(v) && v > 0) extra += v
     }
   }

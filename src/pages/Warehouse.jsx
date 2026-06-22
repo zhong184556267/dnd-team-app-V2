@@ -16,6 +16,7 @@ import { useModule } from '../contexts/ModuleContext'
 import { logTeamActivity } from '../lib/activityLog'
 import { getItemById, getItemDisplayName } from '../data/itemDatabase'
 import { getCurrencyById, getCurrencyDisplayName } from '../data/currencyConfig'
+import { isFormulaValue, formatFormulaLabel } from '../lib/formulas'
 import {
   getWarehouse,
   getArcaneChestCount,
@@ -1964,11 +1965,13 @@ export default function Warehouse() {
               const nk = nEntry?.id ?? `wh-ni-${topBagIndex}-${path.join('-')}`
               const nQty = Math.max(1, Number(nEntry?.qty) ?? 1)
               const stoneEffect = Array.isArray(nEntry?.effects) ? nEntry.effects.find((e) => e.effectType === 'ac_cap_stone_layer') : null
-              const stoneVal = stoneEffect != null && stoneEffect.value != null ? Number(stoneEffect.value) : null
+              const stoneRaw = stoneEffect != null ? stoneEffect.value : null
+              const stoneLabel = isFormulaValue(stoneRaw) ? formatFormulaLabel(stoneRaw) : null
+              const stoneVal = stoneLabel == null && stoneRaw != null ? Number(stoneRaw) : null
               const nameExtra =
-                stoneVal != null && !Number.isNaN(stoneVal) && stoneVal > 0 ? (
+                stoneLabel || (stoneVal != null && !Number.isNaN(stoneVal) && stoneVal > 0) ? (
                   <span className="text-dnd-gold-light/90 text-xs font-mono tabular-nums shrink-0" title="瓦石层">
-                    {stoneVal}层
+                    {stoneLabel ?? `${stoneVal}层`}
                   </span>
                 ) : (Number(nEntry.magicBonus) || 0) > 0 ? (
                   <span className="text-dnd-gold-light/90 text-xs font-mono tabular-nums shrink-0">+{nEntry.magicBonus}</span>
@@ -2323,11 +2326,13 @@ export default function Warehouse() {
                             {pubOtherRows.map(({ entry, invIdx }) => {
                               const qty = Math.max(1, Number(entry?.qty) ?? 1)
                               const stoneEffect = Array.isArray(entry?.effects) ? entry.effects.find((e) => e.effectType === 'ac_cap_stone_layer') : null
-                              const stoneVal = stoneEffect != null && stoneEffect.value != null ? Number(stoneEffect.value) : null
+                              const stoneRaw = stoneEffect != null ? stoneEffect.value : null
+                              const stoneLabel = isFormulaValue(stoneRaw) ? formatFormulaLabel(stoneRaw) : null
+                              const stoneVal = stoneLabel == null && stoneRaw != null ? Number(stoneRaw) : null
                               const nameExtra =
-                                stoneVal != null && !Number.isNaN(stoneVal) && stoneVal > 0 ? (
+                                stoneLabel || (stoneVal != null && !Number.isNaN(stoneVal) && stoneVal > 0) ? (
                                   <span className="text-dnd-gold-light/90 text-xs font-mono tabular-nums shrink-0" title="瓦石层">
-                                    {stoneVal}层
+                                    {stoneLabel ?? `${stoneVal}层`}
                                   </span>
                                 ) : (Number(entry.magicBonus) || 0) > 0 ? (
                                   <span className="text-dnd-gold-light/90 text-xs font-mono tabular-nums shrink-0">+{entry.magicBonus}</span>
@@ -2822,11 +2827,13 @@ export default function Warehouse() {
                     const rowKey = entry?.id ?? `wh-row-${i}`
                     const qty = Math.max(1, Number(entry?.qty) ?? 1)
                     const se = Array.isArray(entry?.effects) ? entry.effects.find((e) => e.effectType === 'ac_cap_stone_layer') : null
-                    const sv = se != null && se.value != null ? Number(se.value) : null
+                    const sr = se != null ? se.value : null
+                    const sl = isFormulaValue(sr) ? formatFormulaLabel(sr) : null
+                    const sv = sl == null && sr != null ? Number(sr) : null
                     const nameExtra =
-                      sv != null && !Number.isNaN(sv) && sv > 0 ? (
+                      sl || (sv != null && !Number.isNaN(sv) && sv > 0) ? (
                         <span className="text-dnd-gold-light/90 text-xs font-mono tabular-nums shrink-0" title="瓦石层">
-                          {sv}层
+                          {sl ?? `${sv}层`}
                         </span>
                       ) : (Number(entry.magicBonus) || 0) > 0 ? (
                         <span className="text-dnd-gold-light/90 text-xs font-mono tabular-nums shrink-0">+{entry.magicBonus}</span>

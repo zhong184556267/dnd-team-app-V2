@@ -163,7 +163,7 @@ const RARITY_OPTIONS = [
   { value: '神器', label: '神器' },
 ]
 
-export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确认加入', editEntry = null, inventory = [], spellDC, spellAttackBonus }) {
+export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确认加入', editEntry = null, inventory = [], spellDC, spellAttackBonus, referenceData }) {
   const { customLibraryEpoch } = useModule()
   const grouped = useMemo(() => getItemListGrouped(), [customLibraryEpoch])
   const ammoOptionsFromInv = useMemo(() => {
@@ -702,7 +702,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
                       </button>
                     )
                     const inlineEditor = (
-                      <EffectValueEditor
+                      <EffectValueEditor referenceData={referenceData}
                         module={{ ...mod, effectType: effectiveEffectType }}
                         onChange={(next) => updateModule(mod.id, next)}
                         catData={catData}
@@ -719,7 +719,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
                             <div className="flex flex-wrap items-center gap-1 w-full min-w-0 overflow-x-hidden">
                               <div className="min-w-0 flex-1 basis-[5rem] max-w-[min(100%,12rem)]">{categorySelect}</div>
                               <div className="min-w-0 flex-1 basis-[5rem] max-w-[min(100%,12rem)]">{effectTypeSelect}</div>
-                              <AttackDamageBonusFields
+                              <AttackDamageBonusFields referenceData={referenceData}
                                 module={{ ...mod, effectType: effectiveEffectType }}
                                 onChange={(next) => updateModule(mod.id, next)}
                                 compactClass={inputClassInline + ' h-7 text-xs'}
@@ -745,7 +745,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
                               </div>
                             </div>
                             <div className="w-full min-w-0 overflow-x-hidden border-t border-gray-600/50 pt-2.5">
-                              <AttackDamageBonusFields
+                              <AttackDamageBonusFields referenceData={referenceData}
                                 module={{ ...mod, effectType: effectiveEffectType }}
                                 onChange={(next) => updateModule(mod.id, next)}
                                 compactClass={inputClassInline + ' h-7 text-xs'}
@@ -770,7 +770,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
                             </div>
                             {complexValue && (
                               <div className="pt-0.5 border-t border-gray-600/80">
-                                <EffectValueEditor
+                                <EffectValueEditor referenceData={referenceData}
                                   module={{ ...mod, effectType: effectiveEffectType }}
                                   onChange={(next) => updateModule(mod.id, next)}
                                   catData={catData}
@@ -925,7 +925,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
                       </button>
                     )
                     const inlineEditor = (
-                      <EffectValueEditor
+                      <EffectValueEditor referenceData={referenceData}
                         module={{ ...mod, effectType: effectiveEffectType }}
                         onChange={(next) => updateModule(mod.id, next)}
                         catData={catData}
@@ -942,7 +942,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
                             <div className="flex flex-wrap items-center gap-1 w-full min-w-0 overflow-x-hidden">
                               <div className="min-w-0 flex-1 basis-[5rem] max-w-[min(100%,12rem)]">{categorySelect}</div>
                               <div className="min-w-0 flex-1 basis-[5rem] max-w-[min(100%,12rem)]">{effectTypeSelect}</div>
-                              <AttackDamageBonusFields
+                              <AttackDamageBonusFields referenceData={referenceData}
                                 module={{ ...mod, effectType: effectiveEffectType }}
                                 onChange={(next) => updateModule(mod.id, next)}
                                 compactClass={inputClassInline + ' h-7 text-xs'}
@@ -968,7 +968,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
                               </div>
                             </div>
                             <div className="w-full min-w-0 overflow-x-hidden border-t border-gray-600/50 pt-2.5">
-                              <AttackDamageBonusFields
+                              <AttackDamageBonusFields referenceData={referenceData}
                                 module={{ ...mod, effectType: effectiveEffectType }}
                                 onChange={(next) => updateModule(mod.id, next)}
                                 compactClass={inputClassInline + ' h-7 text-xs'}
@@ -993,7 +993,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
                             </div>
                             {complexValue && (
                               <div className="pt-0.5 border-t border-gray-600/80">
-                                <EffectValueEditor
+                                <EffectValueEditor referenceData={referenceData}
                                   module={{ ...mod, effectType: effectiveEffectType }}
                                   onChange={(next) => updateModule(mod.id, next)}
                                   catData={catData}
@@ -1080,7 +1080,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
                     </button>
                   )
                   const inlineEditor = (
-                    <EffectValueEditor
+                    <EffectValueEditor referenceData={referenceData}
                       module={{ ...mod, effectType: effectiveEffectType }}
                       onChange={(next) => updateModule(mod.id, next)}
                       catData={catData}
@@ -1097,7 +1097,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
                           <div className="flex flex-wrap items-center gap-1 w-full min-w-0 overflow-x-hidden">
                             <div className="min-w-0 flex-1 basis-[5rem] max-w-[min(100%,12rem)]">{categorySelect}</div>
                             <div className="min-w-0 flex-1 basis-[5rem] max-w-[min(100%,12rem)]">{effectTypeSelect}</div>
-                            <AttackDamageBonusFields
+                            <AttackDamageBonusFields referenceData={referenceData}
                               module={{ ...mod, effectType: effectiveEffectType }}
                               onChange={(next) => updateModule(mod.id, next)}
                               compactClass={inputClassInline + ' h-7 text-xs'}
@@ -1123,7 +1123,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
                             </div>
                           </div>
                           <div className="w-full min-w-0 overflow-x-hidden border-t border-gray-600/50 pt-2.5">
-                            <AttackDamageBonusFields
+                            <AttackDamageBonusFields referenceData={referenceData}
                               module={{ ...mod, effectType: effectiveEffectType }}
                               onChange={(next) => updateModule(mod.id, next)}
                               compactClass={inputClassInline + ' h-7 text-xs'}
@@ -1148,7 +1148,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
                           </div>
                           {complexValue && (
                             <div className="pt-0.5 border-t border-gray-600/80">
-                              <EffectValueEditor
+                              <EffectValueEditor referenceData={referenceData}
                                 module={{ ...mod, effectType: effectiveEffectType }}
                                 onChange={(next) => updateModule(mod.id, next)}
                                 catData={catData}

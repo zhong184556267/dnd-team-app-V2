@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
-import { abilityModifier, getAC, proficiencyBonus } from '../lib/formulas'
+import { abilityModifier, getAC, proficiencyBonus, evaluateBuffValue, isFormulaValue } from '../lib/formulas'
+import { getPrimarySpellcastingAbility } from '../data/classDatabase'
 import { levelFromXP } from '../lib/xp5e'
 import { ABILITY_KEYS, getDamageTypeValue, weaponProtoMatchesBuffWeaponCategories, protoMatchesWeaponBuffKey } from '../data/buffTypes'
 import { getFlatEffectEntries } from '../lib/effects/effectMapping'
@@ -27,13 +28,13 @@ export function parseCritRangeThreatMin(raw) {
 }
 
 /** 仅从单件背包/装备条目的 effects 读取重击伤害骰倍数（规则默认 2；多件武器互不串用） */
-export function getCritDamageDiceMultiplierFromItemEntry(entry) {
+export function getCritDamageDiceMultiplierFromItemEntry(entry, context = {}) {
   let mult = 2
   const arr = entry?.effects
   if (!Array.isArray(arr)) return mult
   for (const e of arr) {
     if (e?.effectType === 'crit_extra_dice') {
-      const n = Number(e.value)
+      const n = evaluateBuffValue(e.value, context)
       if (!Number.isNaN(n) && n >= 2) mult = Math.max(mult, Math.floor(n))
     }
   }
@@ -81,6 +82,34 @@ export function computeBuffStats(character, activeBuffs) {
     const entries = rawEntries.filter((e) => !DISPLAY_ONLY_EFFECT_TYPES.includes(e.effectType))
     const baseAbilities = character?.abilities ?? { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 }
 
+    const xpVal = character?.xp
+    const charLevel = xpVal != null && Number(xpVal) >= 0
+      ? levelFromXP(xpVal)
+      : Math.max(1, Math.min(20, Number(character?.level) || 1))
+    const baseProf = proficiencyBonus(charLevel)
+    const spellAbility = getPrimarySpellcastingAbility(character)
+
+    // 预先扫描 proficiency_override，供后续公式上下文使用
+    let profOverride = null
+    const minimalContext = { level: charLevel, abilities: baseAbilities, prof: baseProf, spellDC: 0, spellAttack: 0 }
+    for (const b of entries) {
+      if (b.effectType === 'proficiency_override') {
+        const v = evaluateBuffValue(b.value, minimalContext)
+        if (!Number.isNaN(v)) profOverride = v
+      }
+    }
+    const contextProf = profOverride != null ? profOverride : baseProf
+
+    const baseSpellMod = spellAbility ? abilityModifier(baseAbilities[spellAbility] ?? 10) : 0
+    const baseFormulaContext = {
+      level: charLevel,
+      abilities: baseAbilities,
+      prof: contextProf,
+      spellDC: spellAbility ? 8 + contextProf + baseSpellMod : 0,
+      spellAttack: spellAbility ? contextProf + baseSpellMod : 0,
+    }
+    const baseEvalVal = (raw) => evaluateBuffValue(raw, baseFormulaContext)
+
     // 1. 属性：override 优先，否则 base + ability_score
     let hasAbilityOverride = false
     const abilityOverride = {}
@@ -90,13 +119,13 @@ export function computeBuffStats(character, activeBuffs) {
       if (b.effectType === 'ability_override' && b.value && typeof b.value === 'object') {
         hasAbilityOverride = true
         for (const k of ABILITY_KEYS) {
-          const v = Number(b.value[k])
+          const v = baseEvalVal(b.value[k])
           if (!Number.isNaN(v)) abilityOverride[k] = v
         }
       }
-      if (b.effectType === 'ability_score' && b.value && typeof b.value === 'object') {
+      if ((b.effectType === 'ability_score' || b.effectType === 'ability_score_uncapped') && b.value && typeof b.value === 'object') {
         for (const k of ABILITY_KEYS) {
-          const v = Number(b.value[k])
+          const v = baseEvalVal(b.value[k])
           if (!Number.isNaN(v)) abilityBonus[k] = (abilityBonus[k] || 0) + v
         }
       }
@@ -104,12 +133,25 @@ export function computeBuffStats(character, activeBuffs) {
 
     const finalAbilities = {}
     for (const k of ABILITY_KEYS) {
+      let score
       if (hasAbilityOverride && abilityOverride[k] != null) {
-        finalAbilities[k] = abilityOverride[k]
+        score = abilityOverride[k]
       } else {
-        finalAbilities[k] = (baseAbilities[k] ?? 10) + (abilityBonus[k] || 0)
+        score = (baseAbilities[k] ?? 10) + (abilityBonus[k] || 0)
       }
+      finalAbilities[k] = Math.max(1, Math.min(30, score))
     }
+
+    // 后续 AC 加值、豁免/技能/法术等公式统一使用 BUFF 后有效属性求值
+    const finalSpellMod = spellAbility ? abilityModifier(finalAbilities[spellAbility] ?? 10) : 0
+    const formulaContext = {
+      level: charLevel,
+      abilities: finalAbilities,
+      prof: contextProf,
+      spellDC: spellAbility ? 8 + contextProf + finalSpellMod : 0,
+      spellAttack: spellAbility ? contextProf + finalSpellMod : 0,
+    }
+    const evalVal = (raw) => evaluateBuffValue(raw, formulaContext)
 
     // 2. 攻击加值：melee / ranged / all 分离累加
     let attackMelee = 0
@@ -131,11 +173,11 @@ export function computeBuffStats(character, activeBuffs) {
       }
       if (b.effectType === 'attack_damage_bonus' && raw && typeof raw === 'object' && !Array.isArray(raw)) {
         const adv = raw.advantage === 'advantage' || raw.advantage === 'disadvantage' ? raw.advantage : ''
-        const gv = Number(raw.val)
+        const gv = evalVal(raw.val)
         const globalVal = Number.isNaN(gv) ? 0 : gv
         const rows = Array.isArray(raw.categoryRows)
           ? raw.categoryRows
-              .map((r) => ({ key: String(r.key ?? '').trim(), val: Number(r.val) || 0 }))
+              .map((r) => ({ key: String(r.key ?? '').trim(), val: evalVal(r.val) || 0 }))
               .filter((r) => r.key)
           : []
         const cats = Array.isArray(raw.weaponCategories) ? raw.weaponCategories.filter(Boolean) : []
@@ -162,7 +204,7 @@ export function computeBuffStats(character, activeBuffs) {
         }
         continue
       }
-      const v = Number(typeof raw === 'object' && raw && 'val' in raw ? raw.val : raw)
+      const v = evalVal(typeof raw === 'object' && raw && 'val' in raw ? raw.val : raw)
       if (!Number.isNaN(v)) {
         if (b.effectType === 'attack_melee') attackMelee += v
         else if (b.effectType === 'attack_ranged') attackRanged += v
@@ -206,7 +248,7 @@ export function computeBuffStats(character, activeBuffs) {
       if (b.effectType === 'attack_damage_bonus') {
         const rawA = b.value
         if (rawA && typeof rawA === 'object' && !Array.isArray(rawA)) {
-          const gv = Number(rawA.val)
+          const gv = evalVal(rawA.val)
           const globalVal = Number.isNaN(gv) ? 0 : gv
           const rowsHaveKeys =
             Array.isArray(rawA.categoryRows) &&
@@ -272,7 +314,6 @@ export function computeBuffStats(character, activeBuffs) {
     let reachBonus = 0
     let initBonus = 0
     const saveDcValues = []
-    let profOverride = null
     const spellAttackValues = []
     let flightSpeed = 0
     let flightHover = false
@@ -286,55 +327,50 @@ export function computeBuffStats(character, activeBuffs) {
     const ignoreResistanceTypes = []
     let damageReduction = 0
 
-    const xpVal = character?.xp
-    const charLevel = xpVal != null && Number(xpVal) >= 0
-      ? levelFromXP(xpVal)
-      : Math.max(1, Math.min(20, Number(character?.level) || 1))
     const initiativeProfBonus = proficiencyBonus(charLevel)
 
     for (const b of entries) {
       const raw = b.value
-      const v = Number(typeof raw === 'object' && raw && 'val' in raw ? raw.val : raw)
-      if (b.effectType === 'ac_bonus') acBonus += Number(raw) || 0
+      const v = evalVal(typeof raw === 'object' && raw && 'val' in raw ? raw.val : raw)
+      if (b.effectType === 'ac_bonus') acBonus += evalVal(raw) || 0
       else if (b.effectType === 'damage_reduction') {
-        const dr = Number(typeof raw === 'object' && raw && 'val' in raw ? raw.val : raw)
+        const dr = evalVal(typeof raw === 'object' && raw && 'val' in raw ? raw.val : raw)
         if (!Number.isNaN(dr)) damageReduction += dr
       }
       else if (b.effectType === 'ac_cap_stone_layer') {
-        const y = Number(raw)
+        const y = evalVal(raw)
         if (!Number.isNaN(y)) acCapStoneLayerValues.push(y)
       }
-      else if (b.effectType === 'speed_bonus') speedBonus += Number(raw) || 0
+      else if (b.effectType === 'speed_bonus') speedBonus += evalVal(raw) || 0
       else if (b.effectType === 'reach_bonus') reachBonus += v
       else if (b.effectType === 'init_bonus') initBonus += v
       else if (b.effectType === 'initiative_buff' && raw && typeof raw === 'object' && !Array.isArray(raw)) {
-        const bon = Number(raw.bonus)
+        const bon = evalVal(raw.bonus)
         if (!Number.isNaN(bon)) initBonus += bon
         if (raw.proficient === true || raw.proficient === 'true' || raw.proficient === 1) {
           initBonus += initiativeProfBonus
         }
       }
-      else if (b.effectType === 'save_dc_bonus') { const dv = (typeof raw === 'object' && raw && 'val' in raw ? Number(raw.val) : Number(raw)) || 0; saveDcValues.push(dv) }
-      else if (b.effectType === 'spell_attack_bonus') { const sv = (typeof raw === 'object' && raw && 'val' in raw ? Number(raw.val) : Number(raw)) || 0; spellAttackValues.push(sv) }
-      else if (b.effectType === 'proficiency_override' && !Number.isNaN(v)) profOverride = v
+      else if (b.effectType === 'save_dc_bonus') { const dv = evalVal(typeof raw === 'object' && raw && 'val' in raw ? raw.val : raw) || 0; saveDcValues.push(dv) }
+      else if (b.effectType === 'spell_attack_bonus') { const sv = evalVal(typeof raw === 'object' && raw && 'val' in raw ? raw.val : raw) || 0; spellAttackValues.push(sv) }
       else if (b.effectType === 'flight_speed' && raw && typeof raw === 'object') {
-        const sp = Number(raw.speed)
+        const sp = evalVal(raw.speed)
         if (!Number.isNaN(sp) && sp > flightSpeed) flightSpeed = sp
         if (raw.hover) flightHover = true
       } else if (b.effectType === 'concentration' && raw && typeof raw === 'object') {
-        const cb = Number(raw.val)
+        const cb = evalVal(raw.val)
         if (!Number.isNaN(cb)) concentrationBonus += cb
         if (raw.advantage === 'advantage') concentrationAdvantage = 'advantage'
         else if (raw.advantage === 'disadvantage') concentrationAdvantage = 'disadvantage'
       } else if (b.effectType === 'save_bonus' && raw && typeof raw === 'object') {
         for (const k of ABILITY_KEYS) {
-          const n = Number(raw[k])
+          const n = evalVal(raw[k])
           if (!Number.isNaN(n)) saveBonusPerAbility[k] = (saveBonusPerAbility[k] || 0) + n
         }
       } else if (b.effectType === 'skill_bonus' && raw && typeof raw === 'object') {
         for (const [k, val] of Object.entries(raw)) {
           if (k === 'advantage') continue
-          const n = Number(val)
+          const n = evalVal(val)
           if (!Number.isNaN(n)) skillBonusPerSkill[k] = (skillBonusPerSkill[k] || 0) + n
         }
       }
@@ -361,7 +397,7 @@ export function computeBuffStats(character, activeBuffs) {
       // 新表：专注增强（对象：val + advantage；兼容旧文本）
       else if (b.effectType === 'concentration_save_enhance') {
         if (raw && typeof raw === 'object') {
-          const cb = Number(raw.val)
+          const cb = evalVal(raw.val)
           if (!Number.isNaN(cb)) concentrationBonus += cb
           if (raw.advantage === 'advantage') concentrationAdvantage = 'advantage'
           else if (raw.advantage === 'disadvantage') concentrationAdvantage = 'disadvantage'
@@ -379,8 +415,8 @@ export function computeBuffStats(character, activeBuffs) {
       }
       // 新表：速度增加（统一数值，默认为地面速度 +X）
       else if (b.effectType === 'base_speed_increment') {
-        if (typeof raw === 'number') {
-          speedBonus += raw
+        if (typeof raw === 'number' || isFormulaValue(raw)) {
+          speedBonus += evalVal(raw)
         } else if (typeof raw === 'string') {
           const walkMatch = raw.match(/行走\s*[+＋]?\s*(\d+)/i)
           const flyMatch = raw.match(/飞行\s*[+＋]?\s*(\d+)/i)
@@ -403,7 +439,7 @@ export function computeBuffStats(character, activeBuffs) {
     let regeneration = 0
 
     for (const b of entries) {
-      const v = Number(b.value)
+      const v = evalVal(b.value)
       if (b.effectType === 'temp_hp' && !Number.isNaN(v)) tempHp = Math.max(tempHp, v)
       else if (b.effectType === 'max_hp_bonus') maxHpBonus += v
       else if (b.effectType === 'regeneration') regeneration += v
@@ -423,7 +459,7 @@ export function computeBuffStats(character, activeBuffs) {
       else if (b.effectType === 'vulnerable_type') vulnerableTypes.push(...arr.map(toValue).filter(Boolean))
       else if (b.effectType === 'dmg_type_specific' && b.value && typeof b.value === 'object' && b.value.type) {
         const t = toValue(b.value.type)
-        const v = Number(b.value.val)
+        const v = evalVal(b.value.val)
         if (!Number.isNaN(v) && t) dmgTypeBonus[t] = (dmgTypeBonus[t] || 0) + v
       }
     }
@@ -515,7 +551,7 @@ export function calculateDamage(baseRoll, damageType, buffStats) {
  * @param {Array} buffs - 所有 buff 列表
  * @returns {Map<string, Set<string>>} buffId → 被抑制的 effectType 集合
  */
-export function computeSuppressedEffects(buffs) {
+export function computeSuppressedEffects(buffs, context = {}) {
   const result = new Map()
   const enabledBuffs = (buffs || []).filter(b => b.enabled !== false)
 
@@ -530,12 +566,14 @@ export function computeSuppressedEffects(buffs) {
     for (const e of effects) {
       if (e.effectType === 'save_dc_bonus') {
         const raw = e.value
-        const v = (typeof raw === 'object' && raw && 'val' in raw ? Number(raw.val) : Number(raw)) || 0
+        const inner = typeof raw === 'object' && raw && 'val' in raw ? raw.val : raw
+        const v = evaluateBuffValue(inner, context)
         dcEntries.push({ buffId: buff.id, value: v })
       }
       if (e.effectType === 'spell_attack_bonus') {
         const raw = e.value
-        const v = (typeof raw === 'object' && raw && 'val' in raw ? Number(raw.val) : Number(raw)) || 0
+        const inner = typeof raw === 'object' && raw && 'val' in raw ? raw.val : raw
+        const v = evaluateBuffValue(inner, context)
         spellAtkEntries.push({ buffId: buff.id, value: v })
       }
     }

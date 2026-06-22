@@ -37,7 +37,7 @@ const DAMAGE_TYPE_SHORT = { 强酸: '酸', 钝击: '钝', 寒冷: '寒', 火焰:
 const HIT_RESOLUTION_LABELS = { dex_save: '敏捷豁免', str_save: '力量豁免', con_save: '体质豁免', wis_save: '感知豁免', int_save: '智力豁免', cha_save: '魅力豁免', spell_attack: '法术攻击' }
 import { getItemById, parseWeaponNoteToTraits } from '../data/itemDatabase'
 import { getSpellById, getWandScrollSpellPower, getMergedSpells } from '../data/spellDatabase'
-import { getSpellcastingLevel, getMaxSpellSlotsByRing, getHitDice } from '../data/classDatabase'
+import { getSpellcastingLevel, getMaxSpellSlotsByRing, getHitDice, getPrimarySpellcastingAbility } from '../data/classDatabase'
 import { getSpellcastingCombatStats } from '../lib/spellcastingStats'
 import { rollDice, rollCombatDicePool, parseCombatDiceExpression } from '../data/weaponDatabase'
 import { buildQuickRollAnimation } from '../lib/quickRollAnimation'
@@ -474,6 +474,19 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
     ],
   )
   const buffStats = useBuffCalculator(char, mergedBuffs)
+  const itemFormulaContext = useMemo(() => {
+    const effectiveAbilities = buffStats?.abilities ?? abilities ?? {}
+    const prof = proficiencyBonus(level)
+    const spellAbility = getPrimarySpellcastingAbility(char)
+    const spellMod = spellAbility ? abilityModifier(effectiveAbilities?.[spellAbility] ?? 10) : 0
+    return {
+      level,
+      abilities: effectiveAbilities,
+      prof,
+      spellDC: spellAbility ? 8 + prof + spellMod : 0,
+      spellAttack: spellAbility ? prof + spellMod : 0,
+    }
+  }, [char, level, abilities, buffStats])
   const acResult = getAC(char)
   const acTotal = buffStats?.ac != null ? buffStats.ac : (acResult.total + (buffStats?.acBonus ?? 0))
   const acModeOptions = useMemo(() => getACModeOptionsForCharacter(char), [char?.['class'], char?.multiclass, char?.prestige])
@@ -1082,7 +1095,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
   /** 物理武器：汇总主伤+所有额外骰，按伤害类型分组投掷并展示 */
   const rollAllWeaponDamage = (cm, weaponOpt, attackParsed, totalDamageMod, displayDamageType, isCrit) => {
     /** 仅本把武器 entry 上的「暴击×」；其它已装备武器的附魔不串用 */
-    const critMult = isCrit ? getCritDamageDiceMultiplierFromItemEntry(weaponOpt?.entry ?? null) : 1
+    const critMult = isCrit ? getCritDamageDiceMultiplierFromItemEntry(weaponOpt?.entry ?? null, itemFormulaContext) : 1
     const animParts = []
     const animValues = []
     const sources = []
@@ -2553,7 +2566,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                     </div>
                     {weaponOpt && (
                       (() => {
-                        const weaponCritDiceMult = getCritDamageDiceMultiplierFromItemEntry(weaponOpt.entry)
+                        const weaponCritDiceMult = getCritDamageDiceMultiplierFromItemEntry(weaponOpt.entry, itemFormulaContext)
                         const weaponCritThreatMin = getCritThreatMinNaturalFromItemEntry(weaponOpt.entry)
                         const isRanged = weaponOpt.proto?.子类型 === '远程'
                         const entryAttackDist = (weaponOpt.entry?.攻击距离 ?? '').toString().trim()

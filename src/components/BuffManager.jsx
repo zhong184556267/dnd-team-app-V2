@@ -28,6 +28,9 @@ export default function BuffManager({
   onApplyStashTemplate,
   buffColumnOrder,
   onBuffColumnOrderChange,
+  referenceData,
+  baseReferenceData,
+  formulaContext = {},
 }) {
   const [formState, setFormState] = useState(null)
   /** null | { mode: 'active'|'stash', id: string|null } */
@@ -166,7 +169,7 @@ export default function BuffManager({
   }, [list])
 
   // 计算被抑制的效果（DC和法术攻击加值取最高值，非最高标记为抑制）
-  const suppressedMap = useMemo(() => computeSuppressedEffects(list), [list])
+  const suppressedMap = useMemo(() => computeSuppressedEffects(list, formulaContext), [list, formulaContext])
 
   const handleMoveBuffToColumn = useCallback(
     (buffId, columnKey) => {
@@ -219,8 +222,8 @@ export default function BuffManager({
                   className={`flex items-center gap-1.5 min-w-0 max-w-full rounded-md border border-white/10 bg-[#243147]/50 pl-1 pr-1 py-0.5 ${stashEditable && canEdit ? 'cursor-grab active:cursor-grabbing' : ''}`}
                   title={stashEditable && canEdit ? '拖到下方当前 Buff 区域以应用模板' : undefined}
                 >
-                  <span className="text-xs text-gray-200 truncate min-w-0 max-w-[14rem]" title={getBuffSummaryLine(b, baseAbilities)}>
-                    {getBuffSummaryLine(b, baseAbilities)}
+                  <span className="text-xs text-gray-200 truncate min-w-0 max-w-[14rem]" title={getBuffSummaryLine(b, baseAbilities, formulaContext)}>
+                    {getBuffSummaryLine(b, baseAbilities, formulaContext)}
                   </span>
                   {stashEditable && canEdit && (
                     <div className="flex items-center gap-0.5 shrink-0">
@@ -292,6 +295,7 @@ export default function BuffManager({
           onDropStash={stashEditable ? onDropActive : undefined}
           dragOverStash={stashEditable && dragOverActive}
           suppressedMap={suppressedMap}
+          formulaContext={formulaContext}
         />
       </div>
 
@@ -307,16 +311,23 @@ export default function BuffManager({
             aria-hidden
           />
           <div
-            className="fixed inset-4 sm:inset-auto sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 sm:max-w-3xl sm:w-full z-[201] overflow-auto max-h-[90vh]"
-            onClick={(e) => e.stopPropagation()}
+            className="fixed inset-0 z-[201] flex items-center justify-center p-4 sm:p-8 overflow-auto"
+            onClick={() => setFormState(null)}
           >
-            <BuffForm
-              key={`${formState.mode}-${formState.id ?? 'new'}`}
-              initial={formInitial}
-              defaultSourceKind={formState.mode === 'stash' ? 'temporary' : 'adventure'}
-              onSave={formOnSave}
-              onCancel={() => setFormState(null)}
-            />
+            <div
+              className="w-full max-w-3xl max-h-[90vh] overflow-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <BuffForm
+                key={`${formState.mode}-${formState.id ?? 'new'}`}
+                initial={formInitial}
+                defaultSourceKind={formState.mode === 'stash' ? 'temporary' : 'adventure'}
+                onSave={formOnSave}
+                onCancel={() => setFormState(null)}
+                referenceData={referenceData}
+                baseReferenceData={baseReferenceData}
+              />
+            </div>
           </div>
         </>
       )}

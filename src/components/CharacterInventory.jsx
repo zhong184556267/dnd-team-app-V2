@@ -13,7 +13,12 @@ import ItemAddForm from './ItemAddForm'
 import EncumbranceBar from './EncumbranceBar'
 import TransferModal from './TransferModal'
 import { DamageDiceInlineRow } from './BuffForm'
-import { parseDamageString, formatDamageForAttack } from '../data/buffTypes'
+import { parseDamageString, formatDamageForAttack, ABILITY_NAMES_ZH } from '../data/buffTypes'
+import { abilityModifier } from '../lib/formulas'
+import { useModule } from '../contexts/ModuleContext'
+import { getMergedBuffsForCalculator } from '../lib/effects/effectMapping'
+import { useBuffCalculator } from '../hooks/useBuffCalculator'
+import { getSpellcastingCombatStats } from '../lib/spellcastingStats'
 import { rollDice } from '../data/weaponDatabase'
 import { inputClass, textareaClass, labelClass } from '../lib/inputStyles'
 import { NumberStepper } from './BuffForm'
@@ -95,7 +100,36 @@ function buildArmorNoteFromFields(fields) {
  * 个人背包：先选物品类型→自动带出可编辑信息→点「放入背包」才加入；同调列在名称前，最多 maxSlots
  */
 export default function CharacterInventory({ character, canEdit, onSave, onWalletSuccess }) {
+  const { currentModuleId } = useModule()
+  const moduleId = currentModuleId || 'default'
   const inv = character?.inventory ?? []
+  const level = Math.max(1, Math.min(20, parseInt(character?.level, 10) || 1))
+  const mergedBuffs = useMemo(() => getMergedBuffsForCalculator(character, moduleId), [
+    character?.buffs,
+    character?.selectedFeats,
+    character?.inventory,
+    character?.equippedHeld,
+    character?.equippedWorn,
+    moduleId,
+  ])
+  const buffStats = useBuffCalculator(character, mergedBuffs)
+  const abilities = buffStats?.abilities ?? character?.abilities ?? {}
+  const { spellAttackBonus, spellDC, prof } = getSpellcastingCombatStats(character, buffStats, level)
+  const referenceData = useMemo(() => {
+    const arr = []
+    Object.entries(abilities).forEach(([k, v]) => {
+      const label = ABILITY_NAMES_ZH[k] ?? k
+      const score = Number(v) || 0
+      if (v != null) {
+        arr.push({ label: `${label}调整值`, value: abilityModifier(score), ref: 'abilityModifier', ability: k })
+      }
+    })
+    arr.push({ label: '熟练加值', value: prof, ref: 'proficiency' })
+    arr.push({ label: '等级', value: level, ref: 'level' })
+    if (spellDC != null) arr.push({ label: '法术DC', value: spellDC, ref: 'spellDc' })
+    if (spellAttackBonus != null) arr.push({ label: '法术攻击', value: spellAttackBonus, ref: 'spellAttack' })
+    return arr
+  }, [abilities, prof, level, spellDC, spellAttackBonus])
   const bagModules = useMemo(
     () => getNormalizedBagModules(character),
     [character?.id, character?.bagOfHoldingModules, character?.bagOfHoldingSlots, character?.bagOfHoldingCount, character?.bagOfHoldingVisibility],
@@ -130,7 +164,7 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
   const [addFormOpen, setAddFormOpen] = useState(false)
   const [lastExplosiveRoll, setLastExplosiveRoll] = useState(null) // { index, total, rolls, diceExpr }
 
-  const maxAttunementSlots = getMaxAttunementSlots(character?.buffs ?? [])
+  const maxAttunementSlots = getMaxAttunementSlots(character?.buffs ?? [], character)
   const attunedCount = getAttunedCountFromInventory(inv)
 
   const displayWallet = useMemo(() => mergeWalletWithBagWallet(wallet, inv), [wallet, inv])
@@ -696,7 +730,7 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
               <button type="button" onClick={() => setAddFormOpen(true)} className="h-10 px-4 rounded-lg border border-dnd-red text-dnd-red hover:bg-dnd-red hover:text-white text-sm font-medium transition-colors">
                 添加物品
               </button>
-              <ItemAddForm open={addFormOpen} onClose={() => setAddFormOpen(false)} onSave={(entry) => { onSave({ inventory: [...inv, entry] }); setAddFormOpen(false); }} submitLabel="确认加入" />
+              <ItemAddForm open={addFormOpen} onClose={() => setAddFormOpen(false)} onSave={(entry) => { onSave({ inventory: [...inv, entry] }); setAddFormOpen(false); }} submitLabel="确认加入" referenceData={referenceData} />
               <ItemAddForm
                 open={canEdit && editingIndex != null && !!inv[editingIndex]?.inBagOfHolding && !inv[editingIndex]?.walletCurrencyId}
                 onClose={() => setEditingIndex(null)}
@@ -710,6 +744,7 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
                 submitLabel="保存"
                 editEntry={editingIndex != null && inv[editingIndex]?.inBagOfHolding && !inv[editingIndex]?.walletCurrencyId ? inv[editingIndex] : null}
                 inventory={inv}
+                referenceData={referenceData}
               />
             </div>
           )}

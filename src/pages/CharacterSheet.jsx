@@ -14,6 +14,7 @@ import { isSupabaseEnabled } from '../lib/supabase'
 import { mergeCharacterPatch, mergePatchesList } from '../lib/mergeCharacterPatch'
 import { resolveCreatureHpDisplay } from '../lib/creatureHpDisplay'
 import { levelFromXP, xpForLevel } from '../lib/xp5e'
+import { proficiencyBonus, abilityModifier } from '../lib/formulas'
 import {
   getSpellcastingLevel,
   ALL_CLASS_NAMES,
@@ -21,6 +22,7 @@ import {
   getSubclassOptions,
   getAvailableFeatures,
   resolveSelectedFeatures,
+  getPrimarySpellcastingAbility,
 } from '../data/classDatabase'
 import { useRuleTextOverridesMap } from '../hooks/useRuleTextOverridesMap'
 import {
@@ -1446,6 +1448,71 @@ export default function CharacterSheet() {
   const canEdit = isAdmin || char?.owner === user?.name
   const isCreatureTemplate = char?.subordinateTemplate === 'creature'
 
+  const referenceData = useMemo(() => {
+    if (!char) return []
+    const abilities = buffStats?.abilities ?? char?.abilities ?? {}
+    const prof = buffStats?.proficiencyOverride != null ? buffStats.proficiencyOverride : proficiencyBonus(level)
+    const spellAbility = getPrimarySpellcastingAbility(char)
+    const arr = []
+    Object.entries(abilities).forEach(([k, v]) => {
+      const label = ABILITY_NAMES_ZH[k] ?? k
+      const score = Number(v) || 0
+      if (v != null) {
+        arr.push({ label: `${label}调整值`, value: abilityModifier(score), ref: 'abilityModifier', ability: k })
+      }
+    })
+    arr.push({ label: '熟练加值', value: prof, ref: 'proficiency' })
+    arr.push({ label: '等级', value: level, ref: 'level' })
+    if (spellAbility) {
+      const mod = abilityModifier(abilities[spellAbility] ?? 10)
+      const spellDC = 8 + prof + mod + (buffStats?.saveDcBonus ?? 0)
+      const spellAtk = prof + mod + (buffStats?.spellAttackBonus ?? 0)
+      arr.push({ label: '法术DC', value: spellDC, ref: 'spellDc' })
+      arr.push({ label: '法术攻击', value: spellAtk, ref: 'spellAttack' })
+    }
+    return arr
+  }, [char, level, buffStats])
+
+  const baseReferenceData = useMemo(() => {
+    if (!char) return []
+    const abilities = char?.abilities ?? {}
+    const prof = proficiencyBonus(level)
+    const spellAbility = getPrimarySpellcastingAbility(char)
+    const arr = []
+    Object.entries(abilities).forEach(([k, v]) => {
+      const label = ABILITY_NAMES_ZH[k] ?? k
+      const score = Number(v) || 0
+      if (v != null) {
+        arr.push({ label: `${label}调整值`, value: abilityModifier(score), ref: 'abilityModifier', ability: k })
+      }
+    })
+    arr.push({ label: '熟练加值', value: prof, ref: 'proficiency' })
+    arr.push({ label: '等级', value: level, ref: 'level' })
+    if (spellAbility) {
+      const mod = abilityModifier(abilities[spellAbility] ?? 10)
+      const spellDC = 8 + prof + mod
+      const spellAtk = prof + mod
+      arr.push({ label: '法术DC', value: spellDC, ref: 'spellDc' })
+      arr.push({ label: '法术攻击', value: spellAtk, ref: 'spellAttack' })
+    }
+    return arr
+  }, [char, level])
+
+  const buffFormulaContext = useMemo(() => {
+    if (!char) return { level: 1, abilities: {}, prof: 0, spellDC: 0, spellAttack: 0 }
+    const abilities = buffStats?.abilities ?? char?.abilities ?? {}
+    const prof = buffStats?.proficiencyOverride != null ? buffStats.proficiencyOverride : proficiencyBonus(level)
+    const spellAbility = getPrimarySpellcastingAbility(char)
+    const mod = spellAbility ? abilityModifier(abilities[spellAbility] ?? 10) : 0
+    return {
+      level,
+      abilities,
+      prof,
+      spellDC: spellAbility ? 8 + prof + mod : 0,
+      spellAttack: spellAbility ? prof + mod : 0,
+    }
+  }, [char, level, buffStats])
+
   /** 附属卡本地更新后递增，用于顶栏等重新读取 getCharactersInModule */
   const [subordinatesTick, setSubordinatesTick] = useState(0)
 
@@ -1737,6 +1804,9 @@ export default function CharacterSheet() {
               buffColumnOrder={char.buffColumnOrder}
               onBuffColumnOrderChange={canEdit ? (order) => persist({ buffColumnOrder: order }) : undefined}
               canEdit={canEdit}
+              referenceData={referenceData}
+              baseReferenceData={baseReferenceData}
+              formulaContext={buffFormulaContext}
             />
           </section>
           )}

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, Fragment } from 'react'
-import { Trash2, Plus, ChevronDown } from 'lucide-react'
+import { Trash2, Plus, ChevronDown, Database, X } from 'lucide-react'
 import {
   BUFF_TYPES,
   getCategories,
@@ -18,6 +18,7 @@ import { SAVE_NAMES, SKILLS } from '../data/dndSkills'
 import { SPELLS, getWandScrollSpellPower } from '../data/spellDatabase'
 import { inputClass, inputClassInline, textareaClass } from '../lib/inputStyles'
 import { formatDisplayOneDecimal } from '../lib/encumbrance'
+import { isFormulaValue, formatFormulaLabel } from '../lib/formulas'
 import DragHandleIcon from './DragHandleIcon'
 import {
   BUFF_SOURCE_KIND_OPTIONS_EDITABLE,
@@ -63,14 +64,14 @@ export function normalizeAttackDamageBonusModuleValue(value) {
   }
   if (typeof value === 'object' && !Array.isArray(value)) {
     const advantage = value.advantage === 'advantage' || value.advantage === 'disadvantage' ? value.advantage : ''
-    const valRaw = Number(value.val)
-    let val = Number.isNaN(valRaw) ? 0 : valRaw
+    const valRaw = value.val
+    let val = isFormulaValue(valRaw) ? valRaw : (Number.isNaN(Number(valRaw)) ? 0 : Number(valRaw))
     let categoryRows = []
     if (Array.isArray(value.categoryRows)) {
       categoryRows = value.categoryRows.map((r, i) => ({
         id: r.id || `cr_${i}_${String(r.key ?? '')}`,
         key: String(r.key ?? '').trim(),
-        val: Number(r.val) || 0,
+        val: isFormulaValue(r.val) ? r.val : (Number(r.val) || 0),
       }))
     }
     const hasKeyedRows = categoryRows.some((r) => r.key)
@@ -94,7 +95,11 @@ function mergeAttackDamageCategoryRows(rows) {
   for (const r of rows || []) {
     const k = String(r.key ?? '').trim()
     if (!k) continue
-    m.set(k, (m.get(k) || 0) + (Number(r.val) || 0))
+    if (isFormulaValue(r.val)) {
+      m.set(k, r.val)
+    } else {
+      m.set(k, (m.get(k) || 0) + (Number(r.val) || 0))
+    }
   }
   return [...m.entries()].map(([key, val]) => ({ key, val }))
 }
@@ -104,7 +109,7 @@ export function serializeAttackDamageBonusForSave(value) {
   const n = normalizeAttackDamageBonusModuleValue(value)
   const rows = mergeAttackDamageCategoryRows(n.categoryRows)
   const out = {
-    val: Number(n.val) || 0,
+    val: isFormulaValue(n.val) ? n.val : (Number(n.val) || 0),
     advantage: n.advantage,
   }
   if (rows.length > 0) out.categoryRows = rows
@@ -172,7 +177,7 @@ function normalizeValueForSave(module, currentEffect) {
   }
   if (needsSubSelect === 'initBonusAndProficiency') {
     if (value && typeof value === 'object' && !Array.isArray(value)) {
-      return { bonus: Number(value.bonus) || 0, proficient: !!value.proficient }
+      return { bonus: isFormulaValue(value.bonus) ? value.bonus : (Number(value.bonus) || 0), proficient: !!value.proficient }
     }
     return { bonus: typeof value === 'number' && !Number.isNaN(value) ? value : 0, proficient: false }
   }
@@ -193,6 +198,7 @@ function normalizeValueForSave(module, currentEffect) {
     return ''
   }
   if (currentEffect.key === 'crit_extra_dice') {
+    if (isFormulaValue(value)) return value
     const n = Number(value)
     if (Number.isNaN(n) || n < 2) return 2
     return Math.min(10, Math.floor(n))
@@ -368,8 +374,136 @@ function formatStepperFieldString(num) {
   return formatDisplayOneDecimal(num)
 }
 
-/** 数字输入：统一使用「中间数字 + 上下箭头」设计。narrow 时容器仅够数字与箭头；unifiedColor 时与行内标签同色；pill 为行内胶囊（无底色，用于背包/袋内表）；subtle 时文字更淡 */
-function NumberStepper({ value, onChange, min = -999, max = 999, step = 1, compact, narrow, unifiedColor, pill, subtle, disabled }) {
+/** 引用现有数据：在步进器旁显示小下拉，可「引用为公式」或「直接填入当前值」。使用 fixed 定位避免被父容器 overflow 截断。 */
+function ReferenceValuePicker({ options, onSelect, compact }) {
+  const [open, setOpen] = useState(false)
+  const [pos, setPos] = useState({ top: 0, right: 0 })
+  const ref = useRef(null)
+  useEffect(() => {
+    if (!open) return
+    const close = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [open])
+  if (!options || options.length === 0) return null
+  const formulaOptions = options.filter((opt) => typeof opt.ref === 'string')
+  const handleToggle = () => {
+    if (!open && ref.current) {
+      const rect = ref.current.getBoundingClientRect()
+      setPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right })
+    }
+    setOpen((v) => !v)
+  }
+  return (
+    <div ref={ref} className="relative shrink-0">
+      <button
+        type="button"
+        onClick={handleToggle}
+        className={`rounded border border-gray-600/60 text-gray-400 hover:text-dnd-gold-light hover:border-dnd-gold/40 bg-gray-800/80 flex items-center justify-center transition-colors ${compact ? 'w-6 h-6' : 'w-7 h-7'}`}
+        title="引用现有数据"
+      >
+        <Database className={`${compact ? 'w-3 h-3' : 'w-3.5 h-3.5'}`} />
+      </button>
+      {open && (
+        <div
+          className="fixed z-50 min-w-[9rem] max-w-[16rem] max-h-[18rem] overflow-y-auto rounded-md border border-gray-600 bg-gray-800 shadow-lg py-1"
+          style={{ top: pos.top, right: pos.right }}
+        >
+          {formulaOptions.length > 0 && (
+            <>
+              <div className="px-2.5 py-1 text-[10px] text-dnd-text-muted uppercase tracking-wider">引用为公式</div>
+              {formulaOptions.map((opt) => (
+                <button
+                  key={`formula-${opt.ref}-${opt.ability}-${opt.mult ?? 1}`}
+                  type="button"
+                  onClick={() => { onSelect({ ref: opt.ref, ability: opt.ability, mult: opt.mult }); setOpen(false) }}
+                  className="w-full text-left px-2.5 py-1 text-xs text-gray-300 hover:bg-gray-700 hover:text-white flex items-center justify-between gap-2"
+                >
+                  <span className="truncate">{opt.label}</span>
+                  <span className="text-dnd-gold-light font-mono tabular-nums shrink-0">{opt.value}</span>
+                </button>
+              ))}
+            </>
+          )}
+          <div className="border-t border-gray-600/50 my-1" />
+          <div className="px-2.5 py-1 text-[10px] text-dnd-text-muted uppercase tracking-wider">直接填入当前值</div>
+          {options.map((opt) => (
+            <button
+              key={`static-${opt.label}`}
+              type="button"
+              onClick={() => { onSelect(opt.value); setOpen(false) }}
+              className="w-full text-left px-2.5 py-1 text-xs text-gray-300 hover:bg-gray-700 hover:text-white flex items-center justify-between gap-2"
+            >
+              <span className="truncate">{opt.label}</span>
+              <span className="text-dnd-gold-light font-mono tabular-nums shrink-0">{opt.value}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** 公式后缀输入：在公式胶囊后手动输入 *2、/2、+3、*2+1 等系数 */
+function FormulaSuffixInput({ value, onChange }) {
+  const formatSuffix = (v) => {
+    const m = Number(v?.mult) || 1
+    const a = Number(v?.add) || 0
+    let s = ''
+    if (m !== 1) {
+      s += `*${Number.isInteger(m) ? String(m) : parseFloat(m.toFixed(3))}`
+    }
+    if (a > 0) s += `+${a}`
+    if (a < 0) s += `${a}`
+    return s
+  }
+
+  const parseSuffix = (text) => {
+    const s = String(text ?? '').trim().replace(/\s+/g, '')
+    if (!s) return { ...value, mult: 1, add: 0 }
+    const norm = s.replace(/×/g, '*').replace(/÷/g, '/')
+    const m = norm.match(/^([*/]?(-?\d+(\.\d+)?))?([+-]?(-?\d+(\.\d+)?))?$/)
+    if (!m) return value
+    let mult = 1
+    let add = 0
+    if (m[1]) {
+      const op = m[1][0]
+      const num = parseFloat(m[1].slice(1))
+      if (op === '*') mult = Number.isFinite(num) ? num : 1
+      else if (op === '/') mult = num === 0 ? 0 : 1 / num
+      else mult = parseFloat(m[1]) || 0
+    }
+    if (m[4]) {
+      add = parseFloat(m[4]) || 0
+    }
+    return { ...value, mult, add }
+  }
+
+  const [text, setText] = useState(() => formatSuffix(value))
+  useEffect(() => { setText(formatSuffix(value)) }, [value])
+
+  const commit = () => {
+    const next = parseSuffix(text)
+    if (next !== value) onChange(next)
+    else setText(formatSuffix(value))
+  }
+
+  return (
+    <input
+      type="text"
+      value={text}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur() } }}
+      placeholder="*2+1"
+      title="输入系数，如 *2、/2、+3、*2+1"
+      className="w-[4.5rem] h-7 px-1.5 text-xs text-center text-white bg-gray-800/90 border border-gray-500/60 rounded-md focus:outline-none focus:ring-1 focus:ring-amber-500/40 placeholder:text-gray-600 tabular-nums"
+    />
+  )
+}
+
+/** 数字输入：统一使用「中间数字 + 上下箭头」设计。narrow 时容器仅够数字与箭头；unifiedColor 时与行内标签同色；pill 为行内胶囊（无底色，用于背包/袋内表）；subtle 时文字更淡。value 也支持公式对象。 */
+function NumberStepper({ value, onChange, min = -999, max = 999, step = 1, compact, narrow, unifiedColor, pill, subtle, disabled, referenceData }) {
   const rowH = pill ? 'h-6' : 'h-7'
   const textSize = compact || pill ? 'text-xs' : 'text-sm'
   const colorCls = disabled
@@ -386,6 +520,28 @@ function NumberStepper({ value, onChange, min = -999, max = 999, step = 1, compa
       : subtle
         ? 'text-gray-300'
         : 'text-white'
+
+  if (isFormulaValue(value)) {
+    return (
+      <div className="flex items-center gap-1">
+        <div className={`flex items-center gap-1 px-2 rounded border border-dnd-gold/40 bg-dnd-gold/10 ${rowH}`}>
+          <span className={`${textSize} text-dnd-gold-light truncate max-w-[4rem]`}>{formatFormulaLabel(value)}</span>
+          <button
+            type="button"
+            onClick={() => onChange(0)}
+            className="text-dnd-gold-light/70 hover:text-white disabled:opacity-50 disabled:pointer-events-none"
+            disabled={disabled}
+            title="清除公式"
+          >
+            <X className="w-3 h-3" />
+          </button>
+        </div>
+        <FormulaSuffixInput value={value} onChange={onChange} />
+        <ReferenceValuePicker options={referenceData} onSelect={onChange} compact={compact || pill} />
+      </div>
+    )
+  }
+
   const num = typeof value === 'number' ? value : (parseInt(value, 10) || 0)
   const clamp = (v) => Math.min(max, Math.max(min, v))
   const handleInputChange = (e) => {
@@ -413,7 +569,7 @@ function NumberStepper({ value, onChange, min = -999, max = 999, step = 1, compa
   const wrapperCls = pill
     ? `relative flex items-center ${pillShell} ${padX} ${rowH} max-w-full ${pillFocusRing} ${disabled ? 'opacity-60' : ''}`
     : `relative flex items-center border border-gray-500/60 rounded-md bg-gray-800/90 shadow-sm ${padX} ${rowH} ${compactWidthCls} ${disabled ? 'opacity-60' : ''}`
-  return (
+  const core = (
     <div className={wrapperCls}>
       <button
         type="button"
@@ -441,6 +597,13 @@ function NumberStepper({ value, onChange, min = -999, max = 999, step = 1, compa
       >
         <ChevronDown className={`${chev} rotate-180 ${compact && !pill ? '' : ''}`} />
       </button>
+    </div>
+  )
+  if (!referenceData || referenceData.length === 0) return core
+  return (
+    <div className="flex items-center gap-1">
+      {core}
+      <ReferenceValuePicker options={referenceData} onSelect={onChange} compact={compact || pill} />
     </div>
   )
 }
@@ -502,7 +665,7 @@ function MultiSelectDropdown({ options, selected, onChange, placeholder, id, cla
 }
 
 /** 命中/伤害加值：variant=all 时单行 flex-wrap；global / weapons 供 BuffForm 分两行且第二行全宽顶格；hideWeaponAddButtons 时由外侧「局部生效」统一添加行 */
-function AttackDamageBonusFields({ module, onChange, compactClass, inline, variant = 'all', hideWeaponAddButtons = false }) {
+function AttackDamageBonusFields({ module, onChange, compactClass, inline, variant = 'all', hideWeaponAddButtons = false, referenceData }) {
   const obj = normalizeAttackDamageBonusModuleValue(module.value)
   const patch = (p) => onChange({ ...module, value: { ...obj, ...p } })
   const rows = obj.categoryRows || []
@@ -556,7 +719,7 @@ function AttackDamageBonusFields({ module, onChange, compactClass, inline, varia
   const globalBlock = (
     <>
       <span className="text-[10px] font-bold uppercase tracking-wider text-dnd-gold-light shrink-0">全局生效</span>
-      <NumberStepper
+      <NumberStepper referenceData={referenceData}
         value={obj.val ?? 0}
         onChange={(v) => patch({ val: v })}
         compact={stepperCompact}
@@ -582,7 +745,7 @@ function AttackDamageBonusFields({ module, onChange, compactClass, inline, varia
               <option key={o.value} value={o.value}>{o.label}</option>
             ))}
           </select>
-          <NumberStepper
+          <NumberStepper referenceData={referenceData}
             value={r.val ?? 0}
             onChange={(v) => updateRow(r.id, 'val', v)}
             compact={stepperCompact}
@@ -662,6 +825,10 @@ function EffectValueEditor({
   spellDC,
   spellAttackBonus,
   useWandScrollTable,
+  /** 引用现有数据（角色属性、熟练加值等），供 NumberStepper 旁小按钮快速填入 */
+  referenceData,
+  /** 基于基础属性的引用数据，供 ability_score / ability_override 等效果使用 */
+  baseReferenceData,
   /** 内含法术：仅第一行（法术名 / 环位 / 充能），隐藏命中、距离、伤害；用于制作队列新建等场景，细项在入库后背包编辑 */
   containedSpellPrimaryOnly = false,
   /** 内含法术第一行不显示「充能数」步进器（充能由表单其它控件统一提供，如制作工厂的「充能次数」） */
@@ -675,6 +842,11 @@ function EffectValueEditor({
   const [selectedAbilityId, setSelectedAbilityId] = useState(ABILITY_KEYS[0] ?? 'str')
   const effects = catData?.effects ?? []
   const currentEffect = effects.find((e) => e.key === module.effectType)
+  const isAbilityScoreEffect =
+    currentEffect?.key === 'ability_score' ||
+    currentEffect?.key === 'ability_override' ||
+    currentEffect?.key === 'ability_score_uncapped'
+  const activeReferenceData = isAbilityScoreEffect ? (baseReferenceData ?? referenceData) : referenceData
   const isBoolean = currentEffect?.dataType === 'boolean'
   const isText = currentEffect?.dataType === 'text'
   const isCustom = currentEffect?.key?.startsWith('custom_')
@@ -711,12 +883,11 @@ function EffectValueEditor({
   }
   if (inline) {
     if (currentEffect?.key === 'attack_distance_range' || currentEffect?.key === 'spell_range_extension' || currentEffect?.key === 'base_speed_increment') {
-      const n = typeof value === 'number' ? value : (parseInt(value, 10) || 0)
       return (
         <>
           <div className="flex items-center gap-1.5 min-w-0">
-            <NumberStepper
-              value={n}
+            <NumberStepper referenceData={activeReferenceData}
+              value={value}
               onChange={(v) => onChange({ ...module, value: v })}
               step={5}
               compact
@@ -730,7 +901,6 @@ function EffectValueEditor({
     }
     if (currentEffect?.key === 'attack_area' || needsSubSelect === 'attackAreaSize') {
       const obj = value && typeof value === 'object' && !Array.isArray(value) ? value : { kind: 'radius', size: 0 }
-      const sizeNum = typeof obj.size === 'number' ? obj.size : (parseInt(obj.size, 10) || 0)
       return (
         <>
           <select
@@ -742,8 +912,8 @@ function EffectValueEditor({
             <option value="diameter">直径</option>
           </select>
           <div className="flex items-center gap-1 min-w-0">
-            <NumberStepper
-              value={sizeNum}
+            <NumberStepper referenceData={activeReferenceData}
+              value={obj.size}
               onChange={(v) => onChange({ ...module, value: { ...obj, size: v } })}
               step={5}
               compact
@@ -820,7 +990,7 @@ function EffectValueEditor({
             ))}
           </select>
           <div className="min-w-0">
-            <NumberStepper
+            <NumberStepper referenceData={activeReferenceData}
               value={(typeof value === 'object' && value && selectedAbilityId !== 'all' && value[selectedAbilityId] != null ? value[selectedAbilityId] : 0) ?? 0}
               onChange={(v) => {
                 // 单行单属性：选中单属性时清空其它属性，避免残留导致外层摘要与表单不一致
@@ -866,7 +1036,7 @@ function EffectValueEditor({
             </select>
           </div>
           <div className="flex shrink-0 items-center">
-            <NumberStepper
+            <NumberStepper referenceData={activeReferenceData}
               value={(typeof value === 'object' && value && selectedAbilityId !== 'all' && value[selectedAbilityId] != null ? value[selectedAbilityId] : 0) ?? 0}
               onChange={(v) => {
                 // 单行单属性；保留 advantage 字段
@@ -912,7 +1082,7 @@ function EffectValueEditor({
             </select>
           </div>
           <div className="flex shrink-0 items-center">
-            <NumberStepper
+            <NumberStepper referenceData={activeReferenceData}
               value={(typeof value === 'object' && value && value[selectedSkillId] != null ? value[selectedSkillId] : 0) ?? 0}
               onChange={(v) => {
                 const base = typeof value === 'object' && value && !Array.isArray(value) ? { ...value } : {}
@@ -938,13 +1108,11 @@ function EffectValueEditor({
       )
     }
     if (currentEffect?.key === 'crit_extra_dice') {
-      const raw = typeof value === 'number' ? value : (parseInt(value, 10) || 0)
-      const n = raw >= 2 ? Math.min(10, raw) : 2
       return (
         <>
           <div className="min-w-0">
-            <NumberStepper
-              value={n}
+            <NumberStepper referenceData={activeReferenceData}
+              value={value}
               min={2}
               max={10}
               onChange={(v) => onChange({ ...module, value: v })}
@@ -961,8 +1129,8 @@ function EffectValueEditor({
       return (
         <>
           <div className="min-w-0">
-            <NumberStepper
-              value={typeof value === 'number' ? value : (parseInt(value, 10) || 0)}
+            <NumberStepper referenceData={activeReferenceData}
+              value={value}
               onChange={(v) => onChange({ ...module, value: v })}
               compact
             />
@@ -974,7 +1142,6 @@ function EffectValueEditor({
     }
     if (needsSubSelect === 'damageType' && !isDamageTypeArray) {
       const obj = value && typeof value === 'object' && !Array.isArray(value) ? value : { type: 'bludgeoning', val: 0 }
-      const n = typeof obj.val === 'number' ? obj.val : (parseInt(obj.val, 10) || 0)
       return (
         <>
           <select
@@ -987,8 +1154,8 @@ function EffectValueEditor({
             ))}
           </select>
           <div className="min-w-0">
-            <NumberStepper
-              value={n}
+            <NumberStepper referenceData={activeReferenceData}
+              value={obj.val}
               onChange={(v) => onChange({ ...module, value: { ...obj, val: v } })}
               compact
             />
@@ -1011,7 +1178,7 @@ function EffectValueEditor({
       }
       return (
         <div className="flex items-center gap-1.5 flex-nowrap">
-          <NumberStepper
+          <NumberStepper referenceData={activeReferenceData}
             value={numAdvVal.val ?? 0}
             onChange={(v) => onChange({ ...module, value: { ...numAdvVal, val: v } })}
             compact
@@ -1033,11 +1200,10 @@ function EffectValueEditor({
     }
     if (needsSubSelect === 'flightSpeed') {
       const fs = typeof value === 'object' && value && !Array.isArray(value) ? value : { speed: typeof value === 'number' ? value : 0, hover: false }
-      const n = typeof fs.speed === 'number' ? fs.speed : (parseInt(fs.speed, 10) || 0)
       return (
         <div className="flex items-center gap-1.5">
-          <NumberStepper
-            value={n}
+          <NumberStepper referenceData={activeReferenceData}
+            value={fs.speed}
             onChange={(v) => onChange({ ...module, value: { ...fs, speed: v } })}
             step={5}
             compact
@@ -1059,11 +1225,10 @@ function EffectValueEditor({
       const ib = value && typeof value === 'object' && !Array.isArray(value)
         ? value
         : { bonus: typeof value === 'number' ? value : 0, proficient: false }
-      const bon = typeof ib.bonus === 'number' ? ib.bonus : (parseInt(ib.bonus, 10) || 0)
       return (
         <div className="flex w-full min-w-0 flex-nowrap items-center gap-1.5">
-          <NumberStepper
-            value={bon}
+          <NumberStepper referenceData={activeReferenceData}
+            value={ib.bonus}
             onChange={(v) => onChange({ ...module, value: { ...ib, bonus: v } })}
             compact
           />
@@ -1145,11 +1310,8 @@ function EffectValueEditor({
         />
       ) : currentEffect?.key === 'crit_extra_dice' ? (
         <div className="space-y-1">
-          <NumberStepper
-            value={(() => {
-              const raw = typeof value === 'number' ? value : (parseInt(value, 10) || 0)
-              return raw >= 2 ? Math.min(10, raw) : 2
-            })()}
+          <NumberStepper referenceData={activeReferenceData}
+            value={value}
             min={2}
             max={10}
             onChange={(v) => onChange({ ...module, value: v })}
@@ -1158,8 +1320,8 @@ function EffectValueEditor({
           <p className="text-xs text-gray-500">写在装备上时：只影响「这一件」武器的战斗快捷投掷，其它已装备武器上的暴击×不会串到本武器。角色 Buff 栏此项不生效。法术重击始终×2。武器加值仍只加一次。</p>
         </div>
       ) : isNumber ? (
-        <NumberStepper
-          value={typeof value === 'number' ? value : (parseInt(value, 10) || 0)}
+        <NumberStepper referenceData={activeReferenceData}
+          value={value}
           onChange={(v) => onChange({ ...module, value: v })}
           compact={false}
         />
@@ -1195,7 +1357,7 @@ function EffectValueEditor({
               <option key={d.value} value={d.value}>{d.label}</option>
             ))}
           </select>
-          <NumberStepper
+          <NumberStepper referenceData={activeReferenceData}
             value={(typeof value === 'object' && value?.val) ?? 0}
             onChange={(v) => onChange({ ...module, value: { ...(typeof value === 'object' && value && !Array.isArray(value) ? value : {}), val: v } })}
           />
@@ -1290,7 +1452,7 @@ function EffectValueEditor({
           <AttackDamageBonusFields module={module} onChange={onChange} compactClass={inputClass + ' h-8 text-xs'} inline={false} />
         ) : (
           <div className="flex flex-wrap items-center gap-1.5">
-            <NumberStepper
+            <NumberStepper referenceData={activeReferenceData}
               value={(typeof value === 'object' && value && 'val' in value ? value.val : (typeof value === 'number' ? value : 0)) ?? 0}
               onChange={(v) => onChange({ ...module, value: { ...(typeof value === 'object' && value && !Array.isArray(value) ? value : {}), val: v } })}
               compact
@@ -1312,7 +1474,7 @@ function EffectValueEditor({
       ) : needsSubSelect === 'flightSpeed' ? (
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-1.5">
-            <NumberStepper
+            <NumberStepper referenceData={activeReferenceData}
               value={(typeof value === 'object' && value && 'speed' in value ? value.speed : (typeof value === 'number' ? value : 0)) ?? 0}
               onChange={(v) => onChange({ ...module, value: { ...(typeof value === 'object' && value && !Array.isArray(value) ? value : {}), speed: v } })}
               step={5}
@@ -1335,11 +1497,10 @@ function EffectValueEditor({
             const ib = value && typeof value === 'object' && !Array.isArray(value)
               ? value
               : { bonus: typeof value === 'number' ? value : 0, proficient: false }
-            const bon = typeof ib.bonus === 'number' ? ib.bonus : (parseInt(ib.bonus, 10) || 0)
             return (
               <>
-                <NumberStepper
-                  value={bon}
+                <NumberStepper referenceData={activeReferenceData}
+                  value={ib.bonus}
                   onChange={(v) => onChange({ ...module, value: { ...ib, bonus: v } })}
                 />
                 <label className="flex items-center gap-2 cursor-pointer">
@@ -1379,7 +1540,7 @@ function EffectValueEditor({
               <option key={k} value={k}>{(module.effectType === 'save_bonus' ? SAVE_NAMES[k] : ABILITY_LABELS[k]) ?? k}</option>
             ))}
           </select>
-          <NumberStepper
+          <NumberStepper referenceData={activeReferenceData}
             value={(typeof value === 'object' && value && selectedAbilityId !== 'all' && value[selectedAbilityId] != null ? value[selectedAbilityId] : 0) ?? 0}
             onChange={(v) => {
               const base = typeof value === 'object' && value && !Array.isArray(value) ? { ...value } : {}
@@ -1414,7 +1575,7 @@ function EffectValueEditor({
               <option key={sk.id} value={sk.id}>{sk.name}</option>
             ))}
           </select>
-          <NumberStepper
+          <NumberStepper referenceData={activeReferenceData}
             value={(typeof value === 'object' && value && value[selectedSkillId] != null ? value[selectedSkillId] : 0) ?? 0}
             onChange={(v) => {
               const valueObj = typeof value === 'object' && value && !Array.isArray(value) ? { ...value } : {}
@@ -1523,7 +1684,7 @@ function EffectValueEditor({
                 {sep}
                 <div className={containedSpellHideChargesInPrimary ? 'flex-[2] min-w-0 flex items-center gap-x-2' : 'flex-[1] min-w-0 flex items-center gap-x-2'}>
                   <span className="text-dnd-text-muted shrink-0">释放环位</span>
-                  <NumberStepper
+                  <NumberStepper referenceData={activeReferenceData}
                     value={Math.max(0, Math.min(9, level))}
                     onChange={(v) =>
                       onChange({
@@ -1541,7 +1702,7 @@ function EffectValueEditor({
                     {sep}
                     <div className="flex-[1] min-w-0 flex items-center gap-x-2">
                       <span className="text-dnd-text-muted shrink-0">充能数</span>
-                      <NumberStepper
+                      <NumberStepper referenceData={activeReferenceData}
                         value={charges}
                         onChange={(v) => onChange({ ...module, value: { ...obj, charges: Math.max(0, v) } })}
                         min={0}
@@ -1585,7 +1746,7 @@ function EffectValueEditor({
                     {sep}
                     <div className="flex-[3] min-w-0 flex items-center gap-x-2">
                       <span className="text-dnd-text-muted shrink-0">伤害</span>
-                      <NumberStepper
+                      <NumberStepper referenceData={activeReferenceData}
                         value={damageDiceCount}
                         onChange={(v) => onChange({ ...module, value: { ...obj, damageDiceCount: Math.max(0, Math.min(99, v)) } })}
                         min={0}
@@ -1630,7 +1791,7 @@ function EffectValueEditor({
   )
 }
 
-export default function BuffForm({ initial, onSave, onCancel, defaultSourceKind, spellDC, spellAttackBonus, useWandScrollTable }) {
+export default function BuffForm({ initial, onSave, onCancel, defaultSourceKind, spellDC, spellAttackBonus, useWandScrollTable, referenceData, baseReferenceData }) {
   const sourceKindLocked = !!(initial?.fromFeat || initial?.fromItem)
   const [source, setSource] = useState(initial?.source ?? '')
   const [duration, setDuration] = useState(initial?.duration ?? '')
@@ -1814,6 +1975,8 @@ export default function BuffForm({ initial, onSave, onCancel, defaultSourceKind,
                 spellDC={spellDC}
                 spellAttackBonus={spellAttackBonus}
                 useWandScrollTable={useWandScrollTable}
+                referenceData={referenceData}
+                baseReferenceData={baseReferenceData}
               />
             )
             const attackDamageCompactClass = inputClassInline + ' h-7 text-xs'
@@ -1842,6 +2005,7 @@ export default function BuffForm({ initial, onSave, onCancel, defaultSourceKind,
                         compactClass={attackDamageCompactClass}
                         inline
                         variant="global"
+                        referenceData={referenceData}
                       />
                       <div className="ml-auto flex items-center gap-1 shrink-0">
                         <button
@@ -1863,6 +2027,7 @@ export default function BuffForm({ initial, onSave, onCancel, defaultSourceKind,
                         inline
                         variant="weapons"
                         hideWeaponAddButtons
+                        referenceData={referenceData}
                       />
                     </div>
                   </div>
@@ -1891,6 +2056,8 @@ export default function BuffForm({ initial, onSave, onCancel, defaultSourceKind,
                           spellDC={spellDC}
                           spellAttackBonus={spellAttackBonus}
                           useWandScrollTable={useWandScrollTable}
+                          referenceData={referenceData}
+                          baseReferenceData={baseReferenceData}
                         />
                       </div>
                     )}

@@ -154,3 +154,44 @@ describe('命中/伤害加值：全局与分武器', () => {
     expect(sumWeaponCategoryAttackDamageBonus(s.weaponCategoryAttackDamageBonuses, { 类型: '近战武器', 类别: '匕首' })).toBe(0)
   })
 })
+
+describe('公式对象求值', () => {
+  it('用角色等级计算 attack_damage_bonus 全局加值', () => {
+    const c = { ...baseChar(), level: 5, xp: 6500 }
+    const buffs = [
+      {
+        id: '1',
+        source: 't',
+        effects: [{ effectType: 'attack_damage_bonus', value: { val: { ref: 'level', mult: 2 }, advantage: '' } }],
+        enabled: true,
+      },
+    ]
+    const s = computeBuffStats(c, buffs)
+    expect(s.meleeAttackBonus).toBe(10)
+    expect(s.meleeDamageBonus).toBe(10)
+  })
+
+  it('用属性调整值计算攻击加值', () => {
+    const c = { ...baseChar(), abilities: { str: 10, dex: 10, con: 10, int: 10, wis: 16, cha: 10 } }
+    const buffs = [
+      {
+        id: '1',
+        source: 't',
+        effects: [{ effectType: 'attack_melee', value: { ref: 'abilityModifier', ability: 'wis' } }],
+        enabled: true,
+      },
+    ]
+    const s = computeBuffStats(c, buffs)
+    expect(s.meleeAttackBonus).toBe(3)
+  })
+
+  it('物品暴击附魔支持公式对象', () => {
+    const context = { level: 6, abilities: {}, prof: 3, spellDC: 0, spellAttack: 0 }
+    expect(
+      getCritDamageDiceMultiplierFromItemEntry(
+        { effects: [{ effectType: 'crit_extra_dice', value: { ref: 'level', mult: 0.5 } }] },
+        context,
+      ),
+    ).toBe(3)
+  })
+})

@@ -411,3 +411,92 @@ export function calcMaxHP(character, effectiveAbilities = null) {
 export function getHPBuffSum(character) {
   return (character?.buffs ?? []).reduce((s, b) => s + (Number(b.hp) || 0), 0)
 }
+
+/** 判断 value 是否为 buff 公式对象（形如 { ref, ability, mult, add }） */
+export function isFormulaValue(value) {
+  return value != null && typeof value === 'object' && !Array.isArray(value) && typeof value.ref === 'string'
+}
+
+/**
+ * 求值 buff 效果值：支持静态数字或公式对象。
+ * 公式对象：{ ref: 'level' | 'proficiency' | 'abilityScore' | 'abilityModifier' | 'spellDc' | 'spellAttack', ability?, mult?, add? }
+ *
+ * context 字段：level, abilities, prof, spellDC, spellAttack
+ */
+export function evaluateBuffValue(value, context = {}) {
+  if (value == null) return 0
+  if (typeof value === 'number') return value
+  if (!isFormulaValue(value)) return Number(value) || 0
+
+  const { level = 1, abilities = {}, prof = 0, spellDC = 0, spellAttack = 0 } = context
+  const { ref, ability, mult, add } = value
+
+  let base = 0
+  switch (ref) {
+    case 'level':
+      base = Math.max(1, Math.min(20, Number(level) || 1))
+      break
+    case 'proficiency':
+      base = Number(prof) || 0
+      break
+    case 'abilityScore':
+      base = Number(abilities?.[ability]) || 10
+      break
+    case 'abilityModifier':
+      base = abilityModifier(Number(abilities?.[ability]) || 10)
+      break
+    case 'spellDc':
+      base = Number(spellDC) || 0
+      break
+    case 'spellAttack':
+      base = Number(spellAttack) || 0
+      break
+    default:
+      base = 0
+  }
+
+  const multiplier = Number(mult) || 1
+  const additive = Number(add) || 0
+  return Math.floor(base * multiplier) + additive
+}
+
+const FORMULA_REF_LABELS = {
+  level: '等级',
+  proficiency: '熟练加值',
+  abilityScore: '属性值',
+  abilityModifier: '属性调整值',
+  spellDc: '法术DC',
+  spellAttack: '法术攻击',
+}
+
+const ABILITY_NAMES_ZH_SHORT = {
+  str: '力量',
+  dex: '敏捷',
+  con: '体质',
+  int: '智力',
+  wis: '感知',
+  cha: '魅力',
+}
+
+function fmtFormulaNum(n) {
+  if (!Number.isFinite(n)) return '0'
+  if (Math.abs(n - Math.round(n)) < 1e-8) return String(Math.round(n))
+  return n.toFixed(3).replace(/\.?0+$/, '')
+}
+
+/** 把公式对象渲染为简短中文标签，例如「等级×2」「感知调整值+3」 */
+export function formatFormulaLabel(value) {
+  if (!isFormulaValue(value)) return String(value ?? '')
+  const { ref, ability, mult, add } = value
+  const base = FORMULA_REF_LABELS[ref] ?? ref
+  const abilityLabel = ABILITY_NAMES_ZH_SHORT[ability] ?? ability
+  const suffix = ref.startsWith('ability') && abilityLabel ? abilityLabel : ''
+  const label = suffix ? `${suffix}${base.replace('属性', '')}` : base
+  const multNum = Number(mult) || 1
+  const addNum = Number(add) || 0
+  let s = label
+  if (multNum !== 1) s = `${label}×${fmtFormulaNum(multNum)}`
+  if (addNum > 0) s = `${s}+${addNum}`
+  if (addNum < 0) s = `${s}${addNum}`
+  return s
+}

@@ -502,8 +502,8 @@ function FormulaSuffixInput({ value, onChange }) {
   )
 }
 
-/** 数字输入：统一使用「中间数字 + 上下箭头」设计。narrow 时容器仅够数字与箭头；unifiedColor 时与行内标签同色；pill 为行内胶囊（无底色，用于背包/袋内表）；subtle 时文字更淡。value 也支持公式对象。 */
-function NumberStepper({ value, onChange, min = -999, max = 999, step = 1, compact, narrow, unifiedColor, pill, subtle, disabled, referenceData }) {
+/** 数字输入：统一使用「中间数字 + 上下箭头」设计。narrow 时容器仅够数字与箭头；unifiedColor 时与行内标签同色；pill 为行内胶囊（无底色，用于背包/袋内表）；subtle 时文字更淡。value 也支持公式对象。className 可覆盖外层宽度等样式。 */
+function NumberStepper({ value, onChange, min = -999, max = 999, step = 1, compact, narrow, unifiedColor, pill, subtle, disabled, referenceData, className }) {
   const rowH = pill ? 'h-6' : 'h-7'
   const textSize = compact || pill ? 'text-xs' : 'text-sm'
   const colorCls = disabled
@@ -567,8 +567,8 @@ function NumberStepper({ value, onChange, min = -999, max = 999, step = 1, compa
   const pillShell = 'rounded-full bg-transparent border-0 shadow-none'
   const pillFocusRing = pill ? 'focus-within:ring-2 focus-within:ring-amber-500/35' : ''
   const wrapperCls = pill
-    ? `relative flex items-center ${pillShell} ${padX} ${rowH} max-w-full ${pillFocusRing} ${disabled ? 'opacity-60' : ''}`
-    : `relative flex items-center border border-gray-500/60 rounded-md bg-gray-800/90 shadow-sm ${padX} ${rowH} ${compactWidthCls} ${disabled ? 'opacity-60' : ''}`
+    ? `relative flex items-center ${pillShell} ${padX} ${rowH} max-w-full ${pillFocusRing} ${disabled ? 'opacity-60' : ''} ${className || ''}`
+    : `relative flex items-center border border-gray-500/60 rounded-md bg-gray-800/90 shadow-sm ${padX} ${rowH} ${compactWidthCls} ${disabled ? 'opacity-60' : ''} ${className || ''}`
   const core = (
     <div className={wrapperCls}>
       <button

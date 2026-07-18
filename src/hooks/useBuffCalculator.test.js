@@ -153,6 +153,40 @@ describe('命中/伤害加值：全局与分武器', () => {
     expect(sumWeaponCategoryAttackDamageBonus(s.weaponCategoryAttackDamageBonuses, { 类型: '近战武器', 类别: '长剑' })).toBe(2)
     expect(sumWeaponCategoryAttackDamageBonus(s.weaponCategoryAttackDamageBonuses, { 类型: '近战武器', 类别: '匕首' })).toBe(0)
   })
+
+  it('attack_bonus 只加命中不加伤害', () => {
+    const c = baseChar()
+    const buffs = [
+      {
+        id: '1',
+        source: 't',
+        effects: [{ effectType: 'attack_bonus', value: { val: 2, advantage: '' } }],
+        enabled: true,
+      },
+    ]
+    const s = computeBuffStats(c, buffs)
+    expect(s.meleeAttackBonus).toBe(2)
+    expect(s.rangedAttackBonus).toBe(2)
+    expect(s.meleeDamageBonus).toBe(0)
+    expect(s.rangedDamageBonus).toBe(0)
+  })
+
+  it('damage_bonus 只加伤害不加命中', () => {
+    const c = baseChar()
+    const buffs = [
+      {
+        id: '1',
+        source: 't',
+        effects: [{ effectType: 'damage_bonus', value: { val: 2, advantage: '' } }],
+        enabled: true,
+      },
+    ]
+    const s = computeBuffStats(c, buffs)
+    expect(s.meleeAttackBonus).toBe(0)
+    expect(s.rangedAttackBonus).toBe(0)
+    expect(s.meleeDamageBonus).toBe(2)
+    expect(s.rangedDamageBonus).toBe(2)
+  })
 })
 
 describe('公式对象求值', () => {

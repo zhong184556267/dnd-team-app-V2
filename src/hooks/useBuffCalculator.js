@@ -211,7 +211,7 @@ export function computeBuffStats(character, activeBuffs) {
         else if (b.effectType === 'attack_all' || b.effectType === 'attack_bonus') attackAll += v
         else if (b.effectType === 'dmg_bonus_melee') dmgMelee += v
         else if (b.effectType === 'dmg_bonus_ranged') dmgRanged += v
-        else if (b.effectType === 'dmg_bonus_all') dmgAll += v
+        else if (b.effectType === 'dmg_bonus_all' || b.effectType === 'damage_bonus') dmgAll += v
         // 新表：命中/伤害加值（数字输入），数值同时加到命中与伤害（全局；武器类别见 weaponCategoryAttackDamageBonuses）
         else if (b.effectType === 'attack_damage_bonus') {
           attackAll += v
@@ -245,7 +245,7 @@ export function computeBuffStats(character, activeBuffs) {
         else if (objAdv === 'disadvantage') disadvSkill++
       }
       // 命中/伤害加值上的优势/劣势：视为所有攻击的优势/劣势来源（「武器类别」限定的不计入全局，由武器行单独处理时可扩展）
-      if (b.effectType === 'attack_damage_bonus') {
+      if (b.effectType === 'attack_damage_bonus' || b.effectType === 'attack_bonus') {
         const rawA = b.value
         if (rawA && typeof rawA === 'object' && !Array.isArray(rawA)) {
           const gv = evalVal(rawA.val)

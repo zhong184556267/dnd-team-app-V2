@@ -30,7 +30,8 @@ export const BUFF_EFFECT_KEY_RUNTIME = {
   save_bonus: 'calculator',
   initiative_buff: 'calculator',
   // offense
-  attack_damage_bonus: 'calculator',
+  attack_bonus: 'calculator',
+  damage_bonus: 'calculator',
   attack_distance_range: 'metadata',
   attack_area: 'metadata',
   damage_piercing_traits: 'calculator',

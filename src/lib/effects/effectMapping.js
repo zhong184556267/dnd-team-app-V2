@@ -160,6 +160,7 @@ export function getEffectsFromItem(entry) {
   const magicVal = entry.magicBonus != null && entry.magicBonus !== '' ? Number(entry.magicBonus) : 0
   if (magicVal !== 0) {
     out.push({ category: 'offense', effectType: 'attack_melee', value: magicVal })
+    out.push({ category: 'offense', effectType: 'dmg_bonus_all', value: magicVal })
   }
   if (entry.charge != null && entry.charge !== '') {
     out.push({ category: 'mobility_casting', effectType: 'charge', value: Number(entry.charge) || 0 })

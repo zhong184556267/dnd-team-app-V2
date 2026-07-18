@@ -334,37 +334,15 @@ function isRangedWeaponProto(proto) {
 }
 
 /**
- * 从武器背包条目的附魔 effects 读取：命中/伤害加值（仅平加值）、额外伤害骰文案
- * magicBonus 已在 enhancement 中体现，此处不重复读取 attack_melee
+ * 从武器背包条目的附魔 effects 读取：额外伤害骰文案
+ * 命中/伤害加值已统一通过 getBuffsFromEquipmentAndInventory 转成虚拟 BUFF，
+ * 由 useBuffCalculator 计算一次，此处不再重复累加平加值。
  */
 function getWeaponEntryDamageExtras(entry, proto) {
   if (!entry || !Array.isArray(entry.effects)) return { flatBonus: 0, extraDiceStrings: [] }
-  const isRangedWeapon = isRangedWeaponProto(proto)
-  let flatBonus = 0
   const extraDiceStrings = []
   for (const e of entry.effects) {
     if (!e) continue
-    if (e.effectType === 'attack_damage_bonus') {
-      const raw = e.value
-      const v = typeof raw === 'object' && raw && 'val' in raw ? Number(raw.val) : Number(raw)
-      if (!Number.isNaN(v)) flatBonus += v
-      if (typeof raw === 'string') {
-        const dmgMatch = raw.match(/伤害\s*[+＋]?\s*(\d+)/i)
-        if (dmgMatch) flatBonus += parseInt(dmgMatch[1], 10) || 0
-      }
-    }
-    if (e.effectType === 'dmg_bonus_all') {
-      const v = Number(e.value)
-      if (!Number.isNaN(v)) flatBonus += v
-    }
-    if (e.effectType === 'dmg_bonus_ranged' && isRangedWeapon) {
-      const v = Number(e.value)
-      if (!Number.isNaN(v)) flatBonus += v
-    }
-    if (e.effectType === 'dmg_bonus_melee' && !isRangedWeapon) {
-      const v = Number(e.value)
-      if (!Number.isNaN(v)) flatBonus += v
-    }
     if (e.effectType === 'extra_damage_dice') {
       const raw = e.value
       if (typeof raw === 'string' && raw.trim()) {
@@ -375,7 +353,7 @@ function getWeaponEntryDamageExtras(entry, proto) {
       }
     }
   }
-  return { flatBonus, extraDiceStrings }
+  return { flatBonus: 0, extraDiceStrings }
 }
 
 function getMergedWeaponExtraDiceStrings(cm, weaponOpt) {
@@ -2344,7 +2322,6 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
             const attackParsed = weaponOpt
               ? parseWeaponAttack(getWeaponAttackStringForParsing(weaponOpt))
               : { dice: null, diceList: [], type: '—' }
-            const enhancement = Number(weaponOpt?.entry?.magicBonus) || 0
             const weaponAbilityKind = resolvePhysicalWeaponAbilityKind(cm, weaponOpt)
             const abilityKey = weaponAbilityKind === 'spell' ? spellAbility : weaponAbilityKind
             const abilityMod = abilityModifier(effectiveAbilities?.[abilityKey] ?? 10)
@@ -2357,10 +2334,9 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
             const buffDamageBonus =
               (isRangedWeapon ? (buffStats?.rangedDamageBonus ?? 0) : (buffStats?.meleeDamageBonus ?? 0)) + weaponCategoryAttackFlat
             const weaponProficient = cm.weaponProficient !== false
-            const physicalAttackBonus = enhancement + abilityMod + (weaponProficient ? prof : 0) + buffAttackBonus
-            const damageMod = abilityMod + enhancement
-            const weaponEffectFlat = weaponOpt?.entry ? getWeaponEntryDamageExtras(weaponOpt.entry, weaponOpt.proto).flatBonus : 0
-            const totalDamageMod = damageMod + weaponEffectFlat + buffDamageBonus
+            const physicalAttackBonus = abilityMod + (weaponProficient ? prof : 0) + buffAttackBonus
+            const damageMod = abilityMod
+            const totalDamageMod = damageMod + buffDamageBonus
             const rawDamageType = cm.damageType || attackParsed.type
             const displayDamageType = rawDamageType ? getDamageTypeLabel(rawDamageType) : '—'
             const isSpellAttack = cm.type === 'spell_attack'
@@ -2600,7 +2576,13 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                           <span className={`text-dnd-text-muted ${CM_MEAN_LABEL} shrink-0`}>伤害</span>
                           <span className={`min-w-0 flex-1 font-mono ${CM_MEAN_HI} tabular-nums text-white whitespace-nowrap [overflow-wrap:anywhere] sm:truncate`}>
                             {formatWeaponAttackDiceDisplay(attackParsed)}
-                            {formatSignedModifier(totalDamageMod)} {displayDamageType}
+                            <span
+                              title={`伤害加值明细：属性调整值 ${abilityMod >= 0 ? '+' : ''}${abilityMod}，Buff 伤害加值 ${buffDamageBonus >= 0 ? '+' : ''}${buffDamageBonus}`}
+                              className="cursor-help"
+                            >
+                              {formatSignedModifier(totalDamageMod)}
+                            </span>{' '}
+                            {displayDamageType}
                             {filterExtraDiceAgainstMain(attackParsed, rawDamageType, getMergedWeaponExtraDiceStrings(cm, weaponOpt)).map((d) => ` + ${d}`).join('')}
                           </span>
                           {((attackParsed.diceList?.length || attackParsed.dice)
@@ -2965,9 +2947,10 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                         {showWeaponExtraDiceEditor && (
                           <div className="space-y-2 rounded border border-gray-600 bg-gray-700/30 p-2">
                             <p className="text-[10px] leading-snug text-dnd-text-muted">设置数量、骰面、加值与伤害类型后，点击「加入列表」；可多次添加。</p>
-                            <div className="flex w-full min-w-0 flex-wrap items-center gap-1.5">
-                              <div className="flex h-8 shrink-0 items-center" title="骰子个数">
+                            <div className="flex w-full min-w-0 flex-wrap items-center gap-1">
+                              <div className="flex min-w-0 flex-nowrap items-center gap-1">
                                 <NumberStepper
+                                  className="!w-[4.5rem] !min-w-0 !px-3"
                                   value={addWeaponExtraCount}
                                   onChange={(v) => setAddWeaponExtraCount(Math.max(1, v))}
                                   min={1}
@@ -2975,21 +2958,21 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                                   compact
                                   narrow
                                 />
-                              </div>
-                              <select
-                                value={addWeaponExtraSides}
-                                onChange={(e) => setAddWeaponExtraSides(Number(e.target.value))}
-                                className={inputClass + ' h-8 w-[4.25rem] shrink-0 px-1.5 text-xs text-center'}
-                                title="骰面"
-                              >
-                                <option value={4}>d4</option>
-                                <option value={6}>d6</option>
-                                <option value={8}>d8</option>
-                                <option value={10}>d10</option>
-                                <option value={12}>d12</option>
-                              </select>
-                              <div className="flex h-8 shrink-0 items-center" title="伤害加值（XdY+N）">
+                                <select
+                                  value={addWeaponExtraSides}
+                                  onChange={(e) => setAddWeaponExtraSides(Number(e.target.value))}
+                                  className={inputClass + ' h-8 w-[3.5rem] shrink-0 px-1 text-xs text-center'}
+                                  title="骰面"
+                                >
+                                  <option value={4}>d4</option>
+                                  <option value={6}>d6</option>
+                                  <option value={8}>d8</option>
+                                  <option value={10}>d10</option>
+                                  <option value={12}>d12</option>
+                                </select>
+                                <span className="shrink-0 px-0.5 text-xs text-dnd-text-muted">+</span>
                                 <NumberStepper
+                                  className="!w-[4.5rem] !min-w-0 !px-3"
                                   value={addWeaponExtraFlatMod}
                                   onChange={setAddWeaponExtraFlatMod}
                                   min={-99}
@@ -3001,7 +2984,7 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
                               <select
                                 value={addWeaponExtraType}
                                 onChange={(e) => setAddWeaponExtraType(e.target.value)}
-                                className={inputClass + ' h-8 min-w-[6.5rem] flex-1 text-xs'}
+                                className={inputClass + ' h-8 min-w-0 flex-1 text-xs'}
                                 title="伤害类型"
                               >
                                 {DAMAGE_TYPE_OPTIONS.map((opt) => (

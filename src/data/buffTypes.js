@@ -254,10 +254,12 @@ export const BUFF_TYPES = {
     label: '攻击/伤害',
     color: 'red',
     effects: [
-      // 表格：命中/伤害加值
-      // 互动：「全局生效」加值作用于所有武器；「局部生效」添加多行「武器 + 数字」叠加在对应武器上；二者可同时存在。优劣势可选。
-      // 兼容旧文本与旧版 weaponScope + weaponCategories 存档。
-      { key: 'attack_damage_bonus', label: '命中/伤害加值', dataType: 'object', subSelect: 'numberAndAdvantage' },
+      // 表格：命中加值（仅影响攻击检定）
+      { key: 'attack_bonus', label: '命中加值', dataType: 'object', subSelect: 'numberAndAdvantage' },
+      // 表格：伤害加值（仅影响伤害）
+      { key: 'damage_bonus', label: '伤害加值', dataType: 'object', subSelect: 'numberAndAdvantage' },
+      // 旧版：命中/伤害加值。保留以兼容旧 Buff，但新建时隐藏。
+      { key: 'attack_damage_bonus', label: '命中/伤害加值', dataType: 'object', subSelect: 'numberAndAdvantage', hidden: true },
       // 表格：攻击距离
       // 互动调整方式：数字输入（尺），用于记录近战/远程的基础攻击距离。
       { key: 'attack_distance_range', label: '攻击距离', dataType: 'number' },

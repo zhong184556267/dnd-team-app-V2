@@ -228,7 +228,7 @@ export function formatDamagePiercingTraitsValue(value) {
  * 第一级：大类 (category)
  * 第二级：具体效果 (key, label, dataType, subSelect, hidden)
  */
-const CATEGORY_ORDER = ['ability', 'offense', 'defense', 'mobility_casting', 'custom']
+const CATEGORY_ORDER = ['ability', 'offense', 'defense', 'mobility_casting', 'container', 'custom']
 
 export const BUFF_TYPES = {
   ability: {
@@ -332,12 +332,30 @@ export const BUFF_TYPES = {
       { key: 'charge', label: '充能数', dataType: 'number', hidden: true },
     ],
   },
+  /** 容器/储物：允许该物品卡收纳其他物品（使用 entry.nestedInventory） */
+  container: {
+    label: '储物',
+    color: 'emerald',
+    effects: [{ key: 'item_storage', label: '容器储物', dataType: 'boolean' }],
+  },
   /** 与防御/攻击等大类同级：自由描述类状态，不参与数值计算 */
   custom: {
     label: '自定义',
     color: 'slate',
     effects: [{ key: 'custom_condition', label: '📝 自由填写 (状态)', dataType: 'text' }],
   },
+}
+
+/** 默认具有容器储物效果的物品 ID */
+export const ITEM_STORAGE_DEFAULT_ITEM_IDS = ['bag_of_holding', 'leomund_secret_chest']
+
+/** 判断条目是否具有容器储物效果（含默认物品） */
+export function hasItemStorageEffect(entry) {
+  if (!entry || typeof entry !== 'object') return false
+  if (ITEM_STORAGE_DEFAULT_ITEM_IDS.includes(entry.itemId)) return true
+  const effects = entry.effects
+  if (!Array.isArray(effects)) return false
+  return effects.some((e) => e && e.effectType === 'item_storage' && e.value === true)
 }
 
 /** 旧称/别称 -> 统一简称（兼容历史数据） */

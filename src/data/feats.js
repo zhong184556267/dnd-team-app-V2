@@ -1135,5 +1135,86 @@ export const FEATS = [
 /** 展示用：将连续空行压成单个换行，避免专长正文出现大块留白 */
 export function formatFeatDescriptionForDisplay(description) {
   if (description == null) return ''
-  return String(description).replace(/\r\n/g, '\n').replace(/\n{2,}/g, '\n').trimEnd()
+  const CR_LF = new RegExp(String.fromCharCode(92) + 'r' + String.fromCharCode(92) + 'n', 'g')
+  const MULTI_N = new RegExp(String.fromCharCode(92) + 'n{2,}', 'g')
+  const LF = String.fromCharCode(10)
+  return String(description).replace(CR_LF, LF).replace(MULTI_N, LF).trimEnd()
+}
+
+// ─────────────────────────────────────────────────────────────
+// 自定义专长存储（与自定义物品平行，存于 localStorage）
+// ─────────────────────────────────────────────────────────────
+
+const CUSTOM_FEATS_KEY = 'dnd_custom_feats'
+
+/** 读取自定义专长列表 */
+export function getCustomFeats() {
+  try {
+    const raw = localStorage.getItem(CUSTOM_FEATS_KEY)
+    if (!raw) return []
+    const arr = JSON.parse(raw)
+    return Array.isArray(arr) ? arr : []
+  } catch {
+    return []
+  }
+}
+
+function saveCustomFeatsLocal(list) {
+  try {
+    localStorage.setItem(CUSTOM_FEATS_KEY, JSON.stringify(list))
+  } catch {}
+}
+
+/** 新增自定义专长；返回新项（含 id） */
+export function addCustomFeat(feat) {
+  const list = getCustomFeats()
+  const id = feat.id?.trim() || ('custom_feat_' + Date.now())
+  // 避免与内置 id 冲突
+  const existing = new Set(FEATS.map((f) => f.id).concat(list.map((f) => f.id)))
+  const finalId = existing.has(id) ? id + '_' + Date.now() : id
+  const item = {
+    id: finalId,
+    name: feat.name?.trim() || '未命名专长',
+    category: feat.category?.trim() || '自定义专长',
+    prerequisite: feat.prerequisite?.trim() || '',
+    description: feat.description?.trim() || '',
+    source: '自定义',
+  }
+  list.push(item)
+  saveCustomFeatsLocal(list)
+  return item
+}
+
+/** 更新自定义专长 */
+export function updateCustomFeat(id, patch) {
+  const list = getCustomFeats()
+  const idx = list.findIndex((x) => x.id === id)
+  if (idx === -1) return null
+  list[idx] = { ...list[idx], ...patch }
+  saveCustomFeatsLocal(list)
+  return list[idx]
+}
+
+/** 删除自定义专长 */
+export function removeCustomFeat(id) {
+  const list = getCustomFeats().filter((x) => x.id !== id)
+  saveCustomFeatsLocal(list)
+  return true
+}
+
+/** 含自定义专长的完整列表（内置 + 自定义） */
+export function getAllFeats() {
+  return [...FEATS, ...getCustomFeats()]
+}
+
+/** 含自定义专长的分类索引 */
+export function getAllFeatsByCategory() {
+  const all = getAllFeats()
+  const map = {}
+  for (const f of all) {
+    const cat = f.category || '自定义专长'
+    if (!map[cat]) map[cat] = []
+    map[cat].push(f)
+  }
+  return map
 }

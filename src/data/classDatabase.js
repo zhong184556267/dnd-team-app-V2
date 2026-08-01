@@ -1171,6 +1171,39 @@ const CLASS_DATA = {
       },
     },
   },
+  // 繁星特色 · 进阶职业
+  无相影门: {
+    hitDice: 8,
+    spellcasting: null,
+    saveProficiencies: ['dex', 'int'],
+    armorProficiencies: ['轻甲'],
+    weaponProficiencies: ['简易武器', '短剑', '匕首'],
+    skillOptions: ['隐匿', '察觉'],
+    isFanxing: true,
+    requirements: '敏捷 15+，智力 12+，熟练加值 +4（人物等级 9+），已加入无相影门',
+    flavor: '进阶职业（兼职），12 级。精通暗杀与潜行的影门弟子，以影子位面为据点，掌握偷袭、影遁、召影等绝技。',
+    features: [
+      { id: 'sneak_attack_shadow', name: '偷袭', description: '每回合一次，用一次符合条件的攻击打出偷袭额外伤害。偷袭伤害骰随本职业等级提高。条件：攻击使用敏捷武器（含短剑、短刀等），且对目标具有优势；或目标 5 尺内有敌对的另一生物且不具劣势。同一回合只能触发一次。偷袭骰：1 级 5d6，3 级 6d6，4 级 7d6，6 级 8d6，8 级 9d6，10 级 10d6。', level: 1 },
+      { id: 'thieves_cant', name: '盗贼黑话', description: '你学会盗贼黑话（Thieves\' Cant）：可用隐语、暗号与同行交流，并在表面上的闲聊中夹带讯息。', level: 1 },
+      { id: 'expertise_shadow', name: '专精', description: '你对隐匿、察觉获得专精（熟练加值加倍）。若你尚未熟练其中某一技能，则先获得该技能熟练，再专精。', level: 1 },
+      { id: 'weapon_mastery_shadow', name: '武器精通', description: '你获得武器精通（对齐 2024《玩家手册》武器精通规则）：对你已熟练的武器，可使用其精通词条。若战役不用 2024 精通规则，则改为：使用短剑/短刀时，攻击或伤害择一获得小幅加成（由 DM 用旧版等效）。', level: 1 },
+      { id: 'shadow_step', name: '影遁', description: '附赠动作进入影子位面（独立、类以太的位面）。留在位面内时移动速度加倍；可在任意有影子或黑暗之处以 5 尺影子步法现身。位面内无法进行任何交互，也无法执行动作、附赠动作、反应，只能移动。可花费 1 分钟施法打开通往影子位面的入口传送门，携带总计最多 8 个自愿的中型生物（含自己）。无影、非黑暗且无法落影之处难以进出。', level: 1 },
+      { id: 'darkness', name: '黑暗术', description: '你可施展法术黑暗术（Darkness）。每个短休可施展 1 次（不消耗法术位；若另有法术位仍可正常施法）。施法属性为智力。', level: 2 },
+      { id: 'blindsight', name: '盲视', description: '你获得 10 尺盲视（blindsight）。', level: 2 },
+      { id: 'extra_attack_shadow', name: '额外攻击', description: '当你在自己回合执行攻击动作时，可攻击两次，而非一次。', level: 2 },
+      { id: 'asi_shadow_3', name: '属性提升', description: '按《玩家手册》提升一项属性 2 点、或两项各 1 点（上限 20）；若战役允许，可改选一项专长。', level: 3 },
+      { id: 'surprise_step', name: '奇袭步', description: '当你处于隐匿状态时，可在你的回合结束时立刻重投先攻。你可以选择是否采用新先攻。若新先攻低于当前先攻：不会再获得一整轮动作，但获得一次新的反应。若新先攻更高且选择采用：本轮不再动一整轮，之后按新先攻更早行动。', level: 4 },
+      { id: 'cunning_strike', name: '凶狡打击', description: '你获得凶狡打击（Cunning Strike）：打出偷袭时，可消耗部分偷袭骰以附加效应。效应表与可选消耗直接采用 2024《玩家手册》盗贼的凶狡打击条目。', level: 5 },
+      { id: 'improved_critical', name: '精通重击', description: '你的武器攻击在掷出 19–20 时即造成重击（若原已更优，取其优）。', level: 6 },
+      { id: 'asi_shadow_7', name: '属性提升', description: '按《玩家手册》提升一项属性 2 点、或两项各 1 点（上限 20）；若战役允许，可改选一项专长。', level: 7 },
+      { id: 'shadow_summon', name: '召影', description: '学会召唤并驱使自己影子。次数等于智力调整值（至少 1 次），长休恢复全部。召唤（附赠动作）：60 尺内出现 1 个影子（不需视野，不可跨位面）。召唤当下可立刻对 5 尺内目标打击一次（DC=8+熟练加值+敏捷调整值，敏捷豁免，失败受偷袭骰力场伤害，成功减半），最多持续 1 分钟，超过 120 尺消失，无视野。换位（反应）：与影子互换位置一次。力场打击（附赠动作）：令影子对 5 尺内目标打击（同 DC 敏捷豁免），随后影子消失。', level: 8 },
+      { id: 'elusive', name: '飘忽不定', description: '除非你陷入失能，否则对你发动的攻击检定无法具有优势（对齐盗贼飘忽不定/Elusive 口径）。', level: 9 },
+      { id: 'epic_boon_shadow', name: '传奇恩惠', description: '获得一项 D&D 2024 规则下的传奇恩惠（Epic Boon）。从该列表中选择一项，具体由你与 DM 决定。', level: 10 },
+      { id: 'indomitable_2', name: '不屈（二）', description: '你获得不屈，使用次数为 2（豁免失败时可重掷，须使用重掷结果；长休恢复次数）。', level: 11 },
+      { id: 'initiative_strike', name: '先发制人', description: '每回合一次：当你的攻击命中一个先攻低于你的生物，且该生物不是构装体时，该次命中视为重击。', level: 12 },
+    ],
+    subclasses: {},
+  },
 }
 
 /**
@@ -1230,7 +1263,10 @@ export function canonicalClassName(className) {
 
 export function getClassData(className) {
   const key = CLASS_ALIASES[className] ?? className
-  return CLASS_DATA[key] ?? null
+  if (CLASS_DATA[key]) return CLASS_DATA[key]
+  // 查自定义职业
+  const customs = getCustomClasses()
+  return customs.find((x) => x.name === key) ?? null
 }
 
 /** 岚御法师等：职业数据中的 per-level 武技进展表；无则 null */
@@ -1293,6 +1329,91 @@ export function getHitDice(className) {
 export const CLASS_HIT_DICE = Object.fromEntries(
   Object.entries(CLASS_DATA).map(([name, d]) => [name, d.hitDice])
 )
+
+// ─────────────────────────────────────────────────────────────
+// 自定义职业存储（与自定义物品平行，存于 localStorage）
+// ─────────────────────────────────────────────────────────────
+
+const CUSTOM_CLASSES_KEY = 'dnd_custom_classes'
+
+/** 读取自定义职业列表 */
+export function getCustomClasses() {
+  try {
+    const raw = localStorage.getItem(CUSTOM_CLASSES_KEY)
+    if (!raw) return []
+    const arr = JSON.parse(raw)
+    return Array.isArray(arr) ? arr : []
+  } catch {
+    return []
+  }
+}
+
+function saveCustomClassesLocal(list) {
+  try {
+    localStorage.setItem(CUSTOM_CLASSES_KEY, JSON.stringify(list))
+  } catch {}
+}
+
+/** 新增自定义职业；返回新项（含 name）。 */
+export function addCustomClass(cls) {
+  const list = getCustomClasses()
+  const name = (cls.name || '').trim()
+  if (!name) return null
+  // 避免与内置职业名冲突
+  if (CLASS_DATA[name] || list.some((x) => x.name === name)) {
+    return null
+  }
+  const item = {
+    name,
+    hitDice: cls.hitDice || 8,
+    spellcasting: cls.spellcasting || null,
+    saveProficiencies: Array.isArray(cls.saveProficiencies) ? cls.saveProficiencies : [],
+    armorProficiencies: Array.isArray(cls.armorProficiencies) ? cls.armorProficiencies : [],
+    weaponProficiencies: Array.isArray(cls.weaponProficiencies) ? cls.weaponProficiencies : [],
+    skillOptions: Array.isArray(cls.skillOptions) ? cls.skillOptions : [],
+    requirements: cls.requirements || '',
+    flavor: cls.flavor || '',
+    features: Array.isArray(cls.features) ? cls.features : [],
+    subclasses: cls.subclasses || {},
+    isFanxing: true,
+    isCustom: true,
+  }
+  list.push(item)
+  saveCustomClassesLocal(list)
+  return item
+}
+
+/** 更新自定义职业 */
+export function updateCustomClass(name, patch) {
+  const list = getCustomClasses()
+  const idx = list.findIndex((x) => x.name === name)
+  if (idx === -1) return null
+  list[idx] = { ...list[idx], ...patch }
+  saveCustomClassesLocal(list)
+  return list[idx]
+}
+
+/** 删除自定义职业 */
+export function removeCustomClass(name) {
+  const list = getCustomClasses().filter((x) => x.name !== name)
+  saveCustomClassesLocal(list)
+  return true
+}
+
+/** 含自定义职业的完整数据映射（内置 + 自定义） */
+export function getAllClassData() {
+  const custom = getCustomClasses()
+  const map = { ...CLASS_DATA }
+  for (const c of custom) {
+    if (c.name && !map[c.name]) map[c.name] = c
+  }
+  return map
+}
+
+/** 含自定义职业的完整列表（用于下拉等） */
+export function getAllClassList() {
+  return Object.keys(getAllClassData())
+}
 
 /**
  * 收集角色所有职业等级（主职 + 兼职 + 进阶）

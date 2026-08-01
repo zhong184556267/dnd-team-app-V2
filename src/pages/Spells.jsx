@@ -114,11 +114,6 @@ function SpellCompendiumCard({ spell, char, charSpellIds, onEdit, onAddToChar })
                 自定义
               </span>
             ) : null}
-            {overridden ? (
-              <span className="inline-flex shrink-0 rounded border border-amber-500/40 bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-200/90">
-                已改
-              </span>
-            ) : null}
           </div>
           {spell.source?.length > 0 ? (
             <p className="text-[10px] leading-snug text-dnd-text-muted">

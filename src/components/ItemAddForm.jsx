@@ -11,7 +11,7 @@ import { Trash2, Plus } from 'lucide-react'
 import { getItemListGrouped, getItemById, getItemDisplayName, parseWeaponNoteToTraits, buildWeaponNoteFromTraits, WEAPON_TRAIT_OPTIONS, WEAPON_MASTERY_OPTIONS } from '../data/itemDatabase'
 import { inputClass, inputClassInline, textareaClass } from '../lib/inputStyles'
 import { useModule } from '../contexts/ModuleContext'
-import { BUFF_TYPES, getCategories, normalizeEffectCategory, parseDamageString, formatDamageForAttack } from '../data/buffTypes'
+import { BUFF_TYPES, getCategories, normalizeEffectCategory, parseDamageString, formatDamageForAttack, ITEM_STORAGE_DEFAULT_ITEM_IDS } from '../data/buffTypes'
 import { EffectValueEditor, isComplexValueType, DamageDiceInlineRow, NumberStepper, normalizeAttackDamageBonusModuleValue, AttackDamageBonusFields, newWeaponBonusRow } from './BuffForm'
 
 /** 从护甲/衣服附注解析为可编辑字段（先匹配护甲基础再匹配盾牌，与 formulas 一致） */
@@ -72,6 +72,15 @@ function createEmptyModule() {
   }
 }
 
+function createItemStorageModule() {
+  return { ...createEmptyModule(), category: 'container', effectType: 'item_storage', value: true, customText: '' }
+}
+
+function isDefaultStorageItem(entryOrItemId) {
+  const id = typeof entryOrItemId === 'string' ? entryOrItemId : entryOrItemId?.itemId
+  return ITEM_STORAGE_DEFAULT_ITEM_IDS.includes(id)
+}
+
 /** 将背包条目转成可增加模块列表（与 BUFF 一致：category + effectType） */
 function entryToEffectModules(entry, proto) {
   const mods = []
@@ -88,7 +97,10 @@ function entryToEffectModules(entry, proto) {
   const shieldBaseAC = shieldBaseMatch ? parseInt(shieldBaseMatch[1], 10) : null
   // 若条目已有 effects（含空数组），优先从中还原；空数组表示用户已删光附魔效果，不再从其它字段推断
   if (Array.isArray(entry?.effects)) {
-    if (entry.effects.length === 0) return []
+    if (entry.effects.length === 0) {
+      // 次元袋/秘藏箱等默认储物物品强制保留容器效果
+      return isDefaultStorageItem(entry) ? [createItemStorageModule()] : []
+    }
     const toRestore = isShield && shieldBaseAC != null
       ? entry.effects.filter((e) => (e.effectType ?? '') !== 'ac_bonus' || (Number(e.value) || 0) !== shieldBaseAC)
       : entry.effects
@@ -108,6 +120,9 @@ function entryToEffectModules(entry, proto) {
         customText: typeof e.value === 'string' ? e.value : (e.customText ?? ''),
       })
     })
+    if (isDefaultStorageItem(entry) && !mods.some((m) => m.effectType === 'item_storage')) {
+      mods.push(createItemStorageModule())
+    }
     return mods
   }
 
@@ -125,6 +140,9 @@ function entryToEffectModules(entry, proto) {
   const reachNum = 攻击距离.match(/(\d+)/)?.[1]
   if (reachNum) add('offense', 'reach_bonus', { value: parseInt(reachNum, 10) || 0 })
   if ((entry.攻击范围 ?? '').trim()) add('offense', 'attack_range', { customText: String(entry.攻击范围).trim() })
+  if (isDefaultStorageItem(entry) && !mods.some((m) => m.effectType === 'item_storage')) {
+    mods.push(createItemStorageModule())
+  }
   if (mods.length === 0) add('offense', 'attack_melee', { value: 0 })
   return mods
 }
@@ -284,6 +302,11 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
     const proto = getItemById(itemId)
     setName(proto ? getItemDisplayName(proto) : '')
     setIntro(proto?.详细介绍 ?? '')
+    if (isDefaultStorageItem(itemId)) {
+      setEffectModules([createItemStorageModule()])
+    } else {
+      setEffectModules([])
+    }
     if (proto && proto.类型 === '盔甲') {
       let f = parseArmorNoteToFields(proto.附注 ?? '')
       setArmorFields(f)
@@ -389,6 +412,10 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
       if (parts.攻击距离 !== undefined) 攻击距离 = parts.攻击距离 || undefined
       if (parts.攻击范围 !== undefined) 攻击范围 = parts.攻击范围 || undefined
     })
+    // 默认储物物品强制写入 item_storage 效果
+    if (isDefaultStorageItem(itemId || editEntry) && !effectsForSave.some((e) => e.effectType === 'item_storage')) {
+      effectsForSave.push({ category: 'container', effectType: 'item_storage', value: true, customText: '' })
+    }
     const entry = {
       ...(editEntry ? { id: editEntry.id, isAttuned: !!editEntry.isAttuned } : { id: 'inv_' + Date.now(), isAttuned: false }),
       itemId: itemId || editEntry?.itemId || '',
@@ -408,6 +435,8 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
       ...(spellDC != null ? { spellDC } : {}),
       effects: effectsForSave,
       ...(isExplosive ? { 爆炸半径: Number(explosiveRadius) || 0 } : {}),
+      // 保留容器内的嵌套物品（若编辑的是已有容器）
+      ...(Array.isArray(editEntry?.nestedInventory) ? { nestedInventory: editEntry.nestedInventory } : {}),
     }
     onSave(entry)
     onClose()

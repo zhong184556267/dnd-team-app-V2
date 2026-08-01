@@ -51,7 +51,7 @@ import TransferModal from './TransferModal'
 import { parseArmorNote } from '../lib/formulas'
 import { abilityModifier } from '../lib/formulas'
 import { useBuffCalculator } from '../hooks/useBuffCalculator'
-import { ABILITY_NAMES_ZH } from '../data/buffTypes'
+import { ABILITY_NAMES_ZH, hasItemStorageEffect, ITEM_STORAGE_DEFAULT_ITEM_IDS } from '../data/buffTypes'
 import { inputClass, inputClassInline } from '../lib/inputStyles'
 import { logTeamActivity } from '../lib/activityLog'
 import { NumberStepper } from './BuffForm'
@@ -78,6 +78,7 @@ import {
 } from '../lib/backpackLayoutOrder'
 import {
   inventoryItemActionsCellClass,
+  inventoryItemBriefChevronBtnClass,
   inventoryItemCardListGapClass,
   inventoryItemCardShellClass,
   inventoryItemChargeCellClass,
@@ -316,7 +317,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
   const bodySlot = wornSlots[0]
   const wornAddable = wornSlots.slice(1)
 
-  const maxAttunementSlots = getMaxAttunementSlots(character?.buffs ?? [], character)
+  const maxAttunementSlots = useMemo(() => getMaxAttunementSlots(mergedBuffs, character), [mergedBuffs, character])
   const attunedCount = getAttunedCountFromInventory(inv)
   const [wallet, setWallet] = useState({})
   const [transferOpen, setTransferOpen] = useState(false)
@@ -512,6 +513,93 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
       return
     }
     removeItem(index)
+  }
+
+  /** 容器储物：将背包内其他物品移入目标容器（不可嵌套容器、不可移入自身） */
+  const moveItemIntoContainer = (sourceIndex, containerId) => {
+    const source = inv[sourceIndex]
+    const containerIdx = inv.findIndex((e) => e.id === containerId)
+    if (!source || containerIdx < 0) return
+    const container = inv[containerIdx]
+    if (source.id === container.id) {
+      alert('不能把物品放入它自身')
+      return
+    }
+    if (hasItemStorageEffect(source)) {
+      alert('容器不能放入另一个容器')
+      return
+    }
+    const nested = Array.isArray(container.nestedInventory) ? [...container.nestedInventory] : []
+    const item = { ...source }
+    delete item.inBagOfHolding
+    delete item.bagModuleId
+    delete item.bagSlotId
+    delete item.bagModuleAnchorId
+    nested.push(item)
+    let nextInv = inv
+      .map((e, i) => {
+        if (i === containerIdx) return { ...e, nestedInventory: nested }
+        if (i === sourceIndex) return null
+        return e
+      })
+      .filter(Boolean)
+    let nextHeld = heldSlots
+    let nextWorn = wornSlots
+    let eqChanged = false
+    const entryId = item.id
+    if (entryId) {
+      if (nextHeld.some((s) => s.inventoryId === entryId)) {
+        nextHeld = nextHeld.map((s) => (s.inventoryId === entryId ? { ...s, inventoryId: null } : s))
+        eqChanged = true
+      }
+      if (nextWorn.some((s) => s.inventoryId === entryId)) {
+        nextWorn = nextWorn.map((s) => (s.inventoryId === entryId ? { ...s, inventoryId: null } : s))
+        eqChanged = true
+      }
+    }
+    setEditingIndex(null)
+    if (eqChanged) saveWithEquipment({ inventory: nextInv, equippedHeld: nextHeld, equippedWorn: nextWorn })
+    else onSave({ inventory: nextInv })
+  }
+
+  /** 容器储物：将容器内物品取出，放回背包末尾 */
+  const removeItemFromContainer = (containerId, nestedIndex) => {
+    const containerIdx = inv.findIndex((e) => e.id === containerId)
+    if (containerIdx < 0) return
+    const container = inv[containerIdx]
+    const nested = Array.isArray(container.nestedInventory) ? [...container.nestedInventory] : []
+    const [item] = nested.splice(nestedIndex, 1)
+    if (!item) return
+    const nextInv = [...inv]
+    nextInv[containerIdx] = { ...container, nestedInventory: nested }
+    nextInv.push(item)
+    onSave({ inventory: nextInv })
+  }
+
+  /** 容器储物：修改容器内物品数量 */
+  const setNestedQty = (containerId, nestedIndex, value) => {
+    const containerIdx = inv.findIndex((e) => e.id === containerId)
+    if (containerIdx < 0) return
+    const container = inv[containerIdx]
+    const nested = Array.isArray(container.nestedInventory) ? [...container.nestedInventory] : []
+    const item = nested[nestedIndex]
+    if (!item) return
+    const n = Math.max(1, parseInt(value, 10) || 1)
+    nested[nestedIndex] = { ...item, qty: n }
+    onSave({ inventory: inv.map((e, i) => (i === containerIdx ? { ...e, nestedInventory: nested } : e)) })
+  }
+
+  /** 容器储物：拖放背包物品到展开区域入袋 */
+  const handleDropIntoContainer = (e, containerInvIndex, containerId) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const fromBag = e.dataTransfer.getData('text/dnd-from-bag') === '1'
+    if (fromBag) return
+    const sourceIndex = parseDragInventoryIndex(e.dataTransfer)
+    if (Number.isNaN(sourceIndex) || sourceIndex === containerInvIndex) return
+    const src = inv[sourceIndex]
+    if (!src || src.inBagOfHolding || src.bagModuleAnchorId) return
+    moveItemIntoContainer(sourceIndex, containerId)
   }
 
   /** 同名物品（显示名称一致）可合并数量；invDisplayName 在下方定义，此处用内联比较 */
@@ -1490,6 +1578,7 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                   const entry = inv[i]
                   if (entry?.inBagOfHolding) return null
                   const isAnchor = isBagModuleAnchorEntry(entry)
+                  const isContainer = !isAnchor && hasItemStorageEffect(entry)
                   const modForAnchor = isAnchor ? bagModules.find((m) => m.id === entry.bagModuleAnchorId) : null
                   const modIndexAnchor = isAnchor ? bagModules.findIndex((m) => m.id === entry.bagModuleAnchorId) : -1
                   const totalLb = isAnchor
@@ -1600,11 +1689,30 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                               </div>
                             ) : (
                               <div className={inventoryItemNameRowClass}>
-                                <InventoryItemBriefChevron
-                                  brief={packBrief}
-                                  expanded={!!backpackItemBriefOpen[bbKey]}
-                                  onToggle={() => setBackpackItemBriefOpen((p) => ({ ...p, [bbKey]: !p[bbKey] }))}
-                                />
+                                {isContainer ? (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      setBackpackItemBriefOpen((p) => ({ ...p, [bbKey]: !p[bbKey] }))
+                                    }}
+                                    className={inventoryItemBriefChevronBtnClass}
+                                    title={backpackItemBriefOpen[bbKey] ? '收起容器内容' : '展开容器内容'}
+                                    aria-expanded={!!backpackItemBriefOpen[bbKey]}
+                                    aria-label={backpackItemBriefOpen[bbKey] ? '收起容器内容' : '展开容器内容'}
+                                  >
+                                    <ChevronDown
+                                      className={`w-3.5 h-3.5 transition-transform ${!!backpackItemBriefOpen[bbKey] ? 'rotate-180' : ''}`}
+                                      aria-hidden
+                                    />
+                                  </button>
+                                ) : (
+                                  <InventoryItemBriefChevron
+                                    brief={packBrief}
+                                    expanded={!!backpackItemBriefOpen[bbKey]}
+                                    onToggle={() => setBackpackItemBriefOpen((p) => ({ ...p, [bbKey]: !p[bbKey] }))}
+                                  />
+                                )}
                                 <div className={inventoryItemNameTitleGroupClass}>
                                   <span className={inventoryItemNameTextClass}>{invDisplayName(entry)}</span>
                                   <span className={inventoryItemNameExtrasClass}>
@@ -1870,6 +1978,74 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                           expanded={!!backpackItemBriefOpen[bbKey]}
                           variant="body"
                         />
+
+                        {isContainer && !!backpackItemBriefOpen[bbKey] && (
+                          <div
+                            className="border-t border-gray-700/45 bg-black/25 px-2 py-2 -mx-px -mb-px"
+                            onDragOver={canEdit ? handleDragOver : undefined}
+                            onDrop={canEdit ? (e) => handleDropIntoContainer(e, i, entry.id) : undefined}
+                          >
+                            <div className="flex items-center justify-between mb-1.5">
+                              <span className="text-emerald-300/90 text-xs font-medium">容器内物品</span>
+                              <span className="text-dnd-text-muted text-[10px]">
+                                共 {(Array.isArray(entry.nestedInventory) ? entry.nestedInventory : []).length} 件
+                              </span>
+                            </div>
+                            <div className={`flex flex-col min-w-0 ${inventoryItemCardListGapClass}`}>
+                              {(Array.isArray(entry.nestedInventory) ? entry.nestedInventory : []).map((nested, nestedIdx) => {
+                                const nestedLb = getInventoryEntryStackWeightLb(nested)
+                                const nestedQty = Math.max(1, Math.floor(Number(nested?.qty) || 1))
+                                return (
+                                  <div
+                                    key={nested.id ?? `nested-${nestedIdx}`}
+                                    className="rounded-md border border-gray-600/40 bg-[#151c28]/60 px-2 py-1.5"
+                                  >
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      <span className="min-w-0 flex-1 truncate text-white text-xs font-medium">
+                                        {invDisplayName(nested)}
+                                      </span>
+                                      {canEdit && (
+                                        <div className="w-[4.5rem] shrink-0">
+                                          <NumberStepper
+                                            value={nestedQty}
+                                            onChange={(v) => setNestedQty(entry.id, nestedIdx, v)}
+                                            min={1}
+                                            compact
+                                            pill
+                                            subtle
+                                          />
+                                        </div>
+                                      )}
+                                      {!canEdit && (
+                                        <span className="text-dnd-text-body text-xs tabular-nums shrink-0">×{nestedQty}</span>
+                                      )}
+                                      <span className="text-dnd-text-muted text-[10px] tabular-nums w-12 text-right shrink-0">
+                                        {nestedLb > 0 ? `${formatDisplayWeightLb(nestedLb)} lb` : '—'}
+                                      </span>
+                                      {canEdit && (
+                                        <button
+                                          type="button"
+                                          onClick={() => removeItemFromContainer(entry.id, nestedIdx)}
+                                          title="取出到背包"
+                                          className="p-1 rounded text-dnd-red hover:bg-dnd-red/20 shrink-0"
+                                        >
+                                          <ArrowUpFromLine size={13} />
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                            {canEdit && (
+                              <div className="mt-2 rounded-md border border-dashed border-dnd-gold/25 bg-[#151c28]/40 px-2 py-2 text-center">
+                                <p className="text-[10px] text-dnd-text-muted leading-snug">
+                                  拖背包物品到此处放入容器
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        )}
 
                         {isAnchor && modForAnchor && modIndexAnchor >= 0 && anchorBagExpanded ? (
                           <div

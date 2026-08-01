@@ -8,4 +8,5 @@ export const FANXING_PRESTIGE_CLASSES = [
   '岚御法师',
   '奥音实验者',
   '斯兰亲卫',
+  '无相影门',
 ]

@@ -5,7 +5,7 @@
  */
 import { useState, useEffect, useCallback, useRef, useMemo, forwardRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { ChevronUp, ChevronDown, Trash2, Star, Upload, X } from 'lucide-react'
+import { ChevronUp, ChevronDown, Trash2, Star, Upload, X, Plus } from 'lucide-react'
 import DragHandleIcon from '../components/DragHandleIcon'
 import { useAuth } from '../contexts/AuthContext'
 import { useModule } from '../contexts/ModuleContext'
@@ -47,8 +47,9 @@ import EquipmentAndInventory from '../components/EquipmentAndInventory'
 import AbilityModule from '../components/AbilityModule'
 import AvatarCropModal from '../components/AvatarCropModal'
 import CharacterSheetTopBar from '../components/CharacterSheetTopBar'
+import FeatPickerModal from '../components/FeatPickerModal'
 import { APP_VERSION_LABEL } from '../config/version'
-import { inputClass, labelClass } from '../lib/inputStyles'
+import { inputClass } from '../lib/inputStyles'
 
 const RAW_AVATAR_FILE_MAX = 12 * 1024 * 1024 // 裁剪前原图上限，裁剪后会压到约 800KB 内
 
@@ -864,12 +865,13 @@ function FeatsSection({ char, canEdit, onSave }) {
   const raw = char?.selectedFeats ?? []
   const featDragFrom = useRef(null)
   const [featDragOver, setFeatDragOver] = useState(null)
+  const [modalOpen, setModalOpen] = useState(false)
   const feats = raw.map((f) => {
     if (typeof f === 'string') return { featId: f, level: 1, sourceClass: '' }
     const featId = f.featId ?? f.id ?? ''
     const row = {
       featId,
-      level: Math.max(1, Math.min(20, Number(f.level) ?? 1)),
+      level: f.level === '' || f.level == null ? '' : Math.max(1, Math.min(20, Number(f.level) ?? 1)),
       sourceClass: f.sourceClass ?? '',
     }
     // 与 Buff 栏联动的专长效果存在 featBuffPatch；规范化时不可丢弃，否则一改等级/职业就会清空
@@ -879,21 +881,30 @@ function FeatsSection({ char, canEdit, onSave }) {
     return row
   })
   const featById = new Map(FEATS.map((x) => [x.id, x]))
-  const [selectedCategory, setSelectedCategory] = useState('')
-  const categoryList = Object.keys(FEATS_BY_CATEGORY)
-  const featsInCategory = selectedCategory ? (FEATS_BY_CATEGORY[selectedCategory] ?? []) : []
   const alreadyIds = new Set(feats.map((f) => f.featId))
-  const toAddInCategory = featsInCategory.filter((x) => !alreadyIds.has(x.id))
 
-  const addFeat = (featId) => {
+  const addFeat = ({ featId, effects = [] }) => {
     if (!featId) return
-    const next = [...feats, { featId, level: 1, sourceClass: char?.['class'] ?? '' }]
+    const row = { featId, level: 1, sourceClass: char?.['class'] ?? '' }
+    if (effects.length > 0) {
+      row.featBuffPatch = { effects }
+    }
+    const next = [...feats, row]
     onSave({ selectedFeats: next })
-    setSelectedCategory('')
   }
   const updateFeat = (index, field, value) => {
     const next = feats.map((item, i) =>
-      i !== index ? item : { ...item, [field]: field === 'level' ? Math.max(1, Math.min(20, Number(value) || 1)) : value }
+      i !== index
+        ? item
+        : {
+            ...item,
+            [field]:
+              field === 'level'
+                ? value === '' || value == null
+                  ? ''
+                  : Math.max(1, Math.min(20, Number(value) || 1))
+                : value,
+          }
     )
     onSave({ selectedFeats: next })
   }
@@ -937,44 +948,21 @@ function FeatsSection({ char, canEdit, onSave }) {
     <div className="rounded-lg border border-gray-600 bg-gray-800/50 p-4">
       {canEdit && (
         <div className="mb-2">
-          <div className="flex flex-wrap gap-2 items-center">
-            <div className="min-w-0">
-              <select
-                className={inputClass + ' text-sm'}
-                value={selectedCategory}
-                onChange={(e) => setSelectedCategory(e.target.value)}
-                aria-label="专长类型"
-              >
-                <option value="">选择专长类型</option>
-                {categoryList.map((cat) => (
-                  <option key={cat} value={cat}>
-                    {cat === '星辰专长' ? '★ 星辰专长' : cat}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="min-w-0 flex-1">
-              <select
-                className={inputClass + ' text-sm'}
-                value=""
-                disabled={!selectedCategory || toAddInCategory.length === 0}
-                onChange={(e) => {
-                  const id = e.target.value
-                  if (id) { addFeat(id); e.target.value = '' }
-                }}
-                aria-label="具体专长"
-              >
-                <option value="">
-                  {!selectedCategory ? '选择专长类型后再选专长' : toAddInCategory.length === 0 ? '— 该类型已选完 —' : '— 选择专长 —'}
-                </option>
-                {toAddInCategory.map((x) => (
-                  <option key={x.id} value={x.id}>
-                    {resolveRuleText(overridesMap, buildFeatNameKey(x.id), x.name)}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
+          <button
+            type="button"
+            onClick={() => setModalOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-dnd-red/90 text-white hover:bg-dnd-red transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            添加专长
+          </button>
+          <FeatPickerModal
+            isOpen={modalOpen}
+            onClose={() => setModalOpen(false)}
+            onConfirm={addFeat}
+            overridesMap={overridesMap}
+            selectedIds={alreadyIds}
+          />
         </div>
       )}
       {feats.length > 0 ? (
@@ -1086,8 +1074,12 @@ function FeatsSection({ char, canEdit, onSave }) {
                         type="number"
                         min={1}
                         max={20}
-                        value={item.level}
+                        value={item.level ?? ''}
                         onChange={(e) => updateFeat(i, 'level', e.target.value)}
+                        onBlur={(e) => {
+                          const v = e.target.value
+                          updateFeat(i, 'level', v === '' || v == null ? 1 : v)
+                        }}
                         className={featAcquireLevelInput}
                         aria-label="在该职业中的等级"
                       />

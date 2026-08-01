@@ -48,6 +48,8 @@ import AbilityModule from '../components/AbilityModule'
 import AvatarCropModal from '../components/AvatarCropModal'
 import CharacterSheetTopBar from '../components/CharacterSheetTopBar'
 import FeatPickerModal from '../components/FeatPickerModal'
+import InfoTooltip from '../components/InfoTooltip'
+import { ClassFeatureTooltipContent, FeatTooltipContent } from '../lib/infoTooltipContent'
 import { APP_VERSION_LABEL } from '../config/version'
 import { inputClass } from '../lib/inputStyles'
 
@@ -792,15 +794,37 @@ function ClassFeaturesSection({ char, canEdit, onSave }) {
                     className="flex-1 min-w-0 cursor-pointer select-none"
                     onClick={() => toggleFeatureExpand(f.selectedKey)}
                   >
-                    <span className={CS_LIST_TITLE}>
-                      {resolveRuleText(
-                        overridesMap,
-                        f.sourceSubclass
-                          ? buildSubclassFeatureNameKey(f.sourceClass, f.sourceSubclass, f.id)
-                          : buildClassFeatureNameKey(f.sourceClass, f.id),
-                        f.name,
-                      )}
-                    </span>
+                    <InfoTooltip
+                      content={
+                        <ClassFeatureTooltipContent
+                          feature={{
+                            name: resolveRuleText(
+                              overridesMap,
+                              f.sourceSubclass
+                                ? buildSubclassFeatureNameKey(f.sourceClass, f.sourceSubclass, f.id)
+                                : buildClassFeatureNameKey(f.sourceClass, f.id),
+                              f.name,
+                            ),
+                            description: descText,
+                            level: f.level,
+                            sourceClass: f.sourceClass,
+                            sourceSubclass: f.sourceSubclass,
+                            id: f.id,
+                          }}
+                        />
+                      }
+                      triggerClassName="inline"
+                    >
+                      <span className={CS_LIST_TITLE}>
+                        {resolveRuleText(
+                          overridesMap,
+                          f.sourceSubclass
+                            ? buildSubclassFeatureNameKey(f.sourceClass, f.sourceSubclass, f.id)
+                            : buildClassFeatureNameKey(f.sourceClass, f.id),
+                          f.name,
+                        )}
+                      </span>
+                    </InfoTooltip>
                     <span className={`${CS_LIST_META} ml-2`}>{f.sourceClass}{f.sourceSubclass ? `（${f.sourceSubclass}）` : ''} · {f.level} 级</span>
                   </div>
                   {canEdit && (
@@ -1029,7 +1053,27 @@ function FeatsSection({ char, canEdit, onSave }) {
                         <DragHandleIcon className={`${CS_ICON_16} text-dnd-text-muted`} aria-hidden />
                       </span>
                     )}
-                    <span className={CS_LIST_TITLE}>{name}</span>
+                    <InfoTooltip
+                      content={
+                        <FeatTooltipContent
+                          feat={{
+                            id: item.featId,
+                            name,
+                            category,
+                            prerequisite: feat?.prerequisite,
+                            description: feat?.description
+                              ? formatFeatDescriptionForDisplay(
+                                  resolveRuleText(overridesMap, buildFeatDescriptionKey(item.featId), feat.description),
+                                )
+                              : '',
+                          }}
+                        />
+                      }
+                      triggerClassName="inline"
+                      disabled={!feat}
+                    >
+                      <span className={CS_LIST_TITLE}>{name}</span>
+                    </InfoTooltip>
                     <FeatTypeTag category={category} />
                   </div>
                   {canEdit && (

@@ -6,6 +6,8 @@
 import { Plus, Trash2 } from 'lucide-react'
 import { getItemById, getItemDisplayName } from '../data/itemDatabase'
 import { parseArmorNote } from '../lib/formulas'
+import InfoTooltip from './InfoTooltip'
+import { ItemTooltipContent } from '../lib/infoTooltipContent'
 
 const HELD_LABELS = ['主手', '副手']
 const WORN_LABELS = ['身体']
@@ -181,7 +183,13 @@ export default function EquipmentBar({ character, canEdit, onSave }) {
             </>
           ) : (
             <>
-              <span className="text-white text-sm flex-1">{getEntryDisplayName(entry)}</span>
+              <InfoTooltip
+                content={<ItemTooltipContent proto={proto} entry={entry} />}
+                triggerClassName="text-white text-sm flex-1 min-w-0"
+                disabled={!proto}
+              >
+                <span className="break-words">{getEntryDisplayName(entry)}</span>
+              </InfoTooltip>
               {((isWorn && entry && isArmorOrShield) || (isShieldInOffHand && entry)) && (
                 <span className="text-amber-200/90 text-xs font-mono shrink-0" title={isShieldInOffHand ? '盾牌增强加值' : ''}>{magicBonus > 0 ? `+${magicBonus}` : ''}</span>
               )}

@@ -11,6 +11,8 @@ import {
   getInventoryForLayer,
   useLayersForAC,
 } from '../lib/equipmentLayers'
+import InfoTooltip from './InfoTooltip'
+import { ItemTooltipContent } from '../lib/infoTooltipContent'
 
 function layerDisplayName(entry, proto) {
   if (!entry) return '—'
@@ -115,7 +117,13 @@ export default function PaperDoll({ character, canEdit, onSave }) {
                       )}
                     </>
                   ) : (
-                    <p className="text-white text-sm py-1.5">{layerDisplayName(entry, proto)}</p>
+                    <InfoTooltip
+                      content={<ItemTooltipContent proto={proto} entry={entry} />}
+                      triggerClassName="text-white text-sm py-1.5 min-w-0"
+                      disabled={!proto}
+                    >
+                      <span className="break-words">{layerDisplayName(entry, proto)}</span>
+                    </InfoTooltip>
                   )}
                   {layerId === 'outerRobe' && canEdit && (slot.inventoryId || slot.magicACBonus) && (
                     <div className="mt-2 flex items-center gap-2">

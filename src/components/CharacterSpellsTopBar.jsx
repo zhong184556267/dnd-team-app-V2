@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
+import { getTopBarHostElement } from './TopBarHost'
 
 const LAYOUT_INNER = 'mx-auto w-[1180px] min-w-[1180px] shrink-0'
 
@@ -25,7 +26,8 @@ export default function CharacterSpellsTopBar({ children }) {
     return () => {
       ro?.disconnect()
       window.removeEventListener('resize', apply)
-      document.documentElement.style.removeProperty('--character-sheet-topbar-h')
+      // 不再 removeProperty('--character-sheet-topbar-h')：路由切换时让变量保持上一个值，
+      // 避免新旧顶栏交接瞬间 padding-top 跳变、页面闪烁。新顶栏挂载后会测量并覆盖。
     }
   }, [])
 
@@ -41,6 +43,7 @@ export default function CharacterSpellsTopBar({ children }) {
     </nav>
   )
 
-  if (typeof document === 'undefined' || !document.body) return null
-  return createPortal(navEl, document.body)
+  const host = getTopBarHostElement()
+  if (typeof document === 'undefined' || !host) return null
+  return createPortal(navEl, host)
 }

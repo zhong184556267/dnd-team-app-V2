@@ -7,6 +7,7 @@ import { loadAllCharactersIntoCache } from '../lib/characterStore'
 import { startSupabaseRealtime } from '../lib/realtimeSync'
 import { isSupabaseEnabled } from '../lib/supabase'
 import BottomNav from './BottomNav'
+import { useEnsureTopBarHost } from './TopBarHost'
 
 function ScrollToTop() {
   const { pathname } = useLocation()
@@ -19,6 +20,10 @@ function ScrollToTop() {
 export default function Layout() {
   const { user, isAdmin } = useAuth()
   const { currentModuleId } = useModule()
+
+  // 预先创建常驻顶栏 host，设置默认 --character-sheet-topbar-h，
+  // 让路由切换时 padding-top 不跳变、顶栏不闪。
+  useEnsureTopBarHost()
 
   useEffect(() => {
     if (!isSupabaseEnabled() || !user?.name) return

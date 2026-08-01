@@ -94,6 +94,8 @@ import {
   inventoryItemBriefIsExpandable,
 } from '../lib/inventoryItemCardStyles'
 import { InventoryItemBriefChevron, InventoryItemBriefExpandedText } from './InventoryItemCardBrief'
+import InfoTooltip from './InfoTooltip'
+import { ItemTooltipContent } from '../lib/infoTooltipContent'
 
 const HELD_LABELS = ['主手', '副手']
 const WORN_SLOT_OPTIONS = [
@@ -1680,7 +1682,16 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                                   )}
                                 </button>
                                 <div className={inventoryItemNameTitleGroupClass}>
-                                  <span className={inventoryItemNameTextClass}>{invDisplayName(entry)}</span>
+                                  <InfoTooltip
+                                    content={(() => {
+                                      const p = entry?.itemId ? getItemById(entry.itemId) : null
+                                      return <ItemTooltipContent proto={p} entry={entry} />
+                                    })()}
+                                    triggerClassName={inventoryItemNameTextClass}
+                                    disabled={!entry?.itemId}
+                                  >
+                                    <span className="break-words">{invDisplayName(entry)}</span>
+                                  </InfoTooltip>
                                   <span className="shrink-0 text-[10px] text-dnd-text-muted whitespace-nowrap tabular-nums">
                                     模块 {modIndexAnchor + 1} ·{' '}
                                     {normalizeBagOfHoldingVisibility(modForAnchor.visibility) === 'public' ? '公家' : '私人'}
@@ -1714,7 +1725,16 @@ export default function EquipmentAndInventory({ character, canEdit, onSave, onWa
                                   />
                                 )}
                                 <div className={inventoryItemNameTitleGroupClass}>
-                                  <span className={inventoryItemNameTextClass}>{invDisplayName(entry)}</span>
+                                  <InfoTooltip
+                                    content={(() => {
+                                      const p = entry?.itemId ? getItemById(entry.itemId) : null
+                                      return <ItemTooltipContent proto={p} entry={entry} />
+                                    })()}
+                                    triggerClassName={inventoryItemNameTextClass}
+                                    disabled={!entry?.itemId}
+                                  >
+                                    <span className="break-words">{invDisplayName(entry)}</span>
+                                  </InfoTooltip>
                                   <span className={inventoryItemNameExtrasClass}>
                                     {(() => {
                                       const stoneEffect = Array.isArray(entry?.effects)

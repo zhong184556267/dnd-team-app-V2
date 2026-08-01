@@ -49,6 +49,8 @@ import {
 } from '../data/martialTechniques'
 import MartialStyleIntroBlock from './MartialStyleIntroBlock'
 import { NumberStepper } from './BuffForm'
+import InfoTooltip from './InfoTooltip'
+import { MartialTechTooltipContent } from '../lib/infoTooltipContent'
 
 /** 战斗手段行：24 细分为 12 份 — 名称2 | 射程2 | 命中2 | 伤害5.5 | 删除0.5（删列=1/24；Tailwind 无 grid-cols-24 故用任意值） */
 const COMBAT_MEAN_ROW_GRID =
@@ -831,12 +833,17 @@ export default function CombatStatus({ char, hp, abilities, level, canEdit, onSa
             >
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                  <span
-                    className={`break-words font-semibold leading-tight ${tech ? 'text-sm text-white' : 'text-xs text-gray-500'}`}
-                    title={tech?.name}
+                  <InfoTooltip
+                    content={<MartialTechTooltipContent tech={tech} />}
+                    triggerClassName=""
+                    disabled={!tech}
                   >
-                    {tech?.name ?? '未知武技（库中无此条目）'}
-                  </span>
+                    <span
+                      className={`break-words font-semibold leading-tight ${tech ? 'text-sm text-white' : 'text-xs text-gray-500'}`}
+                    >
+                      {tech?.name ?? '未知武技（库中无此条目）'}
+                    </span>
+                  </InfoTooltip>
                   {tech && tagStyle !== '—' ? (
                     <span className="text-[10px] leading-tight text-dnd-text-muted">
                       <span className={['inline-block', 'break-words', styleSubTracking].filter(Boolean).join(' ')}>{tagStyle}</span>

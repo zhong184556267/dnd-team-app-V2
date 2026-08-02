@@ -130,23 +130,23 @@ function EquipSlotBadge({ Icon, label }) {
   )
 }
 
-/** 同调：复选框样式，便于在装备行内直接勾选 */
+/** 同调：复选框样式，每个已装备栏位都显示 */
 function AttuneToggle({ entry, attunedCount, maxAttunementSlots, onToggle }) {
   const proto = entry?.itemId ? getItemById(entry.itemId) : null
   const requiresAttunement = itemRequiresAttunement(proto) || itemRequiresAttunement(entry)
   const active = !!entry?.isAttuned
   const disabled = !entry || (!active && attunedCount >= maxAttunementSlots)
-  if (!requiresAttunement && !active) return null
+  if (!entry) return null
   return (
     <label
       title={
-        !entry
-          ? '先选择物品'
-          : active
-            ? '点击取消同调'
-            : attunedCount >= maxAttunementSlots
-              ? '同调位已满'
-              : '同调此物品'
+        active
+          ? '点击取消同调'
+          : attunedCount >= maxAttunementSlots
+            ? '同调位已满'
+            : requiresAttunement
+              ? '同调此物品'
+              : '同调此物品（该物品未标记为需要同调）'
       }
       className={`shrink-0 inline-flex items-center gap-1.5 h-7 px-2 rounded-lg border text-[11px] cursor-pointer transition-colors ${
         disabled

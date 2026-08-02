@@ -22,7 +22,7 @@ export default function InfoTooltip({
   /** 触发区域附加类名（如需让整段文字都可 hover 而不仅是文字本身） */
   triggerClassName = '',
   /** 浮层最大宽度（px） */
-  maxWidth = 320,
+  maxWidth = 420,
   /** 浮层附加类名 */
   tooltipClassName = '',
   /** 显示延迟（ms），避免快速划过时闪烁 */

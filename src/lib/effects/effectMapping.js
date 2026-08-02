@@ -266,6 +266,8 @@ export function getBuffsFromEquipmentAndInventory(character) {
   const out = []
   for (const entry of inv) {
     if (!equippedIds.has(entry?.id)) continue
+    // 未同调装备不生效其 BUFF/效果
+    if (entry.isAttuned !== true) continue
     let effects = getEffectsFromItem(entry)
     // Defensive body/shield slots already contribute AC via formulas.getAC (magicBonus etc).
     // Avoid counting the same AC enchantment again through item effect mapping.

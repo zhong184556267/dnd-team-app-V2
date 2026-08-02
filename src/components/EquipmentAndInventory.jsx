@@ -136,7 +136,7 @@ function AttuneToggle({ entry, attunedCount, maxAttunementSlots, onToggle }) {
   const requiresAttunement = itemRequiresAttunement(proto) || itemRequiresAttunement(entry)
   const active = !!entry?.isAttuned
   const disabled = !entry || (!active && attunedCount >= maxAttunementSlots)
-  if (!requiresAttunement) return null
+  if (!requiresAttunement && !active) return null
   return (
     <label
       title={

@@ -83,11 +83,11 @@ async function collectModuleArchiveData(moduleId) {
   let customItems = []
   let customSpells = []
   try {
-    const rawItems = localStorage.getItem('starlight_custom_items')
+    const rawItems = localStorage.getItem('dnd_custom_items')
     if (rawItems) customItems = JSON.parse(rawItems)
   } catch { }
   try {
-    const rawSpells = localStorage.getItem('starlight_custom_spells')
+    const rawSpells = localStorage.getItem('dnd_custom_spells')
     if (rawSpells) customSpells = JSON.parse(rawSpells)
   } catch { }
 

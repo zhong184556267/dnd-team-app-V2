@@ -10,10 +10,48 @@ import * as teamData from '../lib/teamDataSupabase'
 const CUSTOM_ITEMS_KEY = 'dnd_custom_items'
 let customItemsRemoteCache = null
 
+function generateUniqueCustomItemId(usedIds) {
+  const used = usedIds instanceof Set ? usedIds : new Set()
+  let id
+  do {
+    id = `custom_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
+  } while (used.has(id))
+  used.add(id)
+  return id
+}
+
+function normalizeCustomItemIds(list) {
+  const arr = Array.isArray(list) ? list : []
+  const used = new Set()
+  let changed = false
+  const normalized = []
+  for (const item of arr) {
+    if (!item) {
+      normalized.push(item)
+      continue
+    }
+    const id = item.id
+    if (!id || used.has(id)) {
+      changed = true
+      const newId = generateUniqueCustomItemId(used)
+      normalized.push({ ...item, id: newId })
+    } else {
+      used.add(id)
+      normalized.push(item)
+    }
+  }
+  return { list: normalized, changed }
+}
+
 export async function loadCustomItemsFromSupabase() {
   if (!isSupabaseEnabled()) return
   try {
-    customItemsRemoteCache = await teamData.fetchCustomLibrary('custom_items')
+    const list = await teamData.fetchCustomLibrary('custom_items')
+    const { list: normalized, changed } = normalizeCustomItemIds(list)
+    customItemsRemoteCache = normalized
+    if (changed) {
+      await teamData.saveCustomLibrary('custom_items', normalized)
+    }
   } catch {
     customItemsRemoteCache = []
   }
@@ -474,16 +512,28 @@ export function itemRequiresAttunement(itemOrProto) {
 
 /** 自定义物品列表 */
 export function getCustomItems() {
+  let list
   if (isSupabaseEnabled()) {
-    return Array.isArray(customItemsRemoteCache) ? [...customItemsRemoteCache] : []
+    list = Array.isArray(customItemsRemoteCache) ? [...customItemsRemoteCache] : []
+  } else {
+    try {
+      const raw = localStorage.getItem(CUSTOM_ITEMS_KEY)
+      const listRaw = raw ? JSON.parse(raw) : []
+      list = Array.isArray(listRaw) ? listRaw : []
+    } catch {
+      list = []
+    }
   }
-  try {
-    const raw = localStorage.getItem(CUSTOM_ITEMS_KEY)
-    const list = raw ? JSON.parse(raw) : []
-    return Array.isArray(list) ? list : []
-  } catch {
-    return []
+  const { list: normalized, changed } = normalizeCustomItemIds(list)
+  if (changed) {
+    if (isSupabaseEnabled()) {
+      customItemsRemoteCache = normalized
+      teamData.saveCustomLibrary('custom_items', normalized).catch(() => {})
+    } else {
+      saveCustomItemsLocal(normalized)
+    }
   }
+  return normalized
 }
 
 function saveCustomItemsLocal(list) {
@@ -553,7 +603,8 @@ export function getItemListGrouped() {
 /** 新增自定义物品；返回新项（含 id）。类型会规范化（首饰→饰品，奇物/液体/套组→其他）。 */
 export function addCustomItem(item) {
   const list = getCustomItems()
-  const id = 'custom_' + Date.now()
+  const usedIds = new Set(list.map((x) => x?.id).filter(Boolean))
+  const id = generateUniqueCustomItemId(usedIds)
   const 类型 = normalizeItemType(item.类型) || '近战武器'
   const newItem = {
     id,

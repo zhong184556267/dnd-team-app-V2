@@ -46,7 +46,9 @@ export function getMaxAttunementSlots(buffs, character = null) {
   const formulaContext = { level, abilities, prof, spellDC: 0, spellAttack: 0 }
   let extra = 0
   for (const b of entries) {
-    if (b.effectType === 'extra_attunement_slots') {
+    const type = b.effectType ?? ''
+    // 兼容旧数据可能用中文标签或旧键保存的额外同调位
+    if (type === 'extra_attunement_slots' || type === '额外同调位' || type === 'extraAttunementSlots') {
       const v = evaluateBuffValue(b.value, formulaContext)
       if (!Number.isNaN(v) && v > 0) extra += v
     }

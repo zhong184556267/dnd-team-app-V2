@@ -7,6 +7,7 @@ import {
   getEffectiveFromInventoryItem,
 } from '../lib/combatState'
 import { getWeaponById } from '../data/weaponDatabase'
+import { getMergedBuffsForCalculator } from '../lib/effects/effectMapping'
 
 /**
  * 战斗与同调状态：同调位上限、已用数量（来自背包）、已同调列表、每槽有效数值
@@ -15,10 +16,10 @@ import { getWeaponById } from '../data/weaponDatabase'
  */
 export function useCombatState(character) {
   return useMemo(() => {
-    const buffs = character?.buffs ?? []
+    const mergedBuffs = getMergedBuffsForCalculator(character, character?.moduleId)
     const equipment = character?.equipment ?? {}
     const inventory = character?.inventory ?? []
-    const maxSlots = getMaxAttunementSlots(buffs, character)
+    const maxSlots = getMaxAttunementSlots(mergedBuffs, character)
     const attunedCount = getAttunedCountFromInventory(inventory)
     const attunedItems = getAttunedItemsFromInventory(inventory)
 

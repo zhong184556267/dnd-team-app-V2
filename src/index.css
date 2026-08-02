@@ -256,9 +256,11 @@ input, textarea, select, button, [class*="font-mono"], [class*="font-sans"], [cl
   padding-top: env(safe-area-inset-top, 0);
 }
 
-/* 角色卡顶栏：由 JS 写入 --character-sheet-topbar-h（仅第一行主条高度；召唤槽为叠层不推高正文） */
+/* 角色卡顶栏：由 JS 写入 --character-sheet-topbar-h（仅第一行主条高度；召唤槽为叠层不推高正文）
+ * 切换不同页面顶栏高度时，用短暂过渡避免 padding-top 跳变导致的抖动。 */
 .character-sheet-page-with-topbar {
   padding-top: var(--character-sheet-topbar-h, calc(env(safe-area-inset-top, 0px) + 4.5rem));
+  transition: padding-top 0.15s ease-out;
 }
 
 .character-sheet-top-jump-scroll {

@@ -620,6 +620,7 @@ export function addCustomItem(item) {
     价格: item.价格?.trim() || '',
     详细介绍: item.详细介绍?.trim() || '',
     需要同调: item.需要同调 === true || item.需要同调 === 'true',
+    rarity: item.rarity ?? '',
   }
   list.push(newItem)
   const p = persistCustomItems(list)

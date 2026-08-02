@@ -27,6 +27,16 @@ import { inputClass, textareaClass } from '../lib/inputStyles'
 /** 表单类型选项与 ITEM_TYPES 一致 */
 const TYPE_OPTIONS_FOR_FORM = ITEM_TYPES
 
+const RARITY_OPTIONS = [
+  { value: '', label: '— 稀有度 —' },
+  { value: '普通', label: '普通' },
+  { value: '非普通', label: '非普通' },
+  { value: '珍稀', label: '珍稀' },
+  { value: '极珍稀', label: '极珍稀' },
+  { value: '传说', label: '传说' },
+  { value: '神器', label: '神器' },
+]
+
 const SUBTYPE_BY_TYPE = {
   近战武器: ['近战'],
   远程武器: ['远程'],
@@ -40,7 +50,6 @@ const SUBTYPE_BY_TYPE = {
 }
 
 const ITEM_FIELDS = [
-  { key: '类别', label: '类别/名称', required: true, placeholder: '如：长剑' },
   { key: '名称', label: '自定义名称（可选）', placeholder: '留空则显示类别' },
   { key: '攻击', label: '伤害', placeholder: '如：1d8 挥砍' },
   { key: '附注', label: '词条', placeholder: '如：灵巧、轻型、投掷（射程 20/60）' },
@@ -65,6 +74,7 @@ function ItemForm({ initial, onSubmit, onCancel }) {
     价格: '',
     详细介绍: '',
     需要同调: false,
+    rarity: '',
     ...initial,
   })
 
@@ -104,6 +114,42 @@ function ItemForm({ initial, onSubmit, onCancel }) {
           </select>
         </div>
       )}
+      {/* 类别/名称 + 稀有度 + 需要同调 */}
+      <div className="flex flex-wrap gap-2 items-end">
+        <div className="flex-1 min-w-0">
+          <label className="block text-dnd-text-muted text-xs mb-1">
+            类别/名称<span className="text-dnd-red ml-0.5">*</span>
+          </label>
+          <input
+            type="text"
+            value={form.类别 ?? ''}
+            onChange={(e) => update('类别', e.target.value)}
+            placeholder="如：长剑"
+            className={inputClass + ' w-full'}
+          />
+        </div>
+        <div className="w-28 shrink-0">
+          <label className="block text-dnd-text-muted text-xs mb-1">稀有度</label>
+          <select
+            value={form.rarity ?? ''}
+            onChange={(e) => update('rarity', e.target.value)}
+            className={inputClass + ' w-full'}
+          >
+            {RARITY_OPTIONS.map((o) => (
+              <option key={o.value || '_'} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        </div>
+        <label className="shrink-0 inline-flex items-center gap-2 h-10 px-3 rounded-lg border border-gray-600 bg-gray-800 text-sm text-gray-300 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={!!form.需要同调}
+            onChange={(e) => update('需要同调', e.target.checked)}
+            className="h-4 w-4 rounded border-gray-500 bg-black/30 text-dnd-gold focus:ring-dnd-gold/40"
+          />
+          需要同调
+        </label>
+      </div>
       {ITEM_FIELDS.map(({ key, label, required, placeholder, textarea }) => (
         <div key={key}>
           <label className="block text-dnd-text-muted text-xs mb-1">
@@ -129,15 +175,6 @@ function ItemForm({ initial, onSubmit, onCancel }) {
           )}
         </div>
       ))}
-      <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
-        <input
-          type="checkbox"
-          checked={!!form.需要同调}
-          onChange={(e) => update('需要同调', e.target.checked)}
-          className="h-4 w-4 rounded border-gray-500 bg-black/30 text-dnd-gold focus:ring-dnd-gold/40"
-        />
-        需要同调
-      </label>
       <div className="flex gap-2 pt-2">
         <button
           type="submit"

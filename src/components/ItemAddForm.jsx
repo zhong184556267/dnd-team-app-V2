@@ -8,7 +8,7 @@
  */
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { Trash2, Plus } from 'lucide-react'
-import { getItemListGrouped, getItemById, getItemDisplayName, parseWeaponNoteToTraits, buildWeaponNoteFromTraits, WEAPON_TRAIT_OPTIONS, WEAPON_MASTERY_OPTIONS } from '../data/itemDatabase'
+import { getItemListGrouped, getItemById, getItemDisplayName, parseWeaponNoteToTraits, buildWeaponNoteFromTraits, WEAPON_TRAIT_OPTIONS, WEAPON_MASTERY_OPTIONS, itemRequiresAttunement } from '../data/itemDatabase'
 import { inputClass, inputClassInline, textareaClass } from '../lib/inputStyles'
 import { useModule } from '../contexts/ModuleContext'
 import { BUFF_TYPES, getCategories, normalizeEffectCategory, parseDamageString, formatDamageForAttack, ITEM_STORAGE_DEFAULT_ITEM_IDS } from '../data/buffTypes'
@@ -195,6 +195,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
   const [type, setType] = useState('')
   const [itemId, setItemId] = useState('')
   const [rarity, setRarity] = useState('')
+  const [isAttuned, setIsAttuned] = useState(false)
   const [name, setName] = useState('')
   const [intro, setIntro] = useState('')
   const [qty, setQty] = useState(1)
@@ -242,6 +243,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
       setType(typeFromProto)
       setItemId(editEntry.itemId ?? '')
       setRarity(editEntry.rarity ?? '')
+      setIsAttuned(!!editEntry.isAttuned)
       setName((editEntry.name && editEntry.name.trim()) || (proto ? getItemDisplayName(proto) : '') || '')
       setIntro((editEntry.详细介绍 != null && editEntry.详细介绍 !== '') ? String(editEntry.详细介绍) : (proto?.详细介绍 ?? '') || '')
       setQty(Math.max(1, Number(editEntry.qty) ?? 1))
@@ -281,6 +283,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
       setType('')
       setItemId('')
       setRarity('')
+      setIsAttuned(false)
       setName('')
       setIntro('')
       setQty(1)
@@ -417,7 +420,8 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
       effectsForSave.push({ category: 'container', effectType: 'item_storage', value: true, customText: '' })
     }
     const entry = {
-      ...(editEntry ? { id: editEntry.id, isAttuned: !!editEntry.isAttuned } : { id: 'inv_' + Date.now(), isAttuned: false }),
+      id: editEntry ? editEntry.id : 'inv_' + Date.now(),
+      isAttuned,
       itemId: itemId || editEntry?.itemId || '',
       ...(rarity ? { rarity } : {}),
       name: (name?.trim()) || editEntry?.name || proto?.类别 || (proto ? getItemDisplayName(proto) : '') || '—',
@@ -496,6 +500,17 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
                       <option key={o.value || '_'} value={o.value}>{o.label}</option>
                     ))}
                   </select>
+                  {selectedPrototype && itemRequiresAttunement(selectedPrototype) && (
+                    <label className="shrink-0 inline-flex items-center gap-1.5 h-8 px-2 rounded-lg border border-gray-600 bg-gray-800 text-gray-300 text-xs cursor-pointer whitespace-nowrap">
+                      <input
+                        type="checkbox"
+                        checked={isAttuned}
+                        onChange={(e) => setIsAttuned(e.target.checked)}
+                        className="h-3.5 w-3.5 rounded border-gray-500 bg-black/30 text-dnd-gold focus:ring-dnd-gold/40"
+                      />
+                      同调
+                    </label>
+                  )}
                 </div>
               </div>
             )}

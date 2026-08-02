@@ -49,6 +49,8 @@ html {
   font-family: var(--font-siyuan);
   /* 与 Layout 版心一致纯色，避免与 1180 列或滚动区域叠出色差带 */
   background-color: var(--page-bg);
+  /* 稳定滚动条槽位：避免滚动条出现/消失时页面版心左右跳几像素 */
+  scrollbar-gutter: stable;
 }
 body {
   font-family: var(--font-siyuan);

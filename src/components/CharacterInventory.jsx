@@ -1,7 +1,7 @@
 import { useState, useEffect, Fragment, useMemo } from 'react'
-import { ArrowDownToLine, ArrowUpFromLine, Pencil, Trash2, Package, Dices } from 'lucide-react'
+import { ArrowDownToLine, ArrowUpFromLine, Pencil, Trash2, Package, Dices, Sparkles } from 'lucide-react'
 import DragHandleIcon from './DragHandleIcon'
-import { getItemById, getItemDisplayName } from '../data/itemDatabase'
+import { getItemById, getItemDisplayName, itemRequiresAttunement } from '../data/itemDatabase'
 import { getCurrencyById, getCurrencyDisplayName } from '../data/currencyConfig'
 import { getCharacterWallet, transferCurrency } from '../lib/currencyStore'
 import { getCharacter } from '../lib/characterStore'
@@ -576,6 +576,10 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
   }
 
   const setAttuned = (index, value) => {
+    const entry = inv[index]
+    const proto = entry?.itemId ? getItemById(entry.itemId) : null
+    const requiresAttunement = itemRequiresAttunement(proto) || itemRequiresAttunement(entry)
+    if (!requiresAttunement) return
     if (value && attunedCount >= maxAttunementSlots) return
     const next = inv.map((e, i) => (i === index ? { ...e, isAttuned: !!value } : e))
     onSave({ inventory: next })
@@ -820,6 +824,31 @@ export default function CharacterInventory({ character, canEdit, onSave, onWalle
                         )}
                         <td className="py-1 px-4 text-white font-medium align-middle text-left overflow-hidden" style={{ height: 48, maxHeight: 48 }}>
                           <span className="inline-flex items-center gap-0.5 truncate max-w-full">
+                            {(() => {
+                              const proto = entry?.itemId ? getItemById(entry.itemId) : null
+                              const requiresAttunement = itemRequiresAttunement(proto) || itemRequiresAttunement(entry)
+                              if (!requiresAttunement) return null
+                              const active = !!entry?.isAttuned
+                              const disabled = !active && attunedCount >= maxAttunementSlots
+                              return (
+                                <button
+                                  type="button"
+                                  title={active ? '点击取消同调' : disabled ? '同调位已满' : '同调此物品'}
+                                  disabled={disabled}
+                                  onClick={() => !disabled && setAttuned(i, !active)}
+                                  className={`shrink-0 inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] transition-colors ${
+                                    disabled
+                                      ? 'cursor-not-allowed text-gray-600 opacity-45'
+                                      : active
+                                        ? 'cursor-pointer text-dnd-gold-light/95 hover:text-dnd-gold-light'
+                                        : 'cursor-pointer text-gray-500 hover:text-gray-300'
+                                  }`}
+                                >
+                                  <Sparkles className={`h-3 w-3 shrink-0 ${active ? 'text-dnd-gold-light/90' : 'text-gray-600'}`} strokeWidth={2} />
+                                  同调
+                                </button>
+                              )
+                            })()}
                             {invDisplayName(entry)}
                             {(() => {
                               const stoneEffect = Array.isArray(entry?.effects) ? entry.effects.find((e) => e.effectType === 'ac_cap_stone_layer') : null

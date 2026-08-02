@@ -29,7 +29,7 @@ import {
   Layers,
 } from 'lucide-react'
 import DragHandleIcon from './DragHandleIcon'
-import { getItemById, getItemDisplayName } from '../data/itemDatabase'
+import { getItemById, getItemDisplayName, itemRequiresAttunement } from '../data/itemDatabase'
 import { getCurrencyById, getCurrencyDisplayName } from '../data/currencyConfig'
 import { getCharacterWallet, transferCurrency } from '../lib/currencyStore'
 import { getCharacter } from '../lib/characterStore'
@@ -132,8 +132,11 @@ function EquipSlotBadge({ Icon, label }) {
 
 /** 同调：轻量文字切换，与全页次要操作一致 */
 function AttuneToggle({ entry, attunedCount, maxAttunementSlots, onToggle }) {
+  const proto = entry?.itemId ? getItemById(entry.itemId) : null
+  const requiresAttunement = itemRequiresAttunement(proto)
   const active = !!entry?.isAttuned
   const disabled = !entry || (!active && attunedCount >= maxAttunementSlots)
+  if (!requiresAttunement) return null
   return (
     <button
       type="button"

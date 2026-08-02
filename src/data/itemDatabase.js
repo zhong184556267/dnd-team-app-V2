@@ -457,9 +457,19 @@ export function getItemDisplayName(item) {
 /** 根据 id 查找（先查内置，再查自定义） */
 export function getItemById(id) {
   const built = ITEM_DATABASE.find((x) => x.id === id)
-  if (built) return { ...built }
+  if (built) return { ...built, 需要同调: built.需要同调 ?? false }
   const custom = getCustomItems().find((x) => x.id === id)
-  return custom ? { ...custom } : null
+  return custom ? { ...custom, 需要同调: custom.需要同调 ?? false } : null
+}
+
+/** 判断物品是否需要同调（优先读原型字段，否则按魔法加值/自定义骰推断） */
+export function itemRequiresAttunement(itemOrProto) {
+  if (!itemOrProto) return false
+  if (itemOrProto.需要同调 === true || itemOrProto.需要同调 === 'true') return true
+  // 兼容旧数据：有魔法加值或特殊自定义骰时视为需同调
+  const magicBonus = Number(itemOrProto.magicBonus)
+  if (Number.isFinite(magicBonus) && magicBonus !== 0) return true
+  return false
 }
 
 /** 自定义物品列表 */
@@ -558,6 +568,7 @@ export function addCustomItem(item) {
     重量: item.重量?.trim() || '',
     价格: item.价格?.trim() || '',
     详细介绍: item.详细介绍?.trim() || '',
+    需要同调: item.需要同调 === true || item.需要同调 === 'true',
   }
   list.push(newItem)
   const p = persistCustomItems(list)

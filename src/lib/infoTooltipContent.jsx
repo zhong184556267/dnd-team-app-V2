@@ -4,6 +4,7 @@
  * 用于 InfoTooltip 组件的 content 属性。
  */
 import React from 'react'
+import { itemRequiresAttunement } from '../data/itemDatabase'
 
 const SECTION_LABEL = 'text-dnd-gold-light/85 font-bold tracking-wider uppercase text-[10px]'
 const FIELD_LABEL = 'text-gray-500 text-[10px] uppercase tracking-wider'
@@ -100,6 +101,7 @@ export function ItemTooltipContent({ proto, entry }) {
   const hasMagic = magicBonus > 0
   const hasCharge = charge > 0
   const isAttuned = entry?.isAttuned === true
+  const requiresAttunement = itemRequiresAttunement(proto)
   const hasExtraEntryInfo = isInventoryEntry && (hasMagic || hasCharge || isAttuned || qty > 1)
 
   return (
@@ -131,6 +133,11 @@ export function ItemTooltipContent({ proto, entry }) {
           {hasMagic && (
             <span className="text-[10px] text-amber-300/85 bg-amber-900/30 px-1.5 py-0.5 rounded">
               魔法 +{magicBonus}
+            </span>
+          )}
+          {requiresAttunement && (
+            <span className="text-[10px] text-violet-300/85 bg-violet-900/30 px-1.5 py-0.5 rounded">
+              需要同调
             </span>
           )}
         </div>

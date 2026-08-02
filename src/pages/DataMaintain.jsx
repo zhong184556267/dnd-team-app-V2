@@ -64,6 +64,7 @@ function ItemForm({ initial, onSubmit, onCancel }) {
     重量: '',
     价格: '',
     详细介绍: '',
+    需要同调: false,
     ...initial,
   })
 
@@ -128,6 +129,15 @@ function ItemForm({ initial, onSubmit, onCancel }) {
           )}
         </div>
       ))}
+      <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={!!form.需要同调}
+          onChange={(e) => update('需要同调', e.target.checked)}
+          className="h-4 w-4 rounded border-gray-500 bg-black/30 text-dnd-gold focus:ring-dnd-gold/40"
+        />
+        需要同调
+      </label>
       <div className="flex gap-2 pt-2">
         <button
           type="submit"

@@ -5,6 +5,7 @@
  */
 
 import { getWeaponById } from '../data/weaponDatabase'
+import { getItemById, itemRequiresAttunement } from '../data/itemDatabase'
 import { evaluateBuffValue, proficiencyBonus } from './formulas'
 
 /** 同调位基础上限 */
@@ -64,11 +65,15 @@ export function slotRequiresAttunement(slot, weapon) {
 }
 
 /**
- * 当前占用的同调位数量（从背包物品统计：背包内勾选同调的数量）
+ * 当前占用的同调位数量（从背包物品统计：仅「需要同调」且已勾选同调的物品）
  */
 export function getAttunedCountFromInventory(inventory) {
   const inv = Array.isArray(inventory) ? inventory : []
-  return inv.filter((i) => i.isAttuned === true).length
+  return inv.filter((i) => {
+    if (i.isAttuned !== true) return false
+    const proto = getItemById(i.itemId)
+    return itemRequiresAttunement(proto)
+  }).length
 }
 
 /**
@@ -77,7 +82,13 @@ export function getAttunedCountFromInventory(inventory) {
  */
 export function getAttunedItemsFromInventory(inventory) {
   const inv = Array.isArray(inventory) ? inventory : []
-  return inv.filter((i) => i.isAttuned === true).map((i) => ({ id: i.id, name: i.name?.trim() || i.类别 || '—' }))
+  return inv
+    .filter((i) => {
+      if (i.isAttuned !== true) return false
+      const proto = getItemById(i.itemId)
+      return itemRequiresAttunement(proto)
+    })
+    .map((i) => ({ id: i.id, name: i.name?.trim() || i.类别 || '—' }))
 }
 
 /** @deprecated 保留兼容：从装备槽统计同调（旧逻辑） */
@@ -148,15 +159,19 @@ function parseDiceFrom攻击(攻击) {
 /**
  * 从背包物品计算有效数值（用于装备栏引用背包物品时）
  * 物品：{ 攻击, isAttuned, magicBonus }
+ * 若物品原型标记「需要同调」，则未同调时魔法加值不生效；不需要同调则始终生效。
  */
 export function getEffectiveFromInventoryItem(invItem) {
   if (!invItem) return { effectiveHitBonus: 0, effectiveDamageDice: '', effectiveDamageBonus: 0 }
+  const proto = getItemById(invItem.itemId)
+  const requiresAttunement = itemRequiresAttunement(proto) || itemRequiresAttunement(invItem)
   const isAttuned = invItem.isAttuned === true
   const magicBonus = Number(invItem.magicBonus) || 0
   const diceFrom攻击 = parseDiceFrom攻击(invItem.攻击)
+  const magicActive = requiresAttunement ? isAttuned : true
   return {
-    effectiveHitBonus: isAttuned ? magicBonus : 0,
+    effectiveHitBonus: magicActive ? magicBonus : 0,
     effectiveDamageDice: diceFrom攻击,
-    effectiveDamageBonus: isAttuned ? magicBonus : 0,
+    effectiveDamageBonus: magicActive ? magicBonus : 0,
   }
 }

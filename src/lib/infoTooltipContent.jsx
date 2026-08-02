@@ -135,6 +135,12 @@ export function ItemTooltipContent({ proto, entry }) {
           )}
         </div>
       )}
+      {proto.详细介绍 && (
+        <div className="rounded-md border border-dnd-gold-light/25 bg-dnd-gold-light/[0.08] p-2">
+          <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-dnd-gold-light/90">简介</p>
+          <DescriptionBlock text={proto.详细介绍} />
+        </div>
+      )}
       <div className="space-y-0.5">
         <Field label="类别" value={proto.类别} />
         <Field label="攻击" value={proto.攻击} />
@@ -145,12 +151,6 @@ export function ItemTooltipContent({ proto, entry }) {
         <Field label="价格" value={proto.价格 != null ? `${proto.价格} GP` : ''} />
         {hasCharge && <Field label="充能" value={`${charge}`} />}
       </div>
-      {proto.详细介绍 && (
-        <>
-          <div className={DIVIDER} />
-          <DescriptionBlock text={proto.详细介绍} />
-        </>
-      )}
     </div>
   )
 }

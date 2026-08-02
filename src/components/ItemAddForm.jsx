@@ -459,11 +459,30 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
           <div className="min-w-0 max-w-full">
             <label className="block text-dnd-gold-light text-xs font-bold uppercase tracking-wider mb-0.5">{isEdit ? '物品类型' : '选择物品类型'}</label>
             {isEdit ? (
-              <div className="flex flex-wrap items-center gap-1.5 h-8 text-sm text-dnd-text-body">
-                <span className="text-gray-400">{type || '—'}</span>
-                <span className="text-gray-500">/</span>
-                <span>{selectedPrototype ? (getItemDisplayName(selectedPrototype) || itemId) : itemId || '—'}</span>
-                {rarity ? <span className="text-dnd-text-muted text-xs">稀有度：{rarity}</span> : null}
+              <div className="flex flex-wrap items-center gap-1.5 min-w-0 max-w-full">
+                <span className="text-gray-400 text-sm">{type || '—'}</span>
+                <span className="text-gray-500 text-sm">/</span>
+                <span className="text-sm text-dnd-text-body">{selectedPrototype ? (getItemDisplayName(selectedPrototype) || itemId) : itemId || '—'}</span>
+                <select
+                  value={rarity}
+                  onChange={(e) => setRarity(e.target.value)}
+                  className={inputClass + ' h-7 min-w-0 w-24 text-xs shrink-0'}
+                >
+                  {RARITY_OPTIONS.map((o) => (
+                    <option key={o.value || '_'} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+                {selectedPrototype && itemRequiresAttunement(selectedPrototype) && (
+                  <label className="shrink-0 inline-flex items-center gap-1.5 h-7 px-2 rounded-lg border border-gray-600 bg-gray-800 text-gray-300 text-xs cursor-pointer whitespace-nowrap">
+                    <input
+                      type="checkbox"
+                      checked={isAttuned}
+                      onChange={(e) => setIsAttuned(e.target.checked)}
+                      className="h-3.5 w-3.5 rounded border-gray-500 bg-black/30 text-dnd-gold focus:ring-dnd-gold/40"
+                    />
+                    同调
+                  </label>
+                )}
                 <span className="text-dnd-text-muted text-xs">重量：{weightDisplay}</span>
               </div>
             ) : (

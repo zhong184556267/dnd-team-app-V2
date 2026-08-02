@@ -130,16 +130,15 @@ function EquipSlotBadge({ Icon, label }) {
   )
 }
 
-/** 同调：轻量文字切换，与全页次要操作一致 */
+/** 同调：复选框样式，便于在装备行内直接勾选 */
 function AttuneToggle({ entry, attunedCount, maxAttunementSlots, onToggle }) {
   const proto = entry?.itemId ? getItemById(entry.itemId) : null
-  const requiresAttunement = itemRequiresAttunement(proto)
+  const requiresAttunement = itemRequiresAttunement(proto) || itemRequiresAttunement(entry)
   const active = !!entry?.isAttuned
   const disabled = !entry || (!active && attunedCount >= maxAttunementSlots)
   if (!requiresAttunement) return null
   return (
-    <button
-      type="button"
+    <label
       title={
         !entry
           ? '先选择物品'
@@ -149,19 +148,24 @@ function AttuneToggle({ entry, attunedCount, maxAttunementSlots, onToggle }) {
               ? '同调位已满'
               : '同调此物品'
       }
-      disabled={disabled}
-      onClick={() => entry && !disabled && onToggle(entry.id, !active)}
-      className={`shrink-0 inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] transition-colors ${
+      className={`shrink-0 inline-flex items-center gap-1.5 h-7 px-2 rounded-lg border text-[11px] cursor-pointer transition-colors ${
         disabled
-          ? 'cursor-not-allowed text-gray-600 opacity-45'
+          ? 'border-gray-700 bg-gray-800/50 text-gray-600 opacity-50 cursor-not-allowed'
           : active
-            ? 'cursor-pointer text-dnd-gold-light/95 hover:text-dnd-gold-light'
-            : 'cursor-pointer text-gray-500 hover:text-gray-300'
+            ? 'border-dnd-gold/50 bg-dnd-gold/10 text-dnd-gold-light hover:bg-dnd-gold/20'
+            : 'border-gray-600 bg-gray-800 text-gray-300 hover:bg-gray-700 hover:text-white'
       }`}
     >
-      <Sparkles className={`h-3 w-3 shrink-0 ${active ? 'text-dnd-gold-light/90' : 'text-gray-600'}`} strokeWidth={2} />
+      <Sparkles className={`h-3.5 w-3.5 shrink-0 ${active ? 'text-dnd-gold-light' : 'text-gray-500'}`} strokeWidth={2} />
+      <input
+        type="checkbox"
+        checked={active}
+        disabled={disabled}
+        onChange={() => entry && !disabled && onToggle(entry.id, !active)}
+        className="sr-only"
+      />
       同调
-    </button>
+    </label>
   )
 }
 

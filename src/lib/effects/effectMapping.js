@@ -14,6 +14,7 @@ const FEAT_BY_ID = new Map(FEATS.map((x) => [x.id, x]))
 function normalizeSelectedFeatsForBuffs(character) {
   const raw = character?.selectedFeats ?? []
   if (!Array.isArray(raw)) return []
+  const seen = new Set()
   return raw
     .map((f) => {
       if (typeof f === 'string') return { featId: f, level: 1, sourceClass: '' }
@@ -34,7 +35,12 @@ function normalizeSelectedFeatsForBuffs(character) {
             : undefined,
       }
     })
-    .filter((x) => x.featId)
+    .filter((x) => {
+      if (!x.featId) return false
+      if (seen.has(x.featId)) return false
+      seen.add(x.featId)
+      return true
+    })
 }
 
 /**
@@ -50,8 +56,9 @@ export function mergeFeatBuffPatchesFromMergedList(character, buffsList) {
   return raw.map((f, idx) => {
     const featId = typeof f === 'string' ? f : (f?.featId ?? f?.id ?? '')
     if (!featId) return f
-    const id = `feat_${idx}_${featId}`
-    const fb = featBuffs.find((b) => b.id === id)
+    const legacyId = `feat_${idx}_${featId}`
+    const stableId = `feat_${featId}`
+    const fb = featBuffs.find((b) => b.id === stableId || b.id === legacyId || b.featId === featId)
     if (!fb) return f
 
     const base = typeof f === 'string' ? { featId, level: 1, sourceClass: '' } : { ...f }
@@ -97,7 +104,7 @@ export function getBuffsFromSelectedFeats(character, moduleId) {
     const duration = patch?.duration
     const enabled = patch?.enabled !== false
     out.push({
-      id: `feat_${index}_${item.featId}`,
+      id: `feat_${item.featId}`,
       source: name,
       effects,
       ...(duration ? { duration } : {}),

@@ -909,6 +909,7 @@ function FeatsSection({ char, canEdit, onSave }) {
 
   const addFeat = ({ featId, effects = [] }) => {
     if (!featId) return
+    if (alreadyIds.has(featId)) return
     const row = { featId, level: 1, sourceClass: char?.['class'] ?? '' }
     if (effects.length > 0) {
       row.featBuffPatch = { effects }
@@ -1833,6 +1834,9 @@ export default function CharacterSheet() {
                   ? (template) => {
                       const clone = cloneBuffTemplateToManual(template)
                       if (!clone) return
+                      const source = clone.source?.trim() ?? ''
+                      const exists = (char.buffs ?? []).some((b) => (b.source?.trim() ?? '') === source)
+                      if (exists) return
                       persist({ buffs: [...(char.buffs ?? []), clone] })
                     }
                   : undefined

@@ -46,7 +46,17 @@ export default function BuffManager({
   }
 
   const handleSaveActive = (buff) => {
-    const next = formState?.id
+    const source = buff.source?.trim() ?? ''
+    const isEdit = !!formState?.id
+    const duplicate = source
+      ? list.find((b) => b.source?.trim() === source && b.id !== formState?.id)
+      : null
+    if (!isEdit && duplicate) {
+      // 同名 BUFF 已存在，不重复挂载
+      setFormState(null)
+      return
+    }
+    const next = isEdit
       ? list.map((b) => (b.id === formState.id ? { ...buff, id: b.id } : b))
       : [...list, { ...buff, id: String(Date.now()) }]
     onSave(next)

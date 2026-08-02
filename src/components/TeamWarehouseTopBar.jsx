@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { getTopBarHostElement } from './TopBarHost'
 
-const LAYOUT_INNER = 'mx-auto w-[1180px] min-w-[1180px] shrink-0'
+const LAYOUT_INNER = 'mx-auto w-[1180px] min-w-[1180px] shrink-0 min-h-[6rem]'
 
 /**
  * 团队仓库固定顶栏：与角色卡/法术页同款 fixed + portal 外壳。

@@ -9,7 +9,7 @@ import { inputClass } from '../lib/inputStyles'
 import { TOPBAR_BACK_ARROW_CLASS, TOPBAR_BACK_LINK_CLASS } from '../lib/topBarShared'
 import { getTopBarHostElement } from './TopBarHost'
 
-const LAYOUT_INNER = 'mx-auto w-[1180px] min-w-[1180px] shrink-0'
+const LAYOUT_INNER = 'mx-auto w-[1180px] min-w-[1180px] shrink-0 min-h-[6rem]'
 
 /** 顶栏召唤槽位数（等分一行） */
 const SUMMON_SLOT_COUNT = 4

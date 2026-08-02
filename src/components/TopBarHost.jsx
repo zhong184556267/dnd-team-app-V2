@@ -12,7 +12,7 @@ const LAYOUT_INNER = 'mx-auto w-[1180px] min-w-[1180px] shrink-0'
  * - 在挂载时设置默认 --character-sheet-topbar-h（与 CSS fallback 一致），让 padding-top 在路由切换时稳定
  * - 不在卸载时 removeProperty（host 不卸载；TopBar 内部也不再 remove）
  */
-const DEFAULT_TOPBAR_H_CSS = 'calc(env(safe-area-inset-top, 0px) + 4.5rem)'
+const DEFAULT_TOPBAR_H_CSS = 'calc(env(safe-area-inset-top, 0px) + 6.25rem)'
 const TOPBAR_HOST_ID = 'topbar-host'
 
 let hostElement = null

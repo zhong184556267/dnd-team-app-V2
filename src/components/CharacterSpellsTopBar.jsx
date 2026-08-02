@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { getTopBarHostElement } from './TopBarHost'
 
-const LAYOUT_INNER = 'mx-auto w-[1180px] min-w-[1180px] shrink-0'
+const LAYOUT_INNER = 'mx-auto w-[1180px] min-w-[1180px] shrink-0 min-h-[6rem]'
 
 /**
  * 角色法术固定顶栏外壳：与 CharacterSheetTopBar 同款 fixed + portal、毛玻璃与底边；

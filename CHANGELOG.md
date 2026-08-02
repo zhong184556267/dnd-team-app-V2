@@ -1,5 +1,15 @@
 # 更新日志
 
+## 2.1.1
+
+- **专长弹窗选择**：角色卡添加专长从下拉菜单改为弹窗（`FeatPickerModal`），支持分类浏览、搜索与描述预览；选择专长时可配置 BUFF 选项（属性提升/伤害类型/二选一），自动写入 `featBuffPatch`。
+- **新职业「无相影门」**：新增 12 级进阶职业（偷袭/影遁/召影等 18 个特性），录入 `classDatabase.js` 并加入进阶职业下拉。
+- **粘贴录入**：数据维护页新增粘贴录入功能，支持物品、专长、职业的文本自动解析为结构化数据；物品信息缺失时给出字段缺失提示。
+- **自定义数据存储**：新增自定义专长与自定义职业的本地存储机制，与内置数据合并展示。
+- **悬停提示**：新增通用 `InfoTooltip` 组件；鼠标指向武技、装备栏装备、纸娃娃装备、背包物品、职业特性、专长条目时显示详细内容。
+- **顶栏稳定**：修复路由切换时顶栏闪烁问题；Layout 创建常驻顶栏宿主，TopBar 改为 portal 到宿主并不再清除 CSS 变量，切换页面时顶栏无缝衔接。
+- 修复：`EquipmentAndInventory.jsx` 缺失 `inventoryItemBriefChevronBtnClass` 导入导致的崩溃。
+
 ## 2.1.0
 
 - **Supabase 重建**：原项目被清理后重新创建 `twqmhhozcthfoxnxwgyb`（东京节点），数据库表结构统一为 `data` JSONB 列模式（characters / campaign_modules / team_vault / crafting_projects / user_prefs / custom_library / activity_log / warehouse / custom_items）。

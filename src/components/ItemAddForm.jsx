@@ -457,12 +457,14 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
 
           {/* 选择物品类型 → 获得基础信息（编辑时为只读） */}
           <div className="min-w-0 max-w-full">
-            <label className="block text-dnd-gold-light text-xs font-bold uppercase tracking-wider mb-0.5">{isEdit ? '物品类型' : '选择物品类型'}</label>
+            {!isEdit && <label className="block text-dnd-gold-light text-xs font-bold uppercase tracking-wider mb-0.5">选择物品类型</label>}
             {isEdit ? (
               <div className="flex flex-wrap items-center gap-1.5 min-w-0 max-w-full">
+                <span className="text-dnd-gold-light text-xs font-bold uppercase tracking-wider">类型</span>
                 <span className="text-gray-400 text-sm">{type || '—'}</span>
                 <span className="text-gray-500 text-sm">/</span>
                 <span className="text-sm text-dnd-text-body">{selectedPrototype ? (getItemDisplayName(selectedPrototype) || itemId) : itemId || '—'}</span>
+                <div className="flex-1 min-w-0" />
                 <select
                   value={rarity}
                   onChange={(e) => setRarity(e.target.value)}
@@ -481,7 +483,7 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
                   />
                   同调
                 </label>
-                <span className="text-dnd-text-muted text-xs">重量：{weightDisplay}</span>
+                <span className="text-dnd-text-muted text-xs whitespace-nowrap">重量：{weightDisplay}</span>
               </div>
             ) : (
               <div className="flex flex-wrap gap-1.5 min-w-0 max-w-full">
@@ -534,14 +536,15 @@ export default function ItemAddForm({ open, onClose, onSave, submitLabel = '确�
           </div>
 
           {/* 名字（可修改） */}
-          <div>
-            <label className="block text-dnd-gold-light text-xs font-bold uppercase tracking-wider mb-0.5">名字</label>
+          <div className="flex items-center gap-2 min-w-0">
+            {isEdit && <span className="text-dnd-gold-light text-xs font-bold uppercase tracking-wider shrink-0">名字</span>}
+            {!isEdit && <label className="block text-dnd-gold-light text-xs font-bold uppercase tracking-wider mb-0.5 shrink-0">名字</label>}
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder={selectedPrototype ? `不填则用「${getItemDisplayName(selectedPrototype)}」` : '可选'}
-              className={inputClass + ' w-full h-8 text-sm'}
+              className={inputClass + ' flex-1 min-w-0 h-8 text-sm'}
             />
           </div>
 
